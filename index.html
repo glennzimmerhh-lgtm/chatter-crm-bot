@@ -557,7 +557,7 @@ let currentShiftsPeriod = 'heute';
 
 function fmt(val) {
   const n = parseFloat(val);
-  if (isNaN(n)) return val;
+  if (isNaN(n)) return '0 €';
   return n.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €';
 }
 
@@ -724,10 +724,10 @@ function renderDashboard() {
 
   document.getElementById('kpi-today-rev').textContent    = fmt(totalRevenue);
   document.getElementById('kpi-today-rev-sub').textContent = filteredSales.length + ' Transaktionen';
-  document.getElementById('kpi-today-sales').textContent  = filteredSales.length || '0';
+  document.getElementById('kpi-today-sales').textContent  = filteredSales.length;
   document.getElementById('kpi-today-sales-sub').textContent = 'Zahlungen empfangen';
-  document.getElementById('kpi-reply').textContent        = avgReply !== null ? avgReply.toFixed(1) : '—';
-  document.getElementById('kpi-week-rev').textContent     = filteredShifts.length ? fmt(avgPerShift) : '—';
+  document.getElementById('kpi-reply').textContent        = avgReply !== null ? avgReply.toFixed(1) : '0';
+  document.getElementById('kpi-week-rev').textContent     = fmt(avgPerShift);
   document.getElementById('kpi-week-sub').textContent     = filteredShifts.length + ' Shifts';
   document.getElementById('sales-count-tag').textContent  = filteredSales.length + ' ' + label.toLowerCase();
 
