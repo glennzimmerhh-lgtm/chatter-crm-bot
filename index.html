@@ -193,6 +193,20 @@
     .cards-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
     .main { padding: 12px 10px 90px; }
   }
+
+  /* ── LOADING SCREEN ── */
+  .loading-screen {
+    position: fixed; inset: 0; background: var(--bg); z-index: 998;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 28px; opacity: 1; transition: opacity 0.4s ease;
+  }
+  .loading-screen.fade-out { opacity: 0; pointer-events: none; }
+  .loading-logo-wrap { text-align: center; }
+  .loading-logo-text { font-size: 28px; font-weight: 800; color: var(--teal); letter-spacing: -0.5px; }
+  .loading-logo-sub { font-size: 13px; color: var(--text3); margin-top: 4px; }
+  .loading-bar-wrap { width: 240px; background: rgba(255,255,255,0.07); border-radius: 100px; height: 4px; overflow: hidden; }
+  .loading-bar-fill { height: 4px; border-radius: 100px; background: var(--teal); width: 0%; transition: width 0.05s linear; box-shadow: 0 0 8px rgba(0,212,170,0.5); }
+  .loading-pct { font-size: 12px; color: var(--text3); font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -216,6 +230,20 @@
     <button class="login-btn" onclick="doLogin()">Anmelden</button>
     <div class="login-error" id="login-error">Falsches Passwort. Bitte nochmal versuchen.</div>
   </div>
+</div>
+
+<!-- LOADING SCREEN -->
+<div class="loading-screen" id="loading-screen" style="display:none;">
+  <div class="loading-logo-wrap">
+    <div class="loading-logo-text">Chatter CRM</div>
+    <div class="loading-logo-sub">Loading your dashboard...</div>
+  </div>
+  <div>
+    <div class="loading-bar-wrap">
+      <div class="loading-bar-fill" id="loading-bar"></div>
+    </div>
+  </div>
+  <div class="loading-pct" id="loading-pct">0%</div>
 </div>
 
 <!-- SIDEBAR OVERLAY -->
@@ -497,12 +525,56 @@ function doLogin() {
     localStorage.setItem('crm_auth', btoa(user + ':' + pw));
     err.style.display = 'none';
     document.getElementById('login-pw').value = '';
-    showApp(user);
+    document.getElementById('login-screen').style.display = 'none';
+    showLoadingBar(user);
   } else {
     err.style.display = 'block';
     document.getElementById('login-pw').value = '';
     document.getElementById('login-pw').focus();
   }
+}
+
+function showLoadingBar(user) {
+  const screen = document.getElementById('loading-screen');
+  const bar    = document.getElementById('loading-bar');
+  const pct    = document.getElementById('loading-pct');
+  screen.style.display = 'flex';
+
+  let progress = 0;
+  // Faster at start, slight pause in middle, fast at end
+  const steps = [
+    { target: 30, delay: 18 },
+    { target: 65, delay: 25 },
+    { target: 85, delay: 35 },
+    { target: 100, delay: 15 },
+  ];
+
+  function runStep(stepIdx) {
+    if (stepIdx >= steps.length) {
+      // Done — fade out and show app
+      setTimeout(() => {
+        screen.classList.add('fade-out');
+        setTimeout(() => {
+          screen.style.display = 'none';
+          screen.classList.remove('fade-out');
+          showApp(user);
+        }, 400);
+      }, 150);
+      return;
+    }
+    const { target, delay } = steps[stepIdx];
+    const interval = setInterval(() => {
+      if (progress >= target) {
+        clearInterval(interval);
+        runStep(stepIdx + 1);
+        return;
+      }
+      progress++;
+      bar.style.width = progress + '%';
+      pct.textContent = progress + '%';
+    }, delay);
+  }
+  runStep(0);
 }
 
 function doLogout() {
@@ -980,15 +1052,11 @@ function showPage(name) {
 }
 
 // Check auth on load — only start if logged in
+updateClock();
+setInterval(updateClock, 30000);
 if (checkAuth()) {
-  updateClock();
-  setInterval(updateClock, 30000);
   loadData();
   setInterval(loadData, 60000);
-} else {
-  // Still run clock for login screen
-  updateClock();
-  setInterval(updateClock, 30000);
 }
 </script>
 </body>
