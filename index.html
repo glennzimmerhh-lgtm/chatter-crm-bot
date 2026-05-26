@@ -849,8 +849,8 @@ function renderRevenueChart(period) {
   const chartDays = buildChartDays(period || 'heute');
   const labels = chartDays.map(d => d.label);
   const vals   = chartDays.map(d => {
-    const dayShifts = shiftsData.filter(r => r['Datum'] === d.dateStr);
-    return Math.round(dayShifts.reduce((s, r) => s + (parseFloat(r['Umsatz (€)']) || 0), 0));
+    const daySales = salesData.filter(r => r['Datum'] === d.dateStr);
+    return Math.round(daySales.reduce((s, r) => s + (parseFloat(r['Betrag (€)']) || 0), 0));
   });
 
   const titles = { heute: 'Tagesumsatz (letzte 7 Tage)', woche: 'Tagesumsatz (diese Woche)', monat: 'Tagesumsatz (dieser Monat)' };
