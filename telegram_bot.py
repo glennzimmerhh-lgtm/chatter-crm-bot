@@ -1,8 +1,8 @@
 """
 Chatter CRM – Telegram Bot
-Sendet Sale- und Shift-Daten an Make.com Webhook → Google Sheets
-Screenshot-Zahlungsbeweise werden automatisch archiviert.
-Tägliche Zusammenfassung wird um 23:59 Uhr gesendet.
+Sends sale and shift data to Make.com webhook → Google Sheets
+Payment proof screenshots are automatically archived.
+Daily summary is sent at 23:59.
 """
 
 import requests
@@ -13,28 +13,28 @@ from telegram.ext import (
     ContextTypes, filters
 )
 
-# ── KONFIGURATION ─────────────────────────────────────────
+# ── CONFIGURATION ──────────────────────────────────────────
 TELEGRAM_TOKEN   = "8818652149:AAH2MvYD3Ijt7BD8Pk0SYRdfw8t32__rtAg"
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/lms52ngkdj1o467avqvt65jh7otwnw2p"
 
-# Optional: Telegram-Kanal/-Gruppe für Screenshot-Archiv
-# Leer lassen ("") um die Funktion zu deaktivieren
-PROOF_CHANNEL_ID = ""   # z.B. "-1001234567890" oder "@dein_kanal"
+# Optional: Telegram channel/group for screenshot archive
+# Leave empty ("") to disable this feature
+PROOF_CHANNEL_ID = ""   # e.g. "-1001234567890" or "@yourchannel"
 
-# Telegram User IDs die die tägliche Summary erhalten sollen
-# Deine eigene ID findest du über @userinfobot
-SUMMARY_RECEIVER_IDS = []  # z.B. [123456789, 987654321]
+# Telegram User IDs that should receive the daily summary
+# Find your own ID via @userinfobot
+SUMMARY_RECEIVER_IDS = []  # e.g. [123456789, 987654321]
 
-# Shift-Zeiten (Stunde: 0-23)
+# Shift times (hour: 0-23)
 SHIFTS = [
     {"number": 1, "name": "Shift 1", "code": "S1", "start": "00:00", "end": "08:00", "hours": range(0, 8)},
     {"number": 2, "name": "Shift 2", "code": "S2", "start": "08:00", "end": "16:00", "hours": range(8, 16)},
     {"number": 3, "name": "Shift 3", "code": "S3", "start": "16:00", "end": "00:00", "hours": range(16, 24)},
 ]
 
-# Session: merkt sich aktive Shift-Daten pro Chatter
+# Session: stores active shift data per chatter
 sessions = {}
-# ──────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────
 
 
 def get_current_shift():
@@ -50,25 +50,25 @@ def post_to_make(data: dict) -> bool:
         r = requests.post(MAKE_WEBHOOK_URL, json=data, timeout=10)
         return r.status_code == 200
     except Exception as e:
-        print(f"Make Webhook Fehler: {e}")
+        print(f"Make Webhook error: {e}")
         return False
 
 
-# ── BEFEHLE ───────────────────────────────────────────────
+# ── COMMANDS ───────────────────────────────────────────────
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📋 *Chatter CRM Bot*\n\n"
-        "*/startshift [Name]* – Shift starten\n"
-        "   Beispiel: `/startshift Alex`\n\n"
-        "📸 *Screenshot schicken* – Sale per Zahlungsbeweis\n"
-        "   Foto weiterleiten + Betrag als Bildunterschrift\n"
-        "   Beispiel: Foto + Caption `150` oder `150 Produkt XL`\n\n"
-        "*/sale [Betrag] [Notiz]* – Sale manuell eintragen\n"
-        "   Beispiel: `/sale 150 Produkt XL`\n\n"
-        "*/endshift [Reply-Time in Min]* – Shift beenden\n"
-        "   Beispiel: `/endshift 3.5`\n\n"
-        "*/status* – Aktuelle Shift-Info anzeigen",
+        "*/startshift [Name]* – Start your shift\n"
+        "   Example: `/startshift Alex`\n\n"
+        "📸 *Send a screenshot* – Log a sale via payment proof\n"
+        "   Forward photo + amount as caption\n"
+        "   Example: Photo + Caption `150` or `150 Product XL`\n\n"
+        "*/sale [Amount] [Note]* – Log a sale manually\n"
+        "   Example: `/sale 150 Product XL`\n\n"
+        "*/endshift [Reply-Time in min]* – End your shift\n"
+        "   Example: `/endshift 3.5`\n\n"
+        "*/status* – Show current shift info",
         parse_mode="Markdown"
     )
 
@@ -100,16 +100,16 @@ async def cmd_startshift(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     post_to_make(payload)
 
     await update.message.reply_text(
-        f"✅ *{shift['name']} gestartet!*\n"
+        f"✅ *{shift['name']} started!*\n"
         f"👤 Chatter: {chatter_name}\n"
-        f"🕐 Zeit: {shift['start']} – {shift['end']} Uhr\n\n"
-        f"Schick einfach den Zahlungsscreenshot mit dem Betrag als Bildunterschrift.",
+        f"🕐 Time: {shift['start']} – {shift['end']}\n\n"
+        f"Send your payment screenshot with the amount as caption.",
         parse_mode="Markdown"
     )
 
 
-async def _record_sale(update: Update, amount: float, note: str, via: str = "Manuell"):
-    """Gemeinsame Logik für /sale und Screenshot-Handler."""
+async def _record_sale(update: Update, amount: float, note: str, via: str = "Manual"):
+    """Shared logic for /sale and screenshot handler."""
     user_id = update.effective_user.id
     session = sessions.get(user_id)
 
@@ -142,44 +142,44 @@ async def _record_sale(update: Update, amount: float, note: str, via: str = "Man
 
 async def cmd_sale(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not ctx.args:
-        await update.message.reply_text("❌ Betrag fehlt. Beispiel: `/sale 150 Produkt XL`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Amount missing. Example: `/sale 150 Product XL`", parse_mode="Markdown")
         return
 
     try:
         amount = float(ctx.args[0].replace(",", "."))
     except ValueError:
-        await update.message.reply_text("❌ Ungültiger Betrag. Beispiel: `/sale 150`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Invalid amount. Example: `/sale 150`", parse_mode="Markdown")
         return
 
     note = " ".join(ctx.args[1:]) if len(ctx.args) > 1 else ""
-    success, shift, chatter, total = await _record_sale(update, amount, note, via="Manuell")
+    success, shift, chatter, total = await _record_sale(update, amount, note, via="Manual")
 
     if success:
         await update.message.reply_text(
-            f"💰 *Sale eingetragen!*\n"
-            f"Betrag: *{amount:.0f} €*\n"
-            f"Notiz: {note or '—'}\n"
+            f"💰 *Sale logged!*\n"
+            f"Amount: *{amount:.0f} €*\n"
+            f"Note: {note or '—'}\n"
             f"Shift: {shift['name']}\n"
-            f"Tages-Total: *{total:.0f} €*",
+            f"Daily total: *{total:.0f} €*",
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("⚠️ Fehler beim Eintragen. Make Webhook prüfen!")
+        await update.message.reply_text("⚠️ Error logging sale. Check Make Webhook!")
 
 
 async def handle_proof(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """
-    Screenshot-Handler: Chatter schickt Foto als Zahlungsbeweis.
-    Caption = Betrag + optionale Notiz. Beispiel: "150" oder "150 Produkt XL"
-    Das Foto wird zusätzlich ins Proof-Archiv weitergeleitet (falls konfiguriert).
+    Screenshot handler: Chatter sends photo as payment proof.
+    Caption = amount + optional note. Example: "150" or "150 Product XL"
+    Photo is also forwarded to proof archive channel (if configured).
     """
     caption = (update.message.caption or "").strip()
 
     if not caption:
         await update.message.reply_text(
-            "❌ *Betrag fehlt!*\n\n"
-            "Foto nochmal schicken mit Betrag als Bildunterschrift.\n"
-            "Beispiel: Foto + Caption `150` oder `150 Produkt XL`",
+            "❌ *Amount missing!*\n\n"
+            "Please resend the photo with the amount as caption.\n"
+            "Example: Photo + Caption `150` or `150 Product XL`",
             parse_mode="Markdown"
         )
         return
@@ -189,50 +189,50 @@ async def handle_proof(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         amount = float(parts[0].replace(",", ".").replace("€", "").strip())
     except ValueError:
         await update.message.reply_text(
-            f"❌ *Konnte keinen Betrag lesen.*\n"
-            f"Caption war: `{caption}`\n"
-            f"Bitte so schreiben: `150` oder `150 Produkt XL`",
+            f"❌ *Could not read amount.*\n"
+            f"Caption was: `{caption}`\n"
+            f"Please write it like: `150` or `150 Product XL`",
             parse_mode="Markdown"
         )
         return
 
-    note = parts[1].strip() if len(parts) > 1 else "Zahlungsscreenshot"
+    note = parts[1].strip() if len(parts) > 1 else "Payment screenshot"
     success, shift, chatter, total = await _record_sale(update, amount, note, via="Screenshot")
 
-    # ── Screenshot ins Archiv weiterleiten ────────────────
+    # ── Forward screenshot to archive ─────────────────────
     if PROOF_CHANNEL_ID:
         try:
             now = datetime.now()
             archive_caption = (
-                f"💰 Zahlungsbeweis\n"
-                f"Datum: {now.strftime('%d.%m.%Y %H:%M')}\n"
+                f"💰 Payment Proof\n"
+                f"Date: {now.strftime('%d.%m.%Y %H:%M')}\n"
                 f"Chatter: {chatter}\n"
-                f"Betrag: {amount:.0f} €\n"
-                f"Notiz: {note}\n"
+                f"Amount: {amount:.0f} €\n"
+                f"Note: {note}\n"
                 f"Shift: {shift['name']}"
             )
-            photo = update.message.photo[-1]  # größte Auflösung
+            photo = update.message.photo[-1]  # highest resolution
             await ctx.bot.send_photo(
                 chat_id=PROOF_CHANNEL_ID,
                 photo=photo.file_id,
                 caption=archive_caption,
             )
         except Exception as e:
-            print(f"Archiv-Fehler: {e}")
+            print(f"Archive error: {e}")
     # ──────────────────────────────────────────────────────
 
     if success:
         await update.message.reply_text(
-            f"✅ *Zahlung eingetragen!*\n"
-            f"💰 Betrag: *{amount:.0f} €*\n"
-            f"📝 Notiz: {note}\n"
+            f"✅ *Payment logged!*\n"
+            f"💰 Amount: *{amount:.0f} €*\n"
+            f"📝 Note: {note}\n"
             f"🕐 Shift: {shift['name']}\n"
-            f"📊 Tages-Total: *{total:.0f} €*"
-            + (f"\n📁 Archiviert" if PROOF_CHANNEL_ID else ""),
+            f"📊 Daily total: *{total:.0f} €*"
+            + (f"\n📁 Archived" if PROOF_CHANNEL_ID else ""),
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("⚠️ Fehler beim Eintragen. Make Webhook prüfen!")
+        await update.message.reply_text("⚠️ Error logging payment. Check Make Webhook!")
 
 
 async def cmd_endshift(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -247,7 +247,7 @@ async def cmd_endshift(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     session = sessions.get(user_id)
     if not session:
         await update.message.reply_text(
-            "⚠️ Keine aktive Shift. Starte mit `/startshift`.",
+            "⚠️ No active shift. Start one with `/startshift`.",
             parse_mode="Markdown"
         )
         return
@@ -278,16 +278,16 @@ async def cmd_endshift(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if success:
         reply_str = f"{reply_time:.1f} min" if reply_time else "—"
         await update.message.reply_text(
-            f"🏁 *{shift['name']} beendet!*\n\n"
+            f"🏁 *{shift['name']} ended!*\n\n"
             f"👤 Chatter: {chatter}\n"
-            f"💰 Umsatz: *{total:.0f} €*\n"
+            f"💰 Revenue: *{total:.0f} €*\n"
             f"🛒 Sales: {count}\n"
-            f"⏱ Ø Reply Time: {reply_str}\n\n"
-            f"Daten wurden ins CRM eingetragen.",
+            f"⏱ Avg Reply Time: {reply_str}\n\n"
+            f"Data has been logged to the CRM.",
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("⚠️ Fehler beim Eintragen. Make Webhook prüfen!")
+        await update.message.reply_text("⚠️ Error logging shift. Check Make Webhook!")
 
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -299,31 +299,30 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         total = sum(session["sales"])
         count = len(session["sales"])
         await update.message.reply_text(
-            f"📊 *Aktuelle Shift*\n\n"
+            f"📊 *Current Shift*\n\n"
             f"👤 Chatter: {session['chatter']}\n"
             f"🕐 Shift: {shift['name']} ({shift['start']} – {shift['end']})\n"
-            f"💰 Bisher: *{total:.0f} €*\n"
+            f"💰 So far: *{total:.0f} €*\n"
             f"🛒 Sales: {count}",
             parse_mode="Markdown"
         )
     else:
         await update.message.reply_text(
-            f"ℹ️ Aktuelle Systemzeit → *{shift['name']}*\n"
-            f"Keine aktive Session. Starte mit `/startshift`.",
+            f"ℹ️ Current system time → *{shift['name']}*\n"
+            f"No active session. Start one with `/startshift`.",
             parse_mode="Markdown"
         )
 
 
-# ── TÄGLICHE ZUSAMMENFASSUNG ──────────────────────────────
+# ── DAILY SUMMARY ─────────────────────────────────────────
 
 async def send_daily_summary(ctx: ContextTypes.DEFAULT_TYPE):
-    """Wird täglich um 23:59 Uhr ausgeführt."""
+    """Runs daily at 23:59."""
     if not SUMMARY_RECEIVER_IDS:
         return
 
     today = datetime.now().strftime("%d.%m.%Y")
 
-    # Alle Sessions des Tages zusammenrechnen
     all_sales   = []
     all_shifts  = []
     for uid, sess in sessions.items():
@@ -335,25 +334,25 @@ async def send_daily_summary(ctx: ContextTypes.DEFAULT_TYPE):
     shift_count = len(all_shifts)
 
     msg = (
-        f"📊 *Tages-Zusammenfassung – {today}*\n\n"
-        f"💰 Gesamtumsatz: *{total_rev:.0f} €*\n"
-        f"🛒 Sales gesamt: {total_sales}\n"
-        f"⏱ Aktive Shifts: {shift_count}\n\n"
-        f"_Detaillierte Daten im CRM-Dashboard._"
+        f"📊 *Daily Summary – {today}*\n\n"
+        f"💰 Total revenue: *{total_rev:.0f} €*\n"
+        f"🛒 Total sales: {total_sales}\n"
+        f"⏱ Active shifts: {shift_count}\n\n"
+        f"_Detailed data available in the CRM dashboard._"
     )
 
     for uid in SUMMARY_RECEIVER_IDS:
         try:
             await ctx.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
         except Exception as e:
-            print(f"Summary-Fehler für {uid}: {e}")
-# ──────────────────────────────────────────────────────────
+            print(f"Summary error for {uid}: {e}")
+# ───────────────────────────────────────────────────────────
 
 
-# ── START ─────────────────────────────────────────────────
+# ── MAIN ───────────────────────────────────────────────────
 
 def main():
-    print("🚀 Chatter CRM Bot startet...")
+    print("🚀 Chatter CRM Bot starting...")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("help",       cmd_help))
@@ -364,14 +363,14 @@ def main():
     app.add_handler(CommandHandler("status",     cmd_status))
     app.add_handler(MessageHandler(filters.PHOTO, handle_proof))
 
-    # Tägliche Zusammenfassung um 23:59 Uhr
+    # Daily summary at 23:59
     app.job_queue.run_daily(
         send_daily_summary,
         time=time(23, 59, 0),
         name="daily_summary"
     )
 
-    print("✅ Bot läuft. Drücke Ctrl+C zum Stoppen.")
+    print("✅ Bot is running. Press Ctrl+C to stop.")
     app.run_polling(drop_pending_updates=True)
 
 
