@@ -1,3 +1,4 @@
 [deploy]
 startCommand = "python main.py"
 healthcheckPath = "/status"
+healthcheckTimeout = 30
