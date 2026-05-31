@@ -68,6 +68,16 @@ def init_db():
             unread        INTEGER DEFAULT 0,
             msg_count     INTEGER DEFAULT 0
         )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS sales (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            tg_id     TEXT NOT NULL,
+            anon_id   TEXT NOT NULL,
+            amount    REAL NOT NULL,
+            product   TEXT DEFAULT '',
+            notes     TEXT DEFAULT '',
+            chatter   TEXT DEFAULT '',
+            timestamp TEXT NOT NULL
+        )''')
         c.execute('''CREATE TABLE IF NOT EXISTS messages (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
             tg_id     TEXT NOT NULL,
@@ -372,6 +382,50 @@ async def post_reply(body: ReplyIn):
         return {'ok': True}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+class SaleIn(BaseModel):
+    tg_id: str
+    anon_id: str
+    amount: float
+    product: str = ''
+    notes: str = ''
+    chatter: str = 'Chatter'
+
+@app.post('/sale')
+async def post_sale(body: SaleIn):
+    ts = datetime.now().isoformat()
+    with db() as c:
+        c.execute(
+            '''INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp)
+               VALUES (?,?,?,?,?,?,?)''',
+            (body.tg_id, body.anon_id, body.amount, body.product, body.notes, body.chatter, ts)
+        )
+        c.commit()
+    # Forward to Make.com webhook if configured
+    make_url = os.environ.get('MAKE_SALE_WEBHOOK', '')
+    if make_url:
+        try:
+            import urllib.request, json as _json
+            data = _json.dumps({
+                'tg_id': body.tg_id, 'anon_id': body.anon_id,
+                'amount': body.amount, 'product': body.product,
+                'notes': body.notes, 'chatter': body.chatter, 'timestamp': ts
+            }).encode()
+            req = urllib.request.Request(make_url, data=data, headers={'Content-Type':'application/json'})
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+    return {'ok': True, 'timestamp': ts}
+
+@app.get('/sales')
+def get_sales(limit: int = 100):
+    with db() as c:
+        rows = c.execute(
+            '''SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp
+               FROM sales ORDER BY timestamp DESC LIMIT ?''', (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 # ── START ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
