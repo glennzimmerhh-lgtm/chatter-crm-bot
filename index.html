@@ -1292,6 +1292,9 @@ if (checkAuth()) {
   async function loadProfile(tgId) {
     const p = await chatApiGet('/profile/' + tgId);
     if (!p) return;
+    // Update topbar name: "Jonas (User #1001)" or just "User #1001"
+    const displayName = p.internal_name ? `${p.internal_name} (${p.anon_id})` : p.anon_id;
+    document.getElementById('msg-conv-name').textContent = displayName;
     const panel = document.getElementById('profile-panel');
     const letter = p.anon_id.replace('User #','#').slice(0,2);
     const firstDate = p.first_time ? new Date(p.first_time).toLocaleDateString('de-DE') : '—';
@@ -1349,10 +1352,15 @@ if (checkAuth()) {
       // Show saved indicator
       const tag = document.getElementById('notes-saved');
       if (tag) { tag.style.opacity = '1'; setTimeout(() => tag.style.opacity='0', 2000); }
-      // Update conv list to show new internal name
+      // Update topbar and conv list with new name
       if (allConvs.length) {
         const c = allConvs.find(x => x.tg_id === tgId);
-        if (c) { c.internal_name = iname; renderConvList(allConvs); }
+        if (c) {
+          c.internal_name = iname;
+          renderConvList(allConvs);
+          const displayName = iname ? `${iname} (${c.anon_id})` : c.anon_id;
+          document.getElementById('msg-conv-name').textContent = displayName;
+        }
       }
     } catch {}
   }
