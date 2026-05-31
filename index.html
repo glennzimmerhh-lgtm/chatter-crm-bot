@@ -1250,7 +1250,7 @@ if (checkAuth()) {
     }
   }
 
-  function filterConvs(q) {
+  window.filterConvs = function filterConvs(q) {
     const filtered = q ? allConvs.filter(c => c.anon_id.toLowerCase().includes(q.toLowerCase()) || (c.last_msg||'').toLowerCase().includes(q.toLowerCase())) : allConvs;
     renderConvList(filtered);
   }
@@ -1279,7 +1279,7 @@ if (checkAuth()) {
     }).join('');
   }
 
-  async function openConv(tgId, anonId) {
+  window.openConv = async function openConv(tgId, anonId) {
     currentChatTgId = tgId;
     document.getElementById('msg-conv-name').textContent = anonId;
     document.getElementById('msg-avatar').textContent = anonId.replace('User #','#').slice(0,2);
@@ -1334,7 +1334,7 @@ if (checkAuth()) {
     });
   }
 
-  async function saveProfile(tgId, silent = false) {
+  window.saveProfile = async function saveProfile(tgId, silent = false) {
     const iname = document.getElementById('prof-iname')?.value || '';
     const notes = document.getElementById('prof-notes')?.value || '';
     await chatApiPost('/profile/' + tgId, null); // placeholder, use PATCH below
@@ -1381,7 +1381,7 @@ if (checkAuth()) {
     if (window._refreshConvs) window._refreshConvs();
   }
 
-  async function sendChatReply() {
+  window.sendChatReply = async function sendChatReply() {
     const input = document.getElementById('chat-input');
     const text = input.value.trim();
     if (!text || !currentChatTgId) return;
