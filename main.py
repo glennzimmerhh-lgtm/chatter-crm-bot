@@ -14,12 +14,14 @@ Umgebungsvariablen (Railway):
   PORT         – automatisch von Railway gesetzt
 """
 
+from __future__ import annotations
+
+
 import asyncio
 import os
 import sqlite3
 from datetime import datetime
-from contextlib import asynccontextmanager
-from typing import Optional
+from contextlib import asynccontextmanagerfrom typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Form
@@ -39,7 +41,7 @@ PORT        = int(os.environ.get('PORT', 8000))
 DB_PATH     = '/tmp/chatter_crm.db'
 
 # ── SETUP STATE (in-memory, nur für /setup flow) ──────────────────────────────
-setup_client: TelegramClient | None = None
+setup_client: Optional[TelegramClient] = None
 setup_phone: str = ''
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
@@ -112,7 +114,7 @@ def save_msg(tg_id: str, text: str, direction: str, chatter: str = ''):
         c.commit()
 
 # ── USERBOT ───────────────────────────────────────────────────────────────────
-tg_client: TelegramClient | None = None
+tg_client: Optional[TelegramClient] = None
 
 async def start_userbot():
     global tg_client
