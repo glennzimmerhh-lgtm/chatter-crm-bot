@@ -48,8 +48,11 @@ setup_phone: str = ''
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
 def db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL')   # crash-safe writes
+    conn.execute('PRAGMA synchronous=NORMAL') # fast + safe
+    conn.execute('PRAGMA foreign_keys=ON')
     return conn
 
 def init_db():
@@ -291,6 +294,18 @@ async def setup_verify(code: str = Form(...)):
         return render_setup(form2)
 
 # ── ENDPOINTS ─────────────────────────────────────────────────────────────────
+
+
+@app.get('/healthz')
+def healthz():
+    """Health check – also verifies DB is readable."""
+    try:
+        with db() as c:
+            n = c.execute('SELECT COUNT(*) FROM conversations').fetchone()[0]
+        ok = tg_client is not None and tg_client.is_connected()
+        return {'status': 'ok', 'conversations': n, 'userbot': 'connected' if ok else 'disconnected', 'db': DB_PATH}
+    except Exception as e:
+        return {'status': 'error', 'detail': str(e)}
 
 @app.get('/status')
 def status():
