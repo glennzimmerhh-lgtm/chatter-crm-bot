@@ -1155,20 +1155,24 @@ function closeSidebar() {
 }
 
 function showPage(name) {
-  ['dashboard','sales','shifts'].forEach(p => {
-    document.getElementById('page-' + p).style.display = p === name ? '' : 'none';
+  ['dashboard','sales','shifts','chat'].forEach(p => {
+    const el = document.getElementById('page-' + p);
+    if (el) el.style.display = p === name ? '' : 'none';
   });
   document.querySelectorAll('.nav-item').forEach((el, i) => {
-    el.classList.toggle('active', ['dashboard','sales','shifts'][i] === name);
+    el.classList.toggle('active', ['dashboard','sales','shifts','chat'][i] === name);
   });
   // Update mobile nav
-  ['dashboard','sales','shifts'].forEach(p => {
+  ['dashboard','sales','shifts','chat'].forEach(p => {
     const el = document.getElementById('mnav-' + p);
     if (el) el.classList.toggle('active', p === name);
   });
-  // Close sidebar on mobile after nav
+  // Chat activation
+  if (typeof chatPageActive !== 'undefined') {
+    chatPageActive = (name === 'chat');
+    if (chatPageActive) { refreshChatStatus(); refreshConvs(); }
+  }
   closeSidebar();
-  // Scroll to top
   window.scrollTo(0, 0);
 }
 
@@ -1393,15 +1397,7 @@ if (checkAuth()) {
 
   // Start chat polling when chat page is open
   let chatPageActive = false;
-  const origShowPage = showPage;
-  function showPage(p) {
-    origShowPage(p);
-    chatPageActive = (p === 'chat');
-    if (chatPageActive) {
-      refreshChatStatus();
-      refreshConvs();
-    }
-  }
+  const _origShowPage = window._showPageFn;
   setInterval(() => { if (chatPageActive) refreshConvs(); }, 5000);
   setInterval(() => { if (chatPageActive) refreshChatStatus(); }, 15000);
 }
