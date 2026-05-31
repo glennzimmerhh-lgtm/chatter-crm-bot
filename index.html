@@ -1168,9 +1168,10 @@ function showPage(name) {
     if (el) el.classList.toggle('active', p === name);
   });
   // Chat activation
-  if (typeof chatPageActive !== 'undefined') {
-    chatPageActive = (name === 'chat');
-    if (chatPageActive) { refreshChatStatus(); refreshConvs(); }
+  window.chatPageActive = (name === 'chat');
+  if (name === 'chat') {
+    try { refreshChatStatus(); } catch(e) {}
+    try { refreshConvs(); } catch(e) {}
   }
   closeSidebar();
   window.scrollTo(0, 0);
@@ -1396,10 +1397,9 @@ if (checkAuth()) {
   }
 
   // Start chat polling when chat page is open
-  let chatPageActive = false;
-  const _origShowPage = window._showPageFn;
-  setInterval(() => { if (chatPageActive) refreshConvs(); }, 5000);
-  setInterval(() => { if (chatPageActive) refreshChatStatus(); }, 15000);
+  window.chatPageActive = false;
+  setInterval(() => { if (window.chatPageActive) refreshConvs(); }, 5000);
+  setInterval(() => { if (window.chatPageActive) refreshChatStatus(); }, 15000);
 }
 </script>
 </body>
