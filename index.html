@@ -27,6 +27,49 @@
     --radius: 10px;
     --font: 'Segoe UI', system-ui, sans-serif;
   }
+  body.light {
+    --bg: #f0f2f7;
+    --bg2: #ffffff;
+    --bg3: #e8eaf2;
+    --card: #ffffff;
+    --border: rgba(0,0,0,0.08);
+    --teal: #00a88a;
+    --teal-dim: rgba(0,168,138,0.10);
+    --blue: #2e7dd1;
+    --blue-dim: rgba(46,125,209,0.10);
+    --yellow: #c8860a;
+    --yellow-dim: rgba(200,134,10,0.10);
+    --red: #e03060;
+    --red-dim: rgba(224,48,96,0.10);
+    --purple: #7c4fc4;
+    --text: #111122;
+    --text2: #555570;
+    --text3: #8888a0;
+  }
+  /* Light mode chat overrides */
+  body.light .chat-layout { background: #f5f7fc; border-color: rgba(0,168,138,.2); box-shadow: 0 4px 32px rgba(0,0,0,.08); }
+  body.light .conv-list { background: #ffffff; border-right-color: rgba(0,0,0,.07); }
+  body.light .msg-area { background: #f8f9fd; }
+  body.light .msg-topbar { background: rgba(255,255,255,.9); border-bottom-color: rgba(0,0,0,.06); }
+  body.light .reply-bar { background: rgba(255,255,255,.9); border-top-color: rgba(0,0,0,.06); }
+  body.light .emoji-bar { background: rgba(255,255,255,.9); border-top-color: rgba(0,0,0,.06); }
+  body.light .emoji-btn { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.06); }
+  body.light .emoji-btn:hover { background: rgba(0,0,0,.08); }
+  body.light .profile-panel { background: #ffffff; border-left-color: rgba(0,0,0,.07); }
+  body.light .msg-in { background: #ffffff; border-color: rgba(0,0,0,.06); color: #111122; }
+  body.light .conv-search input { background: #f0f2f7; border-color: rgba(0,0,0,.08); }
+  body.light .conv-item:hover { background: rgba(0,0,0,.03); }
+  body.light .conv-item.active { background: rgba(0,168,138,.08); }
+  body.light .reply-bar input { background: #f0f2f7; border-color: rgba(0,0,0,.08); color: #111122; }
+  body.light .profile-input, body.light .profile-textarea { background: #f0f2f7; border-color: rgba(0,0,0,.08); color: #111122; }
+  /* Light mode theme toggle */
+  .theme-toggle {
+    background: none; border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 10px;
+    color: var(--text2); font-size: 16px; cursor: pointer;
+    transition: all .15s; line-height: 1;
+  }
+  .theme-toggle:hover { border-color: var(--teal); color: var(--teal); }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
 
@@ -574,7 +617,8 @@
         <div style="font-size:13px;font-weight:600;color:var(--text);" id="user-name-display">—</div>
         <div style="font-size:11px;color:var(--text3);">Eingeloggt</div>
       </div>
-      <span onclick="doLogout()" title="Abmelden" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;">⏻</span>
+      <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Hell/Dunkel">🌙</button>
+      <span onclick="doLogout()" title="Abmelden" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;margin-left:4px;">⏻</span>
     </div>
   </div>
   <div class="shift-indicator">
@@ -933,6 +977,20 @@ function showLoadingBar(user) {
   }
   runStep(0);
 }
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  localStorage.setItem('crm_theme', isLight ? 'light' : 'dark');
+  document.getElementById('theme-toggle-btn').textContent = isLight ? '☀️' : '🌙';
+}
+// Apply saved theme on load
+(function() {
+  if (localStorage.getItem('crm_theme') === 'light') {
+    document.body.classList.add('light');
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = '☀️';
+  }
+})();
 
 function doLogout() {
   localStorage.removeItem('crm_user');
