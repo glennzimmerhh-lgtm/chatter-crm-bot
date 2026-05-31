@@ -145,6 +145,61 @@
   .chart-wrap { position: relative; height: 200px; }
   .chart-wrap canvas ~ * { display: none !important; }
 
+  /* ── CHAT ── */
+  .chat-layout { display: grid; grid-template-columns: 280px 1fr 260px; gap: 0; height: calc(100vh - 140px); min-height: 400px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .conv-list { border-right: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+  .conv-search { padding: 10px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .conv-search input { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; box-sizing: border-box; }
+  .conv-item { padding: 11px 14px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; display: flex; align-items: center; gap: 10px; }
+  .conv-item:hover { background: rgba(255,255,255,0.04); }
+  .conv-item.active { background: var(--teal-dim); }
+  .conv-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--bg3); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--teal); flex-shrink: 0; }
+  .conv-info { flex: 1; min-width: 0; }
+  .conv-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv-iname { font-size: 10px; color: var(--teal); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .conv-preview { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .conv-badge { background: var(--red); color: #fff; font-size: 10px; font-weight: 700; border-radius: 10px; padding: 2px 6px; flex-shrink: 0; min-width: 18px; text-align: center; }
+  .msg-area { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .msg-topbar { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .msg-list { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .msg-bubble { max-width: 72%; padding: 9px 13px; border-radius: 14px; font-size: 13px; line-height: 1.5; word-break: break-word; }
+  .msg-in { align-self: flex-start; background: var(--bg3); color: var(--text); border-bottom-left-radius: 4px; }
+  .msg-out { align-self: flex-end; background: var(--teal); color: #000; border-bottom-right-radius: 4px; }
+  .msg-meta { font-size: 10px; margin-top: 3px; opacity: 0.6; }
+  .reply-bar { padding: 10px 14px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-shrink: 0; }
+  .reply-bar input { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 9px 13px; color: var(--text); font-size: 13px; outline: none; }
+  .reply-bar input:focus { border-color: rgba(0,212,170,0.4); }
+  .reply-bar button { background: var(--teal); color: #000; border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  /* Profile panel */
+  .profile-panel { border-left: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+  .profile-header { padding: 20px 16px 14px; border-bottom: 1px solid var(--border); text-align: center; flex-shrink: 0; }
+  .profile-big-avatar { width: 56px; height: 56px; border-radius: 50%; background: var(--teal-dim); border: 2px solid var(--teal); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: var(--teal); margin: 0 auto 10px; }
+  .profile-anon { font-size: 11px; color: var(--text3); }
+  .profile-section { padding: 14px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .profile-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+  .profile-input { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; color: var(--text); font-size: 13px; outline: none; box-sizing: border-box; }
+  .profile-input:focus { border-color: rgba(0,212,170,0.4); }
+  .profile-textarea { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; color: var(--text); font-size: 12px; outline: none; box-sizing: border-box; resize: none; height: 110px; line-height: 1.5; }
+  .profile-textarea:focus { border-color: rgba(0,212,170,0.4); }
+  .profile-save-btn { margin-top: 8px; width: 100%; background: var(--teal-dim); border: 1px solid rgba(0,212,170,0.25); color: var(--teal); border-radius: 7px; padding: 7px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .profile-save-btn:hover { background: rgba(0,212,170,0.2); }
+  .profile-stat-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 12px; color: var(--text2); }
+  .profile-stat-val { font-weight: 600; color: var(--text); }
+  .profile-saved-tag { font-size: 10px; color: var(--teal); margin-left: 6px; opacity: 0; transition: opacity 0.3s; }
+  .chat-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text3); }
+  .chat-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); }
+  .chat-status-dot.offline { background: var(--red); }
+  .chat-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text3); font-size: 13px; }
+  @media (max-width: 900px) {
+    .chat-layout { grid-template-columns: 240px 1fr; }
+    .profile-panel { display: none; }
+  }
+  @media (max-width: 600px) {
+    .chat-layout { grid-template-columns: 1fr; height: auto; }
+    .conv-list { height: 220px; border-right: none; border-bottom: 1px solid var(--border); }
+    .msg-area { height: calc(100vh - 420px); min-height: 280px; }
+  }
+
   /* ── PERIOD FILTER ── */
   .period-bar { display: flex; gap: 6px; margin-bottom: 22px; flex-wrap: wrap; }
   .period-btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text2); border-radius: 8px; padding: 7px 18px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
@@ -274,6 +329,11 @@
     <div class="nav-item" onclick="showPage('shifts')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       Shifts
+    </div>
+    <div class="nav-item" onclick="showPage('chat')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Chat
+      <span id="chat-unread-badge" style="display:none;margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:2px 6px;">0</span>
     </div>
     <div class="nav-section">System</div>
     <div class="nav-item" onclick="openSettings()">
@@ -467,6 +527,56 @@
   </div>
 </main>
 
+  <!-- CHAT PAGE -->
+  <div id="page-chat" style="display:none;">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="hamburger" onclick="openSidebar()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="topbar-title">💬 Chat</div>
+      </div>
+      <div class="chat-status">
+        <div class="chat-status-dot" id="chat-status-dot"></div>
+        <span id="chat-status-text">Verbinde...</span>
+      </div>
+    </div>
+
+    <div class="chat-layout">
+      <!-- Gesprächsliste -->
+      <div class="conv-list">
+        <div class="conv-search">
+          <input type="text" placeholder="Suchen..." id="conv-search-input" oninput="filterConvs(this.value)">
+        </div>
+        <div id="conv-list-body">
+          <div class="chat-empty" style="height:200px;">Keine Gespräche</div>
+        </div>
+      </div>
+
+      <!-- Nachrichten -->
+      <div class="msg-area">
+        <div class="msg-topbar" id="msg-topbar">
+          <div style="width:32px;height:32px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--teal);" id="msg-avatar">?</div>
+          <span id="msg-conv-name">Gespräch auswählen</span>
+        </div>
+        <div class="msg-list" id="msg-list">
+          <div class="chat-empty">← Gespräch auswählen</div>
+        </div>
+        <div class="reply-bar">
+          <input type="text" id="chat-input" placeholder="Nachricht schreiben..." onkeydown="if(event.key==='Enter')sendChatReply()">
+          <button onclick="sendChatReply()">Senden ↑</button>
+        </div>
+      </div>
+
+      <!-- Profil-Panel -->
+      <div class="profile-panel" id="profile-panel">
+        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:13px;padding:20px;text-align:center;">
+          ← Gespräch auswählen<br>um Profil zu sehen
+        </div>
+      </div>
+    </div>
+  </div>
+
 <!-- FLOATING REFRESH BUTTON -->
 <button class="fab-refresh" onclick="loadData()" title="Refresh">↻</button>
 
@@ -485,6 +595,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       Shifts
     </button>
+    <button class="mobile-nav-item" id="mnav-chat" onclick="showPage('chat')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Chat
+    </button>
     <button class="mobile-nav-item" id="mnav-settings" onclick="openSettings()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
       Settings
@@ -499,6 +613,8 @@
     <div class="settings-sub">
       Veröffentliche dein Google Sheet unter <strong>Datei → Im Web veröffentlichen → CSV</strong> und füge die URLs hier ein.
     </div>
+    <label>Chat Backend URL (Railway)</label>
+    <input type="text" id="cfg-backend-url" placeholder="https://dein-service.railway.app">
     <label>Sales Log CSV URL</label>
     <input type="text" id="cfg-sales-url" placeholder="https://docs.google.com/spreadsheets/d/.../gviz/tq?tqx=out:csv&sheet=Sales+Log">
     <label>Shifts CSV URL</label>
@@ -740,22 +856,26 @@ const DEFAULT_SHIFTS_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/g
 
 function loadSettings() {
   return {
-    salesUrl:  localStorage.getItem('crm_sales_url')  || DEFAULT_SALES_URL,
-    shiftsUrl: localStorage.getItem('crm_shifts_url') || DEFAULT_SHIFTS_URL,
+    salesUrl:   localStorage.getItem('crm_sales_url')   || DEFAULT_SALES_URL,
+    shiftsUrl:  localStorage.getItem('crm_shifts_url')  || DEFAULT_SHIFTS_URL,
+    backendUrl: localStorage.getItem('crm_backend_url') || '',
   };
 }
 
 function saveSettings() {
-  const su = document.getElementById('cfg-sales-url').value.trim();
+  const su  = document.getElementById('cfg-sales-url').value.trim();
   const shu = document.getElementById('cfg-shifts-url').value.trim();
-  localStorage.setItem('crm_sales_url', su);
-  localStorage.setItem('crm_shifts_url', shu);
+  const bu  = document.getElementById('cfg-backend-url').value.trim();
+  localStorage.setItem('crm_sales_url',   su);
+  localStorage.setItem('crm_shifts_url',  shu);
+  localStorage.setItem('crm_backend_url', bu);
   closeSettings();
   loadData();
 }
 
 function openSettings() {
   const s = loadSettings();
+  document.getElementById('cfg-backend-url').value = s.backendUrl;
   document.getElementById('cfg-sales-url').value = s.salesUrl;
   document.getElementById('cfg-shifts-url').value = s.shiftsUrl;
   document.getElementById('settings-overlay').classList.add('open');
@@ -1058,6 +1178,232 @@ setInterval(updateClock, 30000);
 if (checkAuth()) {
   loadData();
   setInterval(loadData, 60000);
+
+  // ── CHAT ─────────────────────────────────────────────────
+  let currentChatTgId = null;
+  let allConvs = [];
+  let chatMsgInterval = null;
+
+  function getChatBackendUrl() {
+    return (localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+  }
+
+  async function chatApiGet(path) {
+    const base = getChatBackendUrl();
+    if (!base) return null;
+    try {
+      const r = await fetch(base + path);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch { return null; }
+  }
+
+  async function chatApiPost(path, body) {
+    const base = getChatBackendUrl();
+    if (!base) return null;
+    try {
+      const r = await fetch(base + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      return await r.json();
+    } catch { return null; }
+  }
+
+  async function refreshChatStatus() {
+    const dot = document.getElementById('chat-status-dot');
+    const txt = document.getElementById('chat-status-text');
+    if (!getChatBackendUrl()) {
+      dot.className = 'chat-status-dot offline';
+      txt.textContent = 'Keine Backend-URL';
+      return;
+    }
+    const s = await chatApiGet('/status');
+    if (s && s.userbot === 'connected') {
+      dot.className = 'chat-status-dot';
+      txt.textContent = 'Userbot verbunden';
+    } else {
+      dot.className = 'chat-status-dot offline';
+      txt.textContent = s ? 'Userbot getrennt' : 'Backend nicht erreichbar';
+    }
+  }
+
+  async function refreshConvs() {
+    const data = await chatApiGet('/conversations');
+    if (!data) return;
+    allConvs = data;
+    renderConvList(data);
+    // Update unread badge in nav
+    const totalUnread = data.reduce((s, c) => s + (c.unread || 0), 0);
+    const badge = document.getElementById('chat-unread-badge');
+    if (totalUnread > 0) {
+      badge.textContent = totalUnread;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  function filterConvs(q) {
+    const filtered = q ? allConvs.filter(c => c.anon_id.toLowerCase().includes(q.toLowerCase()) || (c.last_msg||'').toLowerCase().includes(q.toLowerCase())) : allConvs;
+    renderConvList(filtered);
+  }
+
+  function renderConvList(convs) {
+    const el = document.getElementById('conv-list-body');
+    if (!convs.length) {
+      el.innerHTML = '<div class="chat-empty" style="height:200px;">Keine Gespräche</div>';
+      return;
+    }
+    el.innerHTML = convs.map(c => {
+      const active = c.tg_id === currentChatTgId ? 'active' : '';
+      const letter = c.anon_id.replace('User #', '#').slice(0,2);
+      const time = c.last_time ? new Date(c.last_time).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
+      return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')">
+        <div class="conv-avatar">${letter}</div>
+        <div class="conv-info">
+          <div class="conv-name">${c.anon_id}</div>
+          <div class="conv-preview">${c.last_msg || '—'}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+          <div style="font-size:10px;color:var(--text3)">${time}</div>
+          ${c.unread ? `<span class="conv-badge">${c.unread}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  async function openConv(tgId, anonId) {
+    currentChatTgId = tgId;
+    document.getElementById('msg-conv-name').textContent = anonId;
+    document.getElementById('msg-avatar').textContent = anonId.replace('User #','#').slice(0,2);
+    renderConvList(allConvs);
+    await Promise.all([loadMsgs(), loadProfile(tgId)]);
+    if (chatMsgInterval) clearInterval(chatMsgInterval);
+    chatMsgInterval = setInterval(loadMsgs, 3000);
+  }
+
+  async function loadProfile(tgId) {
+    const p = await chatApiGet('/profile/' + tgId);
+    if (!p) return;
+    const panel = document.getElementById('profile-panel');
+    const letter = p.anon_id.replace('User #','#').slice(0,2);
+    const firstDate = p.first_time ? new Date(p.first_time).toLocaleDateString('de-DE') : '—';
+    const lastDate  = p.last_time  ? new Date(p.last_time).toLocaleDateString('de-DE')  : '—';
+    panel.innerHTML = `
+      <div class="profile-header">
+        <div class="profile-big-avatar">${letter}</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px;">${p.internal_name || p.anon_id}</div>
+        <div class="profile-anon">${p.anon_id}</div>
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-label">Interner Name</div>
+        <input class="profile-input" id="prof-iname" type="text" placeholder="z.B. Bernd – mag Sport" value="${(p.internal_name||'').replace(/"/g,'&quot;')}">
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-label">
+          Notizen
+          <span class="profile-saved-tag" id="notes-saved">✓ Gespeichert</span>
+        </div>
+        <textarea class="profile-textarea" id="prof-notes" placeholder="Interessen, Kaufverhalten, Vorlieben...">${p.notes||''}</textarea>
+        <button class="profile-save-btn" onclick="saveProfile('${tgId}')">💾 Speichern</button>
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-label">Stats</div>
+        <div class="profile-stat-row"><span>Erste Nachricht</span><span class="profile-stat-val">${firstDate}</span></div>
+        <div class="profile-stat-row"><span>Letzte Nachricht</span><span class="profile-stat-val">${lastDate}</span></div>
+        <div class="profile-stat-row"><span>Nachrichten</span><span class="profile-stat-val">${p.msg_count||0}</span></div>
+      </div>
+    `;
+    // Auto-save name on blur
+    document.getElementById('prof-iname').addEventListener('blur', () => saveProfile(tgId));
+    // Auto-save notes with debounce
+    let notesTimer;
+    document.getElementById('prof-notes').addEventListener('input', () => {
+      clearTimeout(notesTimer);
+      notesTimer = setTimeout(() => saveProfile(tgId, true), 1200);
+    });
+  }
+
+  async function saveProfile(tgId, silent = false) {
+    const iname = document.getElementById('prof-iname')?.value || '';
+    const notes = document.getElementById('prof-notes')?.value || '';
+    await chatApiPost('/profile/' + tgId, null); // placeholder, use PATCH below
+    const base = getChatBackendUrl();
+    if (!base) return;
+    try {
+      await fetch(base + '/profile/' + tgId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ internal_name: iname, notes: notes })
+      });
+      // Show saved indicator
+      const tag = document.getElementById('notes-saved');
+      if (tag) { tag.style.opacity = '1'; setTimeout(() => tag.style.opacity='0', 2000); }
+      // Update conv list to show new internal name
+      if (allConvs.length) {
+        const c = allConvs.find(x => x.tg_id === tgId);
+        if (c) { c.internal_name = iname; renderConvList(allConvs); }
+      }
+    } catch {}
+  }
+
+  async function loadMsgs() {
+    if (!currentChatTgId) return;
+    const msgs = await chatApiGet('/messages/' + currentChatTgId);
+    if (!msgs) return;
+    const el = document.getElementById('msg-list');
+    if (!msgs.length) {
+      el.innerHTML = '<div class="chat-empty">Noch keine Nachrichten</div>';
+      return;
+    }
+    const wasAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 40;
+    el.innerHTML = msgs.map(m => {
+      const dir = m.direction === 'in' ? 'in' : 'out';
+      const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
+      const meta = dir === 'out' ? `${m.chatter || 'Chatter'} · ${time}` : time;
+      return `<div class="msg-bubble msg-${dir}">
+        ${m.text}
+        <div class="msg-meta">${meta}</div>
+      </div>`;
+    }).join('');
+    if (wasAtBottom) el.scrollTop = el.scrollHeight;
+    // refresh convs to clear unread
+    refreshConvs();
+  }
+
+  async function sendChatReply() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text || !currentChatTgId) return;
+    input.value = '';
+    const user = localStorage.getItem('crm_user') || 'Chatter';
+    const res = await chatApiPost('/reply', { tg_id: currentChatTgId, text, chatter: user });
+    if (res && res.ok) {
+      await loadMsgs();
+    } else {
+      input.value = text;
+      alert('Fehler beim Senden. Ist der Userbot verbunden?');
+    }
+  }
+
+  // Start chat polling when chat page is open
+  let chatPageActive = false;
+  const origShowPage = showPage;
+  function showPage(p) {
+    origShowPage(p);
+    chatPageActive = (p === 'chat');
+    if (chatPageActive) {
+      refreshChatStatus();
+      refreshConvs();
+    }
+  }
+  setInterval(() => { if (chatPageActive) refreshConvs(); }, 5000);
+  setInterval(() => { if (chatPageActive) refreshChatStatus(); }, 15000);
 }
 </script>
 </body>
