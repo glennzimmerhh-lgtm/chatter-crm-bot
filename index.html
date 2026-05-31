@@ -285,6 +285,25 @@
   .msg-in .msg-meta { margin-left: 2px; color: var(--text2); }
   .msg-out .msg-meta { text-align: right; margin-right: 2px; color: rgba(0,0,0,.5); }
 
+  /* ── EMOJI BAR ── */
+  .emoji-bar {
+    display: flex; gap: 4px; padding: 8px 16px 4px;
+    background: rgba(0,0,0,.2);
+    border-top: 1px solid rgba(255,255,255,.05);
+    flex-wrap: nowrap; overflow-x: auto;
+  }
+  .emoji-bar::-webkit-scrollbar { display: none; }
+  .emoji-btn {
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 8px; padding: 5px 9px;
+    font-size: 16px; cursor: pointer; flex-shrink: 0;
+    transition: transform .1s, background .1s, box-shadow .1s;
+    line-height: 1;
+  }
+  .emoji-btn:hover { background: rgba(255,255,255,.1); transform: scale(1.18); box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+  .emoji-btn:active { transform: scale(.95); }
+
   /* ── REPLY BAR ── */
   .reply-bar {
     padding: 12px 16px;
@@ -767,6 +786,20 @@
         </div>
         <div class="msg-list" id="msg-list">
           <div class="chat-empty">← Gespräch auswählen</div>
+        </div>
+        <div class="emoji-bar">
+          <button class="emoji-btn" onclick="addEmoji('🔥')">🔥</button>
+          <button class="emoji-btn" onclick="addEmoji('💰')">💰</button>
+          <button class="emoji-btn" onclick="addEmoji('😍')">😍</button>
+          <button class="emoji-btn" onclick="addEmoji('👀')">👀</button>
+          <button class="emoji-btn" onclick="addEmoji('💪')">💪</button>
+          <button class="emoji-btn" onclick="addEmoji('✅')">✅</button>
+          <button class="emoji-btn" onclick="addEmoji('🎯')">🎯</button>
+          <button class="emoji-btn" onclick="addEmoji('😏')">😏</button>
+          <button class="emoji-btn" onclick="addEmoji('🤝')">🤝</button>
+          <button class="emoji-btn" onclick="addEmoji('💎')">💎</button>
+          <button class="emoji-btn" onclick="addEmoji('⚡')">⚡</button>
+          <button class="emoji-btn" onclick="addEmoji('🙏')">🙏</button>
         </div>
         <div class="reply-bar">
           <input type="text" id="chat-input" placeholder="Nachricht schreiben..." onkeydown="if(event.key==='Enter')sendChatReply()">
@@ -1594,6 +1627,15 @@ if (checkAuth()) {
     if (wasAtBottom) el.scrollTop = el.scrollHeight;
     // refresh convs to clear unread
     if (window._refreshConvs) window._refreshConvs();
+  }
+
+  window.addEmoji = function(emoji) {
+    const input = document.getElementById('chat-input');
+    if (!input) return;
+    const pos = input.selectionStart || input.value.length;
+    input.value = input.value.slice(0, pos) + emoji + input.value.slice(pos);
+    input.focus();
+    input.selectionStart = input.selectionEnd = pos + emoji.length;
   }
 
   window.sendChatReply = async function sendChatReply() {
