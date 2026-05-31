@@ -1,0 +1,3 @@
+[deploy]
+startCommand = "python main.py"
+healthcheckPath = "/status"
