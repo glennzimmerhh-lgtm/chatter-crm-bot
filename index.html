@@ -1268,7 +1268,8 @@ if (checkAuth()) {
       return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')">
         <div class="conv-avatar">${letter}</div>
         <div class="conv-info">
-          <div class="conv-name">${c.anon_id}</div>
+          <div class="conv-name">${c.internal_name || c.anon_id}</div>
+          ${c.internal_name ? `<div class="conv-iname">${c.anon_id}</div>` : ''}
           <div class="conv-preview">${c.last_msg || '—'}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
