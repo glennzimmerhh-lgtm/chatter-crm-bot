@@ -1171,8 +1171,8 @@ function showPage(name) {
   // Chat activation
   window.chatPageActive = (name === 'chat');
   if (name === 'chat') {
-    try { refreshChatStatus(); } catch(e) {}
-    try { refreshConvs(); } catch(e) {}
+    if (window._refreshChatStatus) window._refreshChatStatus();
+    if (window._refreshConvs) window._refreshConvs();
   }
   closeSidebar();
   window.scrollTo(0, 0);
@@ -1217,7 +1217,7 @@ if (checkAuth()) {
     } catch { return null; }
   }
 
-  async function refreshChatStatus() {
+  window._refreshChatStatus = async function refreshChatStatus() {
     const dot = document.getElementById('chat-status-dot');
     const txt = document.getElementById('chat-status-text');
     if (!getChatBackendUrl()) {
@@ -1235,7 +1235,7 @@ if (checkAuth()) {
     }
   }
 
-  async function refreshConvs() {
+  window._refreshConvs = async function refreshConvs() {
     const data = await chatApiGet('/conversations');
     if (!data) return;
     allConvs = data;
@@ -1379,7 +1379,7 @@ if (checkAuth()) {
     }).join('');
     if (wasAtBottom) el.scrollTop = el.scrollHeight;
     // refresh convs to clear unread
-    refreshConvs();
+    if (window._refreshConvs) window._refreshConvs();
   }
 
   async function sendChatReply() {
@@ -1399,8 +1399,8 @@ if (checkAuth()) {
 
   // Start chat polling when chat page is open
   window.chatPageActive = false;
-  setInterval(() => { if (window.chatPageActive) refreshConvs(); }, 5000);
-  setInterval(() => { if (window.chatPageActive) refreshChatStatus(); }, 15000);
+  setInterval(() => { if (window.chatPageActive && window._refreshConvs) window._refreshConvs(); }, 5000);
+  setInterval(() => { if (window.chatPageActive && window._refreshChatStatus) window._refreshChatStatus(); }, 15000);
 }
 </script>
 </body>
