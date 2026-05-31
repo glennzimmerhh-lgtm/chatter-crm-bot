@@ -1190,7 +1190,7 @@ if (checkAuth()) {
   let chatMsgInterval = null;
 
   function getChatBackendUrl() {
-    return (localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+    return (localStorage.getItem('crm_backend_url') || 'https://worker-production-806f.up.railway.app').replace(/\/$/, '');
   }
 
   async function chatApiGet(path) {
