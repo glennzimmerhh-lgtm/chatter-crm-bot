@@ -39,7 +39,8 @@ TG_API_ID   = os.environ.get('TG_API_ID', '')
 TG_API_HASH = os.environ.get('TG_API_HASH', '')
 TG_SESSION  = os.environ.get('TG_SESSION', '')
 PORT        = int(os.environ.get('PORT', 8000))
-DB_PATH     = '/tmp/chatter_crm.db'
+DB_PATH     = os.environ.get('DB_PATH', '/data/chatter_crm.db')
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # ── SETUP STATE (in-memory, nur für /setup flow) ──────────────────────────────
 setup_client: Optional[TelegramClient] = None
