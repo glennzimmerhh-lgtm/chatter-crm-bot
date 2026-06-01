@@ -457,6 +457,10 @@
   .tier-mid     { background: rgba(0,212,170,.10);   border: 1px solid rgba(0,212,170,.3);   color: #00d4aa; }
   .tier-low     { background: rgba(100,149,237,.10); border: 1px solid rgba(100,149,237,.3); color: #6495ed; }
   .tier-new     { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #888; }
+  .tier-tw1     { background: rgba(255,140,0,.10);   border: 1px solid rgba(255,140,0,.35);   color: #ff8c00; }
+  .tier-tw2     { background: rgba(255,80,0,.12);    border: 1px solid rgba(255,80,0,.4);     color: #ff5000; }
+  .tier-tw3     { background: rgba(220,30,30,.13);   border: 1px solid rgba(220,30,30,.4);    color: #e03030; }
+  .tier-tw4     { background: rgba(150,0,0,.18);     border: 1px solid rgba(180,0,0,.5);      color: #ff2020; box-shadow: 0 0 8px rgba(200,0,0,.2); }
 
   /* tier filter bar */
   .tier-filter-bar {
@@ -874,6 +878,7 @@
           <button class="tier-filter-btn" onclick="filterByTier('mid')">⚡ Mid</button>
           <button class="tier-filter-btn" onclick="filterByTier('low')">🌱 Low</button>
           <button class="tier-filter-btn" onclick="filterByTier('new')">🆕 Neu</button>
+          <button class="tier-filter-btn" onclick="filterByTier('tw')">⚠️ Time Waster</button>
         </div>
         <div id="conv-list-body">
           <div class="chat-empty" style="height:200px;">Keine Gespräche</div>
@@ -1695,6 +1700,9 @@ if (checkAuth()) {
     if (activeTierFilter !== 'all') {
       filtered = filtered.filter(c => {
         const spending = getSubscriberSpending(c.tg_id);
+        if (activeTierFilter === 'tw') {
+          return getTimeWasterTier(c.msg_count || 0, spending) !== null;
+        }
         return getSpendingTier(spending).key === activeTierFilter;
       });
     }
@@ -1718,6 +1726,15 @@ if (checkAuth()) {
     return               { key: 'new',   label: '🆕 Neu',     cls: 'tier-new'   };
   }
 
+  function getTimeWasterTier(msgCount, spending) {
+    if (spending > 0) return null; // hat was gekauft → kein Time Waster
+    if (msgCount >= 200) return { key: 'tw4', label: '☠️ TW 200+', cls: 'tier-tw4' };
+    if (msgCount >= 100) return { key: 'tw3', label: '💀 TW 100+', cls: 'tier-tw3' };
+    if (msgCount >=  50) return { key: 'tw2', label: '🚫 TW 50+',  cls: 'tier-tw2' };
+    if (msgCount >=  15) return { key: 'tw1', label: '⚠️ TW 15+',  cls: 'tier-tw1' };
+    return null;
+  }
+
   let activeTierFilter = 'all';
 
   window.filterByTier = function(tier) {
@@ -1737,6 +1754,10 @@ if (checkAuth()) {
     if (tier !== 'all') {
       filtered = filtered.filter(c => {
         const spending = getSubscriberSpending(c.tg_id);
+        if (tier === 'tw') {
+          const tw = getTimeWasterTier(c.msg_count || 0, spending);
+          return tw !== null;
+        }
         return getSpendingTier(spending).key === tier;
       });
     }
@@ -1756,10 +1777,12 @@ if (checkAuth()) {
       const spending = getSubscriberSpending(c.tg_id);
       const tier = getSpendingTier(spending);
       const spendBadge = spending > 0 ? `<span class="tier-badge ${tier.cls}" style="font-size:9px;padding:1px 6px;">${tier.label}</span>` : '';
+      const twTier = getTimeWasterTier(c.msg_count || 0, spending);
+      const twBadge = twTier ? `<span class="tier-badge ${twTier.cls}" style="font-size:9px;padding:1px 6px;">${twTier.label}</span>` : '';
       return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')">
         <div class="conv-avatar">${letter}</div>
         <div class="conv-info">
-          <div class="conv-name" style="display:flex;align-items:center;gap:6px;">${c.internal_name || c.anon_id}${spendBadge}</div>
+          <div class="conv-name" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">${c.internal_name || c.anon_id}${spendBadge}${twBadge}</div>
           ${c.internal_name ? `<div class="conv-iname">${c.anon_id}</div>` : ''}
           <div class="conv-preview">${c.last_msg || '—'}</div>
         </div>
@@ -1832,6 +1855,7 @@ if (checkAuth()) {
         <div class="profile-stat-row"><span>Erste Nachricht</span><span class="profile-stat-val">${firstDate}</span></div>
         <div class="profile-stat-row"><span>Letzte Nachricht</span><span class="profile-stat-val">${lastDate}</span></div>
         <div class="profile-stat-row"><span>Nachrichten</span><span class="profile-stat-val">${p.msg_count||0}</span></div>
+        ${(()=>{ const tw = getTimeWasterTier(p.msg_count||0, profileSpending); return tw ? `<div class="profile-stat-row"><span>Warnung</span><span class="tier-badge ${tw.cls}">${tw.label}</span></div>` : ''; })()}
       </div>
     `;
     // Auto-save name on blur
