@@ -28,6 +28,7 @@ TG_API_HASH = os.environ.get('TG_API_HASH', '')
 TG_SESSION  = os.environ.get('TG_SESSION', '')
 PORT        = int(os.environ.get('PORT', 8000))
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
+SUBSCRIBER_BACKUP_WEBHOOK = os.environ.get('SUBSCRIBER_BACKUP_WEBHOOK', '')  # Make.com → Google Sheets
 
 # ── SETUP STATE ───────────────────────────────────────────────────────────────
 setup_client: Optional[TelegramClient] = None
@@ -51,7 +52,9 @@ def init_db():
                 first_time    TEXT DEFAULT '',
                 unread        INTEGER DEFAULT 0,
                 msg_count     INTEGER DEFAULT 0,
-                time_waster   BOOLEAN DEFAULT FALSE
+                time_waster   BOOLEAN DEFAULT FALSE,
+                tg_username   TEXT DEFAULT '',
+                tg_phone      TEXT DEFAULT ''
             )''')
             c.execute('''CREATE TABLE IF NOT EXISTS messages (
                 id        SERIAL PRIMARY KEY,
@@ -84,28 +87,54 @@ def init_db():
         # migration: add time_waster if missing
             try:
                 c.execute('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS time_waster BOOLEAN DEFAULT FALSE')
+                c.execute("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_username TEXT DEFAULT ''")
+                c.execute("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_phone TEXT DEFAULT ''")
                 conn.commit()
             except Exception:
                 conn.rollback()
         conn.commit()
 
-def ensure_conv(tg_id: str) -> str:
+def ensure_conv(tg_id: str, username: str = '', phone: str = '') -> str:
+    is_new = False
+    anon_id = ''
     with db() as conn:
         with conn.cursor() as c:
             c.execute('SELECT anon_id FROM conversations WHERE tg_id=%s', (tg_id,))
             row = c.fetchone()
             if row:
+                # Update username/phone if newly available
+                if username or phone:
+                    c.execute('UPDATE conversations SET tg_username=COALESCE(NULLIF(tg_username,\'\'),%s), tg_phone=COALESCE(NULLIF(tg_phone,\'\'),%s) WHERE tg_id=%s',
+                              (username, phone, tg_id))
+                    conn.commit()
                 return row['anon_id']
             c.execute('SELECT COUNT(*) as n FROM conversations')
             n = c.fetchone()['n']
             anon_id = f'User #{1001 + n}'
             now = datetime.now().isoformat()
             c.execute(
-                'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count) VALUES (%s,%s,%s,%s,%s,1,0)',
-                (tg_id, anon_id, '', now, now)
+                'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count,tg_username,tg_phone) VALUES (%s,%s,%s,%s,%s,1,0,%s,%s)',
+                (tg_id, anon_id, '', now, now, username, phone)
             )
+            is_new = True
         conn.commit()
-        return anon_id
+    # Fire backup webhook for new subscribers
+    if is_new and SUBSCRIBER_BACKUP_WEBHOOK:
+        try:
+            import urllib.request, json as _j
+            payload = _j.dumps({
+                'tg_id': tg_id,
+                'anon_id': anon_id,
+                'username': username,
+                'phone': phone,
+                'first_seen': datetime.now().isoformat()
+            }).encode()
+            urllib.request.urlopen(
+                urllib.request.Request(SUBSCRIBER_BACKUP_WEBHOOK, data=payload,
+                                       headers={'Content-Type': 'application/json'}), timeout=5)
+        except Exception as e:
+            print(f'⚠️  Backup webhook failed: {e}')
+    return anon_id
 
 def save_msg(tg_id: str, text: str, direction: str, chatter: str = ''):
     ts = datetime.now().isoformat()
@@ -139,8 +168,11 @@ async def start_userbot():
         sender = await event.get_sender()
         if not isinstance(sender, User) or sender.bot:
             return
-        tg_id = str(sender.id)
-        ensure_conv(tg_id)
+        tg_id    = str(sender.id)
+        username = sender.username or ''
+        # phone only visible if in contacts or shared
+        phone    = getattr(sender, 'phone', None) or ''
+        ensure_conv(tg_id, username=username, phone=phone)
         if event.text:          text = event.text
         elif event.photo:       text = '[📷 Foto]'
         elif event.document:    text = '[📎 Datei]'
@@ -223,7 +255,7 @@ def status():
 def get_conversations():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster FROM conversations ORDER BY last_time DESC')
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone FROM conversations ORDER BY last_time DESC')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -231,7 +263,7 @@ def get_conversations():
 def get_profile(tg_id: str):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_time,first_time,unread,msg_count,time_waster FROM conversations WHERE tg_id=%s', (tg_id,))
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone FROM conversations WHERE tg_id=%s', (tg_id,))
             row = c.fetchone()
     if not row:
         raise HTTPException(404, 'Not found')
@@ -367,6 +399,48 @@ def remove_from_list(list_id: int, tg_id: str):
             c.execute('DELETE FROM list_members WHERE list_id=%s AND tg_id=%s', (list_id, tg_id))
         conn.commit()
     return {'ok': True}
+
+
+# ── SUBSCRIBER BACKUP ────────────────────────────────────────────────────────
+from fastapi.responses import StreamingResponse
+import csv, io
+
+@app.get('/subscribers')
+def get_subscribers():
+    """All subscribers with contact info — for backup/export"""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('''SELECT tg_id, anon_id, tg_username, tg_phone,
+                                internal_name, first_time, last_time, msg_count,
+                                time_waster
+                         FROM conversations ORDER BY first_time ASC''')
+            rows = [dict(r) for r in c.fetchall()]
+    return rows
+
+@app.get('/export/subscribers')
+def export_subscribers_csv():
+    """Download all subscribers as CSV"""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('''SELECT tg_id, anon_id, tg_username, tg_phone,
+                                internal_name, first_time, last_time, msg_count
+                         FROM conversations ORDER BY first_time ASC''')
+            rows = c.fetchall()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['TG ID','Anon ID','Username','Telefon','Interner Name','Erster Kontakt','Letzter Kontakt','Nachrichten'])
+    for r in rows:
+        username_fmt = f"@{r['tg_username']}" if r['tg_username'] else '—'
+        phone_fmt = f"+{r['tg_phone']}" if r['tg_phone'] else '—'
+        writer.writerow([r['tg_id'], r['anon_id'], username_fmt, phone_fmt,
+                         r['internal_name'] or '—', r['first_time'] or '—',
+                         r['last_time'] or '—', r['msg_count'] or 0])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="subscriber_backup.csv"'}
+    )
 
 # ── START ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':

@@ -885,6 +885,10 @@
       Chat
       <span id="chat-unread-badge" style="display:none;margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:2px 6px;">0</span>
     </div>
+    <div class="nav-item" onclick="showPage('subscribers')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Subscriber
+    </div>
     <div class="nav-item" onclick="showPage('scripts')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
       Scripts
@@ -1082,6 +1086,75 @@
   </div>
 
   <!-- CHAT PAGE -->
+  <!-- SUBSCRIBERS BACKUP PAGE -->
+  <div id="page-subscribers" style="display:none;">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div>
+        <h1 class="page-title">👥 Subscriber Backup</h1>
+        <p style="color:var(--text2);font-size:13px;margin-top:4px;">Jeder Kontakt der je geschrieben hat — Username oder Telefon — falls der Account gebannt wird.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="exportSubscribersCSV()" style="padding:9px 16px;border-radius:9px;border:1px solid rgba(0,212,170,.4);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;">⬇️ CSV Export</button>
+        <button onclick="loadSubscribersPage()" style="padding:9px 16px;border-radius:9px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#666;font-size:12px;cursor:pointer;">🔄 Aktualisieren</button>
+      </div>
+    </div>
+
+    <!-- Stats row -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Gesamt Subscriber</div>
+        <div id="sub-stat-total" style="font-size:24px;font-weight:800;">—</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Mit Username (@)</div>
+        <div id="sub-stat-username" style="font-size:24px;font-weight:800;color:var(--teal);">—</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Mit Telefon</div>
+        <div id="sub-stat-phone" style="font-size:24px;font-weight:800;color:#ffd166;">—</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Kein Kontakt</div>
+        <div id="sub-stat-none" style="font-size:24px;font-weight:800;color:var(--red);">—</div>
+      </div>
+    </div>
+
+    <!-- Backup webhook info -->
+    <div id="sub-webhook-info" style="display:none;background:rgba(0,212,170,.06);border:1px solid rgba(0,212,170,.2);border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:12px;">
+      <span style="color:var(--teal);font-weight:700;">✅ Auto-Backup aktiv</span>
+      <span style="color:var(--text2);margin-left:8px;">Neue Subscriber werden automatisch zu Google Sheets übertragen.</span>
+    </div>
+    <div id="sub-no-webhook" style="background:rgba(255,209,102,.06);border:1px solid rgba(255,209,102,.2);border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:12px;">
+      <span style="color:#ffd166;font-weight:700;">⚠️ Kein Auto-Backup</span>
+      <span style="color:var(--text2);margin-left:8px;">Gehe zu Einstellungen und trage den Make.com Webhook ein, damit neue Subscriber automatisch gesichert werden.</span>
+      <button onclick="openSettings()" style="margin-left:10px;padding:4px 10px;border-radius:6px;border:1px solid rgba(255,209,102,.3);background:rgba(255,209,102,.08);color:#ffd166;font-size:11px;cursor:pointer;">Jetzt einrichten →</button>
+    </div>
+
+    <!-- Search -->
+    <input type="text" id="sub-search" placeholder="Suchen nach Username, Telefon, Name..." oninput="filterSubscribers(this.value)"
+      style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:13px;color:var(--text);outline:none;margin-bottom:16px;">
+
+    <!-- Table -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="background:rgba(255,255,255,.03);border-bottom:1px solid var(--border);">
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">ID</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Kontakt</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Interner Name</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Erster Kontakt</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Nachrichten</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Ausgegeben</th>
+          </tr>
+        </thead>
+        <tbody id="sub-table-body">
+          <tr><td colspan="6" style="padding:30px;text-align:center;color:#444;">Lädt...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="sub-count-label" style="font-size:11px;color:#444;margin-top:10px;text-align:right;"></div>
+  </div>
+
   <!-- SCRIPTS PAGE -->
   <div id="page-scripts" style="display:none;">
     <div class="page-header">
@@ -1242,6 +1315,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       Chat
     </button>
+    <button class="mobile-nav-item" id="mnav-subscribers" onclick="showPage('subscribers')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      Backup
+    </button>
     <button class="mobile-nav-item" id="mnav-scripts" onclick="showPage('scripts')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
       Scripts
@@ -1262,6 +1339,8 @@
     </div>
     <label>Chat Backend URL (Railway)</label>
     <input type="text" id="cfg-backend-url" placeholder="https://dein-service.railway.app">
+    <label>Subscriber Backup Webhook (Make.com → Google Sheets)</label>
+    <input type="text" id="cfg-backup-webhook" placeholder="https://hook.eu1.make.com/...">
     <label>Sales Log CSV URL</label>
     <input type="text" id="cfg-sales-url" placeholder="https://docs.google.com/spreadsheets/d/.../gviz/tq?tqx=out:csv&sheet=Sales+Log">
     <label>Shifts CSV URL</label>
@@ -1580,6 +1659,8 @@ function openSettings() {
   document.getElementById('cfg-backend-url').value = s.backendUrl;
   document.getElementById('cfg-sales-url').value = s.salesUrl;
   document.getElementById('cfg-shifts-url').value = s.shiftsUrl;
+  const bwEl = document.getElementById('cfg-backup-webhook');
+  if (bwEl) bwEl.value = localStorage.getItem('crm_backup_webhook') || '';
   document.getElementById('settings-overlay').classList.add('open');
 }
 function closeSettings(e) {
@@ -1896,21 +1977,22 @@ function closeSidebar() {
 }
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','subscribers'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
   document.querySelectorAll('.nav-item').forEach((el, i) => {
-    el.classList.toggle('active', ['dashboard','sales','shifts','chat','scripts'][i] === name);
+    el.classList.toggle('active', ['dashboard','sales','shifts','chat','scripts','subscribers'][i] === name);
   });
   // Update mobile nav
-  ['dashboard','sales','shifts','chat','scripts'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','subscribers'].forEach(p => {
     const el = document.getElementById('mnav-' + p);
     if (el) el.classList.toggle('active', p === name);
   });
   // Chat activation
   window.chatPageActive = (name === 'chat');
   if (name === 'scripts') { renderScriptsPage(); }
+  if (name === 'subscribers') { loadSubscribersPage(); }
   if (name === 'chat') {
     if (window._refreshChatStatus) window._refreshChatStatus();
     if (window._refreshConvs) window._refreshConvs();
@@ -2120,6 +2202,8 @@ if (checkAuth()) {
         <div class="profile-big-avatar">${letter}</div>
         <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px;">${p.internal_name || p.anon_id}</div>
         <div class="profile-anon">${p.anon_id}</div>
+        ${p.tg_username ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;">@${p.tg_username}</div>` : ''}
+        ${p.tg_phone ? `<div style="font-size:11px;color:#55556a;margin-top:1px;">📞 +${p.tg_phone}</div>` : ''}
       </div>
 
       <div class="profile-section">
@@ -2171,6 +2255,7 @@ if (checkAuth()) {
         <div class="profile-stat-row"><span>Erste Nachricht</span><span class="profile-stat-val">${firstDate}</span></div>
         <div class="profile-stat-row"><span>Letzte Nachricht</span><span class="profile-stat-val">${lastDate}</span></div>
         <div class="profile-stat-row"><span>Nachrichten</span><span class="profile-stat-val">${p.msg_count||0}</span></div>
+        <div class="profile-stat-row"><span>Kontakt</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ Kein Kontakt'}</span></div>
 
       </div>
     `;
