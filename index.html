@@ -179,6 +179,111 @@
   .empty { text-align: center; padding: 40px 20px; color: var(--text3); font-size: 13px; }
   .empty svg { width: 32px; height: 32px; margin-bottom: 8px; opacity: 0.3; }
 
+
+  /* ── SCRIPTS ── */
+  .scripts-panel {
+    position: absolute; bottom: 100%; left: 0; right: 0; z-index: 50;
+    background: #13131f; border: 1px solid rgba(255,255,255,.08);
+    border-radius: 12px 12px 0 0; max-height: 280px; overflow-y: auto;
+    box-shadow: 0 -8px 32px rgba(0,0,0,.5);
+  }
+  body.light .scripts-panel { background: #fff; border-color: rgba(0,0,0,.1); box-shadow: 0 -8px 32px rgba(0,0,0,.12); }
+  .scripts-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px 8px; border-bottom: 1px solid rgba(255,255,255,.06);
+    font-size: 11px; font-weight: 700; color: #44445a; text-transform: uppercase; letter-spacing:.05em;
+  }
+  body.light .scripts-panel-header { border-color: rgba(0,0,0,.07); color: #999; }
+  .script-item {
+    padding: 10px 14px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,.04);
+    transition: background .12s;
+  }
+  .script-item:hover { background: rgba(0,212,170,.06); }
+  body.light .script-item:hover { background: rgba(0,168,138,.05); }
+  .script-item-name { font-size: 12px; font-weight: 700; color: var(--teal); margin-bottom: 2px; }
+  .script-item-text { font-size: 11px; color: #55556a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.light .script-item-text { color: #999; }
+  .script-add-row { padding: 10px 14px; display: flex; gap: 6px; border-top: 1px solid rgba(255,255,255,.06); }
+  body.light .script-add-row { border-color: rgba(0,0,0,.07); }
+  .script-add-row input {
+    flex: 1; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08);
+    border-radius: 7px; padding: 6px 10px; font-size: 11px; color: var(--text); outline: none;
+  }
+  body.light .script-add-row input { background: #f5f5f5; border-color: rgba(0,0,0,.1); color: #111; }
+  .scripts-btn {
+    padding: 7px 11px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1);
+    background: rgba(255,255,255,.05); color: #666; font-size: 12px; cursor: pointer;
+    transition: all .15s; white-space: nowrap; flex-shrink: 0;
+  }
+  .scripts-btn:hover { border-color: rgba(0,212,170,.4); color: var(--teal); background: rgba(0,212,170,.06); }
+  body.light .scripts-btn { background: #f5f5f5; border-color: rgba(0,0,0,.1); }
+
+  /* ── NOTE PRESETS ── */
+  .note-presets { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  .note-preset-tag {
+    padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 600;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09);
+    color: #666; cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .note-preset-tag:hover { background: rgba(0,212,170,.1); border-color: rgba(0,212,170,.35); color: var(--teal); }
+  body.light .note-preset-tag { background: #f5f5f5; border-color: rgba(0,0,0,.1); color: #888; }
+  body.light .note-preset-tag:hover { background: rgba(0,168,138,.08); border-color: rgba(0,168,138,.3); color: #00a88a; }
+
+  /* ── LISTS ── */
+  .list-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 700;
+    border: 1px solid transparent; cursor: default;
+  }
+  .list-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .list-section-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  .list-select-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.06); cursor: pointer; transition: all .15s; margin-bottom: 5px;
+  }
+  .list-select-item:hover { background: rgba(255,255,255,.06); }
+  .list-select-item.in-list { background: rgba(0,212,170,.07); border-color: rgba(0,212,170,.25); }
+  body.light .list-select-item { background: #f8f8f8; border-color: rgba(0,0,0,.08); }
+  body.light .list-select-item.in-list { background: rgba(0,168,138,.07); border-color: rgba(0,168,138,.2); }
+  .list-checkmark { font-size: 12px; color: var(--teal); }
+  .list-filter-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 700;
+    cursor: pointer; border: 1px solid rgba(255,255,255,.1);
+    background: rgba(255,255,255,.04); color: #666; transition: all .15s; white-space: nowrap;
+  }
+  .list-filter-btn.active { background: rgba(0,212,170,.1); border-color: rgba(0,212,170,.35); color: var(--teal); }
+  body.light .list-filter-btn { background: #f5f5f5; border-color: rgba(0,0,0,.1); color: #888; }
+
+  /* Lists management modal */
+  .lists-modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,.7); align-items: center; justify-content: center;
+  }
+  .lists-modal-overlay.open { display: flex; }
+  .lists-modal {
+    background: #13131f; border: 1px solid rgba(255,255,255,.1); border-radius: 16px;
+    padding: 24px; width: 380px; max-width: 94vw;
+  }
+  body.light .lists-modal { background: #fff; border-color: rgba(0,0,0,.1); }
+  .lists-modal h3 { font-size: 15px; font-weight: 800; margin: 0 0 16px; }
+  .new-list-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .new-list-row input {
+    flex: 1; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 8px; padding: 8px 12px; font-size: 12px; color: var(--text); outline: none;
+  }
+  body.light .new-list-row input { background: #f5f5f5; border-color: rgba(0,0,0,.1); color: #111; }
+  .new-list-color { width: 36px; height: 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); cursor: pointer; padding: 2px; }
+  .list-manage-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.06); margin-bottom: 6px;
+  }
+  body.light .list-manage-item { background: #f8f8f8; border-color: rgba(0,0,0,.08); }
+  .list-manage-del { background: none; border: none; color: #ff5c7a; cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 5px; }
+  .list-manage-del:hover { background: rgba(255,92,122,.1); }
+
   /* ── STATUS DOT ── */
   .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 6px; }
   .dot-green { background: var(--teal); }
@@ -508,6 +613,111 @@
   body.light .spending-block { background: rgba(0,168,138,.05); border-color: rgba(0,0,0,.08); }
 
 
+
+
+  /* ── SCRIPTS ── */
+  .scripts-panel {
+    position: absolute; bottom: 100%; left: 0; right: 0; z-index: 50;
+    background: #13131f; border: 1px solid rgba(255,255,255,.08);
+    border-radius: 12px 12px 0 0; max-height: 280px; overflow-y: auto;
+    box-shadow: 0 -8px 32px rgba(0,0,0,.5);
+  }
+  body.light .scripts-panel { background: #fff; border-color: rgba(0,0,0,.1); box-shadow: 0 -8px 32px rgba(0,0,0,.12); }
+  .scripts-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px 8px; border-bottom: 1px solid rgba(255,255,255,.06);
+    font-size: 11px; font-weight: 700; color: #44445a; text-transform: uppercase; letter-spacing:.05em;
+  }
+  body.light .scripts-panel-header { border-color: rgba(0,0,0,.07); color: #999; }
+  .script-item {
+    padding: 10px 14px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,.04);
+    transition: background .12s;
+  }
+  .script-item:hover { background: rgba(0,212,170,.06); }
+  body.light .script-item:hover { background: rgba(0,168,138,.05); }
+  .script-item-name { font-size: 12px; font-weight: 700; color: var(--teal); margin-bottom: 2px; }
+  .script-item-text { font-size: 11px; color: #55556a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.light .script-item-text { color: #999; }
+  .script-add-row { padding: 10px 14px; display: flex; gap: 6px; border-top: 1px solid rgba(255,255,255,.06); }
+  body.light .script-add-row { border-color: rgba(0,0,0,.07); }
+  .script-add-row input {
+    flex: 1; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08);
+    border-radius: 7px; padding: 6px 10px; font-size: 11px; color: var(--text); outline: none;
+  }
+  body.light .script-add-row input { background: #f5f5f5; border-color: rgba(0,0,0,.1); color: #111; }
+  .scripts-btn {
+    padding: 7px 11px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1);
+    background: rgba(255,255,255,.05); color: #666; font-size: 12px; cursor: pointer;
+    transition: all .15s; white-space: nowrap; flex-shrink: 0;
+  }
+  .scripts-btn:hover { border-color: rgba(0,212,170,.4); color: var(--teal); background: rgba(0,212,170,.06); }
+  body.light .scripts-btn { background: #f5f5f5; border-color: rgba(0,0,0,.1); }
+
+  /* ── NOTE PRESETS ── */
+  .note-presets { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  .note-preset-tag {
+    padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 600;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09);
+    color: #666; cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .note-preset-tag:hover { background: rgba(0,212,170,.1); border-color: rgba(0,212,170,.35); color: var(--teal); }
+  body.light .note-preset-tag { background: #f5f5f5; border-color: rgba(0,0,0,.1); color: #888; }
+  body.light .note-preset-tag:hover { background: rgba(0,168,138,.08); border-color: rgba(0,168,138,.3); color: #00a88a; }
+
+  /* ── LISTS ── */
+  .list-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 700;
+    border: 1px solid transparent; cursor: default;
+  }
+  .list-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .list-section-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  .list-select-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.06); cursor: pointer; transition: all .15s; margin-bottom: 5px;
+  }
+  .list-select-item:hover { background: rgba(255,255,255,.06); }
+  .list-select-item.in-list { background: rgba(0,212,170,.07); border-color: rgba(0,212,170,.25); }
+  body.light .list-select-item { background: #f8f8f8; border-color: rgba(0,0,0,.08); }
+  body.light .list-select-item.in-list { background: rgba(0,168,138,.07); border-color: rgba(0,168,138,.2); }
+  .list-checkmark { font-size: 12px; color: var(--teal); }
+  .list-filter-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 700;
+    cursor: pointer; border: 1px solid rgba(255,255,255,.1);
+    background: rgba(255,255,255,.04); color: #666; transition: all .15s; white-space: nowrap;
+  }
+  .list-filter-btn.active { background: rgba(0,212,170,.1); border-color: rgba(0,212,170,.35); color: var(--teal); }
+  body.light .list-filter-btn { background: #f5f5f5; border-color: rgba(0,0,0,.1); color: #888; }
+
+  /* Lists management modal */
+  .lists-modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,.7); align-items: center; justify-content: center;
+  }
+  .lists-modal-overlay.open { display: flex; }
+  .lists-modal {
+    background: #13131f; border: 1px solid rgba(255,255,255,.1); border-radius: 16px;
+    padding: 24px; width: 380px; max-width: 94vw;
+  }
+  body.light .lists-modal { background: #fff; border-color: rgba(0,0,0,.1); }
+  .lists-modal h3 { font-size: 15px; font-weight: 800; margin: 0 0 16px; }
+  .new-list-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .new-list-row input {
+    flex: 1; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 8px; padding: 8px 12px; font-size: 12px; color: var(--text); outline: none;
+  }
+  body.light .new-list-row input { background: #f5f5f5; border-color: rgba(0,0,0,.1); color: #111; }
+  .new-list-color { width: 36px; height: 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); cursor: pointer; padding: 2px; }
+  .list-manage-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.06); margin-bottom: 6px;
+  }
+  body.light .list-manage-item { background: #f8f8f8; border-color: rgba(0,0,0,.08); }
+  .list-manage-del { background: none; border: none; color: #ff5c7a; cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 5px; }
+  .list-manage-del:hover { background: rgba(255,92,122,.1); }
 
   /* ── STATUS DOT ── */
   .chat-status { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: #55556a; }
@@ -885,8 +1095,12 @@
     <div class="chat-layout">
       <!-- Gesprächsliste -->
       <div class="conv-list">
-        <div class="conv-search">
-          <input type="text" placeholder="Suchen..." id="conv-search-input" oninput="filterConvs(this.value)">
+        <div class="conv-search" style="display:flex;align-items:center;gap:6px;">
+          <input type="text" placeholder="Suchen..." id="conv-search-input" oninput="filterConvs(this.value)" style="flex:1;">
+          <button onclick="openListsModal()" title="Listen verwalten" style="background:none;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;color:#666;cursor:pointer;font-size:13px;flex-shrink:0;" >📋</button>
+        </div>
+        <div id="list-filter-bar" style="display:flex;gap:5px;padding:6px 12px 6px;overflow-x:auto;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.05);">
+          <button class="list-filter-btn active" onclick="filterByList(null)">Alle</button>
         </div>
         <div class="tier-filter-bar" id="tier-filter-bar">
           <button class="tier-filter-btn active" onclick="filterByTier('all')">Alle</button>
@@ -911,7 +1125,8 @@
         <div class="msg-list" id="msg-list">
           <div class="chat-empty">← Gespräch auswählen</div>
         </div>
-        <div class="emoji-bar">
+        <div class="emoji-bar" style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;gap:2px;">
           <button class="emoji-btn" onclick="addEmoji('🔥')">🔥</button>
           <button class="emoji-btn" onclick="addEmoji('💰')">💰</button>
           <button class="emoji-btn" onclick="addEmoji('😍')">😍</button>
@@ -924,6 +1139,11 @@
           <button class="emoji-btn" onclick="addEmoji('💎')">💎</button>
           <button class="emoji-btn" onclick="addEmoji('⚡')">⚡</button>
           <button class="emoji-btn" onclick="addEmoji('🙏')">🙏</button>
+        </div>
+        <!-- Scripts panel (hidden by default) -->
+        <div id="scripts-panel" class="scripts-panel" style="display:none;position:relative;">
+          </div>
+          <button class="scripts-btn" onclick="toggleScriptsPanel()" title="Scripts">📋 Scripts</button>
         </div>
         <div class="reply-bar">
           <input type="text" id="chat-input" placeholder="Nachricht schreiben..." onkeydown="if(event.key==='Enter')sendChatReply()">
@@ -1848,6 +2068,7 @@ if (checkAuth()) {
           Notizen
           <span class="profile-saved-tag" id="notes-saved">✓ Gespeichert</span>
         </div>
+        <div class="note-presets" id="note-presets-bar"></div>
         <textarea class="profile-textarea" id="prof-notes" placeholder="Interessen, Kaufverhalten, Vorlieben...">${p.notes||''}</textarea>
         <button class="profile-save-btn" onclick="saveProfile('${tgId}')">💾 Speichern</button>
       </div>
@@ -1865,6 +2086,12 @@ if (checkAuth()) {
             cursor:pointer;transition:all .2s;letter-spacing:.03em;">
           ${p.time_waster ? '🗑️ Als Time Waster markiert — Klick zum Entfernen' : '🗑️ Als Time Waster markieren'}
         </button>
+      </div>
+
+      <div class="profile-section" id="prof-lists-section">
+        <div class="profile-label">📋 Listen</div>
+        <div id="prof-lists-tags" class="list-section-tags"></div>
+        <div id="prof-lists-select"></div>
       </div>
 
       <div class="profile-section">
@@ -1885,12 +2112,259 @@ if (checkAuth()) {
     `;
     // Auto-save name on blur
     document.getElementById('prof-iname').addEventListener('blur', () => saveProfile(tgId));
+    renderNotePresets();
+    renderProfileLists(tgId);
     // Auto-save notes with debounce
     let notesTimer;
     document.getElementById('prof-notes').addEventListener('input', () => {
       clearTimeout(notesTimer);
       notesTimer = setTimeout(() => saveProfile(tgId, true), 1200);
     });
+  }
+
+
+  // ══════════════════════════════════════════════════════════
+  // SCRIPTS FEATURE
+  // ══════════════════════════════════════════════════════════
+  function getScripts() {
+    try { return JSON.parse(localStorage.getItem('crm_scripts') || '[]'); } catch { return []; }
+  }
+  function saveScripts(arr) { localStorage.setItem('crm_scripts', JSON.stringify(arr)); }
+
+  window.toggleScriptsPanel = function() {
+    const panel = document.getElementById('scripts-panel');
+    const open = panel.style.display !== 'none';
+    if (open) { panel.style.display = 'none'; return; }
+    renderScriptsPanel();
+    panel.style.display = 'block';
+  }
+
+  function renderScriptsPanel() {
+    const panel = document.getElementById('scripts-panel');
+    const scripts = getScripts();
+    panel.innerHTML = `
+      <div class="scripts-panel-header">
+        <span>📋 Scripts</span>
+        <span style="font-size:10px;color:#333;">Klick → ins Textfeld</span>
+      </div>
+      ${scripts.length === 0 ? '<div style="padding:14px;text-align:center;color:#444;font-size:12px;">Noch keine Scripts. Unten erstellen.</div>' : ''}
+      ${scripts.map((s,i) => `
+        <div style="display:flex;align-items:stretch;">
+          <div class="script-item" style="flex:1;" onclick="useScript(${i})">
+            <div class="script-item-name">${s.name}</div>
+            <div class="script-item-text">${s.text}</div>
+          </div>
+          <button onclick="deleteScript(${i})" style="background:none;border:none;color:#ff5c7a;cursor:pointer;padding:0 12px;font-size:14px;" title="Löschen">×</button>
+        </div>`).join('')}
+      <div class="script-add-row">
+        <input id="new-script-name" type="text" placeholder="Name..." style="max-width:100px;">
+        <input id="new-script-text" type="text" placeholder="Nachricht..." style="flex:2;">
+        <button class="scripts-btn" onclick="addScript()">+ Add</button>
+      </div>`;
+  }
+
+  window.useScript = function(i) {
+    const scripts = getScripts();
+    const s = scripts[i];
+    if (!s) return;
+    const input = document.getElementById('chat-input');
+    if (input) { input.value = s.text; input.focus(); }
+    document.getElementById('scripts-panel').style.display = 'none';
+  }
+
+  window.addScript = function() {
+    const name = document.getElementById('new-script-name')?.value.trim();
+    const text = document.getElementById('new-script-text')?.value.trim();
+    if (!name || !text) return;
+    const scripts = getScripts();
+    scripts.push({ name, text });
+    saveScripts(scripts);
+    renderScriptsPanel();
+  }
+
+  window.deleteScript = function(i) {
+    const scripts = getScripts();
+    scripts.splice(i, 1);
+    saveScripts(scripts);
+    renderScriptsPanel();
+  }
+
+  // Close scripts panel when clicking outside
+  document.addEventListener('click', function(e) {
+    const panel = document.getElementById('scripts-panel');
+    if (!panel || panel.style.display === 'none') return;
+    if (!panel.contains(e.target) && !e.target.closest('.scripts-btn')) {
+      panel.style.display = 'none';
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // NOTE PRESETS FEATURE
+  // ══════════════════════════════════════════════════════════
+  const DEFAULT_PRESETS = ['Mag Sport 🏋️', 'Zahlt schnell 💸', 'Immer fragen ❓', 'Kein Interesse ❌', 'Hot Lead 🔥', 'VIP 👑', 'Deutsch 🇩🇪'];
+
+  function getNotePresets() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('crm_note_presets') || 'null');
+      return saved || DEFAULT_PRESETS;
+    } catch { return DEFAULT_PRESETS; }
+  }
+
+  function renderNotePresets() {
+    const bar = document.getElementById('note-presets-bar');
+    if (!bar) return;
+    const presets = getNotePresets();
+    bar.innerHTML = presets.map(p =>
+      `<span class="note-preset-tag" onclick="insertNotePreset('${p.replace(/'/g, "\'")}')">${p}</span>`
+    ).join('') +
+    `<span class="note-preset-tag" style="color:#00d4aa;border-color:rgba(0,212,170,.3);" onclick="addNotePreset()">+ Neu</span>`;
+  }
+
+  window.insertNotePreset = function(text) {
+    const ta = document.getElementById('prof-notes');
+    if (!ta) return;
+    const sep = ta.value ? '\n' : '';
+    ta.value += sep + text;
+    ta.focus();
+    // trigger auto-save
+    ta.dispatchEvent(new Event('input'));
+  }
+
+  window.addNotePreset = function() {
+    const name = prompt('Neues Preset (kurzer Text):');
+    if (!name?.trim()) return;
+    const presets = getNotePresets();
+    presets.push(name.trim());
+    localStorage.setItem('crm_note_presets', JSON.stringify(presets));
+    renderNotePresets();
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // LISTS FEATURE
+  // ══════════════════════════════════════════════════════════
+  let allLists = [];
+  let activeListFilter = null;
+
+  async function fetchLists() {
+    const base = getChatBackendUrl();
+    if (!base) return;
+    try {
+      const r = await fetch(base + '/lists');
+      allLists = await r.json();
+    } catch { allLists = []; }
+    renderListFilterBar();
+  }
+
+  function renderListFilterBar() {
+    const bar = document.getElementById('list-filter-bar');
+    if (!bar) return;
+    bar.innerHTML = `<button class="list-filter-btn ${activeListFilter === null ? 'active' : ''}" onclick="filterByList(null)">Alle</button>` +
+      allLists.map(l => `
+        <button class="list-filter-btn ${activeListFilter === l.id ? 'active' : ''}"
+          onclick="filterByList(${l.id})"
+          style="border-color:${l.color}40;${activeListFilter === l.id ? 'background:'+l.color+'18;color:'+l.color+';' : ''}">
+          <span class="list-dot" style="background:${l.color};"></span>${l.name}
+        </button>`).join('');
+  }
+
+  window.filterByList = function(listId) {
+    activeListFilter = listId;
+    renderListFilterBar();
+    if (listId === null) {
+      renderConvList(allConvs);
+    } else {
+      const list = allLists.find(l => l.id === listId);
+      if (!list) return;
+      const filtered = allConvs.filter(c => list.members.includes(c.tg_id));
+      renderConvList(filtered);
+    }
+  }
+
+  window.openListsModal = async function() {
+    await fetchLists();
+    renderListsManageBody();
+    document.getElementById('lists-modal-overlay').classList.add('open');
+  }
+
+  window.closeListsModal = function() {
+    document.getElementById('lists-modal-overlay').classList.remove('open');
+  }
+
+  function renderListsManageBody() {
+    const body = document.getElementById('lists-manage-body');
+    if (!body) return;
+    if (!allLists.length) {
+      body.innerHTML = '<div style="text-align:center;color:#444;font-size:12px;padding:14px;">Noch keine Listen</div>';
+      return;
+    }
+    body.innerHTML = allLists.map(l => `
+      <div class="list-manage-item">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="list-dot" style="background:${l.color};width:10px;height:10px;"></span>
+          <span style="font-size:13px;font-weight:600;">${l.name}</span>
+          <span style="font-size:11px;color:#555;">${(l.members||[]).length} Subscriber</span>
+        </div>
+        <button class="list-manage-del" onclick="deleteList(${l.id})">🗑️</button>
+      </div>`).join('');
+  }
+
+  window.createList = async function() {
+    const name = document.getElementById('new-list-name')?.value.trim();
+    const color = document.getElementById('new-list-color')?.value || '#00d4aa';
+    if (!name) return;
+    const base = getChatBackendUrl();
+    if (!base) return;
+    await fetch(base + '/lists', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, color })
+    });
+    document.getElementById('new-list-name').value = '';
+    await fetchLists();
+    renderListsManageBody();
+  }
+
+  window.deleteList = async function(listId) {
+    const base = getChatBackendUrl();
+    if (!base) return;
+    await fetch(base + '/lists/' + listId, { method: 'DELETE' });
+    await fetchLists();
+    renderListsManageBody();
+    if (activeListFilter === listId) filterByList(null);
+  }
+
+  async function renderProfileLists(tgId) {
+    const sec = document.getElementById('prof-lists-select');
+    const tagsEl = document.getElementById('prof-lists-tags');
+    if (!sec || !tagsEl) return;
+    await fetchLists();
+    const inLists = allLists.filter(l => (l.members||[]).includes(tgId));
+    tagsEl.innerHTML = inLists.map(l =>
+      `<span class="list-tag" style="background:${l.color}18;border-color:${l.color}40;color:${l.color};">
+        <span class="list-dot" style="background:${l.color};"></span>${l.name}
+      </span>`).join('') || '<span style="font-size:11px;color:#444;">Keine Listen</span>';
+
+    sec.innerHTML = allLists.map(l => {
+      const inList = (l.members||[]).includes(tgId);
+      return `<div class="list-select-item ${inList ? 'in-list' : ''}" onclick="toggleListMember(${l.id},'${tgId}',${inList})">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="list-dot" style="background:${l.color};"></span>
+          <span style="font-size:12px;font-weight:600;">${l.name}</span>
+        </div>
+        ${inList ? '<span class="list-checkmark">✓</span>' : '<span style="font-size:11px;color:#333;">+</span>'}
+      </div>`;
+    }).join('') || '<span style="font-size:11px;color:#444;">Keine Listen vorhanden</span>';
+  }
+
+  window.toggleListMember = async function(listId, tgId, inList) {
+    const base = getChatBackendUrl();
+    if (!base) return;
+    const method = inList ? 'DELETE' : 'POST';
+    await fetch(`${base}/lists/${listId}/members/${tgId}`, { method });
+    await renderProfileLists(tgId);
+    renderListFilterBar();
+    // update conv list badges
+    await fetchLists();
+    renderConvList(allConvs);
   }
 
   window.toggleTimeWaster = async function toggleTimeWaster(tgId, currentVal) {
@@ -2009,6 +2483,20 @@ if (checkAuth()) {
       <button onclick="submitSale()" style="flex:2;background:linear-gradient(135deg,#00d4aa,#00b894);border:none;border-radius:9px;padding:11px;color:#000;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(0,212,170,.4);">✅ Sale bestätigen</button>
     </div>
     <div id="sale-feedback" style="text-align:center;margin-top:12px;font-size:13px;color:var(--teal);display:none;"></div>
+  </div>
+</div>
+
+<!-- Lists Management Modal -->
+<div id="lists-modal-overlay" class="lists-modal-overlay" onclick="if(event.target===this)closeListsModal()">
+  <div class="lists-modal">
+    <h3>📋 Listen verwalten</h3>
+    <div class="new-list-row">
+      <input id="new-list-name" type="text" placeholder="Listenname..." onkeydown="if(event.key==='Enter')createList()">
+      <input id="new-list-color" class="new-list-color" type="color" value="#00d4aa">
+      <button class="profile-save-btn" onclick="createList()" style="padding:8px 14px;">+ Erstellen</button>
+    </div>
+    <div id="lists-manage-body"></div>
+    <button onclick="closeListsModal()" style="width:100%;margin-top:10px;padding:9px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;cursor:pointer;font-size:12px;">Schließen</button>
   </div>
 </div>
 </body>

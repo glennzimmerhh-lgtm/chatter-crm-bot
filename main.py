@@ -71,6 +71,16 @@ def init_db():
                 chatter   TEXT DEFAULT '',
                 timestamp TEXT NOT NULL
             )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS lists (
+                id    SERIAL PRIMARY KEY,
+                name  TEXT NOT NULL,
+                color TEXT DEFAULT '#00d4aa'
+            )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS list_members (
+                list_id INTEGER NOT NULL,
+                tg_id   TEXT NOT NULL,
+                PRIMARY KEY (list_id, tg_id)
+            )''')
         # migration: add time_waster if missing
             try:
                 c.execute('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS time_waster BOOLEAN DEFAULT FALSE')
@@ -306,6 +316,57 @@ def get_sales(limit: int = 200):
             c.execute('SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp FROM sales ORDER BY timestamp DESC LIMIT %s', (limit,))
             rows = c.fetchall()
     return [dict(r) for r in rows]
+
+
+# ── LISTS ────────────────────────────────────────────────────────────────────
+class ListCreate(BaseModel):
+    name: str
+    color: str = '#00d4aa'
+
+@app.get('/lists')
+def get_lists():
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT id,name,color FROM lists ORDER BY id')
+            lists = [dict(r) for r in c.fetchall()]
+            for lst in lists:
+                c.execute('SELECT tg_id FROM list_members WHERE list_id=%s', (lst['id'],))
+                lst['members'] = [r['tg_id'] for r in c.fetchall()]
+    return lists
+
+@app.post('/lists')
+def create_list(body: ListCreate):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('INSERT INTO lists (name,color) VALUES (%s,%s) RETURNING id', (body.name, body.color))
+            lid = c.fetchone()['id']
+        conn.commit()
+    return {'ok': True, 'id': lid}
+
+@app.delete('/lists/{list_id}')
+def delete_list(list_id: int):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('DELETE FROM list_members WHERE list_id=%s', (list_id,))
+            c.execute('DELETE FROM lists WHERE id=%s', (list_id,))
+        conn.commit()
+    return {'ok': True}
+
+@app.post('/lists/{list_id}/members/{tg_id}')
+def add_to_list(list_id: int, tg_id: str):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('INSERT INTO list_members (list_id,tg_id) VALUES (%s,%s) ON CONFLICT DO NOTHING', (list_id, tg_id))
+        conn.commit()
+    return {'ok': True}
+
+@app.delete('/lists/{list_id}/members/{tg_id}')
+def remove_from_list(list_id: int, tg_id: str):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('DELETE FROM list_members WHERE list_id=%s AND tg_id=%s', (list_id, tg_id))
+        conn.commit()
+    return {'ok': True}
 
 # ── START ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
