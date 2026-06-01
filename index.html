@@ -446,6 +446,48 @@
   .profile-stat-val { font-weight: 600; color: var(--text); }
   .profile-saved-tag { font-size: 10px; color: var(--teal); margin-left: 6px; opacity: 0; transition: opacity .3s; }
 
+  /* ── SPENDING TIERS ── */
+  .tier-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase; flex-shrink: 0;
+  }
+  .tier-whale   { background: rgba(180,130,255,.15); border: 1px solid rgba(180,130,255,.4); color: #b482ff; }
+  .tier-big     { background: rgba(255,209,102,.12); border: 1px solid rgba(255,209,102,.35); color: #ffd166; }
+  .tier-mid     { background: rgba(0,212,170,.10);   border: 1px solid rgba(0,212,170,.3);   color: #00d4aa; }
+  .tier-low     { background: rgba(100,149,237,.10); border: 1px solid rgba(100,149,237,.3); color: #6495ed; }
+  .tier-new     { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #888; }
+
+  /* tier filter bar */
+  .tier-filter-bar {
+    display: flex; gap: 5px; padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(255,255,255,.05);
+    overflow-x: auto; flex-shrink: 0;
+  }
+  .tier-filter-bar::-webkit-scrollbar { display: none; }
+  .tier-filter-btn {
+    padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 700;
+    letter-spacing: .04em; cursor: pointer; border: 1px solid transparent;
+    white-space: nowrap; transition: all .15s; background: rgba(255,255,255,.04);
+    color: #666; border-color: rgba(255,255,255,.08);
+  }
+  .tier-filter-btn.active { color: var(--teal); border-color: rgba(0,212,170,.4); background: rgba(0,212,170,.08); }
+
+  /* spending stat in profile */
+  .spending-block {
+    background: linear-gradient(135deg, rgba(0,212,170,.07), rgba(180,130,255,.07));
+    border: 1px solid rgba(255,255,255,.06); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 4px;
+  }
+  .spending-amount { font-size: 22px; font-weight: 800; color: var(--text); }
+  .spending-tier-label { font-size: 11px; margin-top: 4px; }
+
+  body.light .tier-filter-btn { background: rgba(0,0,0,.04); color: #888; border-color: rgba(0,0,0,.1); }
+  body.light .tier-filter-btn.active { color: #00a88a; border-color: rgba(0,168,138,.4); background: rgba(0,168,138,.08); }
+  body.light .spending-block { background: rgba(0,168,138,.05); border-color: rgba(0,0,0,.08); }
+
+
+
   /* ── STATUS DOT ── */
   .chat-status { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: #55556a; }
   .chat-status-dot {
@@ -824,6 +866,14 @@
       <div class="conv-list">
         <div class="conv-search">
           <input type="text" placeholder="Suchen..." id="conv-search-input" oninput="filterConvs(this.value)">
+        </div>
+        <div class="tier-filter-bar" id="tier-filter-bar">
+          <button class="tier-filter-btn active" onclick="filterByTier('all')">Alle</button>
+          <button class="tier-filter-btn" onclick="filterByTier('whale')">🐋 Whale</button>
+          <button class="tier-filter-btn" onclick="filterByTier('big')">💰 Big</button>
+          <button class="tier-filter-btn" onclick="filterByTier('mid')">⚡ Mid</button>
+          <button class="tier-filter-btn" onclick="filterByTier('low')">🌱 Low</button>
+          <button class="tier-filter-btn" onclick="filterByTier('new')">🆕 Neu</button>
         </div>
         <div id="conv-list-body">
           <div class="chat-empty" style="height:200px;">Keine Gespräche</div>
@@ -1637,7 +1687,59 @@ if (checkAuth()) {
   }
 
   window.filterConvs = function filterConvs(q) {
-    const filtered = q ? allConvs.filter(c => c.anon_id.toLowerCase().includes(q.toLowerCase()) || (c.last_msg||'').toLowerCase().includes(q.toLowerCase())) : allConvs;
+    let filtered = q ? allConvs.filter(c =>
+      c.anon_id.toLowerCase().includes(q.toLowerCase()) ||
+      (c.internal_name||'').toLowerCase().includes(q.toLowerCase()) ||
+      (c.last_msg||'').toLowerCase().includes(q.toLowerCase())
+    ) : [...allConvs];
+    if (activeTierFilter !== 'all') {
+      filtered = filtered.filter(c => {
+        const spending = getSubscriberSpending(c.tg_id);
+        return getSpendingTier(spending).key === activeTierFilter;
+      });
+    }
+    renderConvList(filtered);
+  }
+
+
+  // ── SPENDING TIERS ───────────────────────────────────────────────
+  function getSubscriberSpending(tgId) {
+    if (!crmSalesData || !crmSalesData.length) return 0;
+    return crmSalesData
+      .filter(s => s.tg_id === tgId)
+      .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+  }
+
+  function getSpendingTier(amount) {
+    if (amount >= 500)  return { key: 'whale', label: '🐋 Whale',   cls: 'tier-whale' };
+    if (amount >= 200)  return { key: 'big',   label: '💰 Big',     cls: 'tier-big'   };
+    if (amount >= 50)   return { key: 'mid',   label: '⚡ Mid',     cls: 'tier-mid'   };
+    if (amount > 0)     return { key: 'low',   label: '🌱 Low',     cls: 'tier-low'   };
+    return               { key: 'new',   label: '🆕 Neu',     cls: 'tier-new'   };
+  }
+
+  let activeTierFilter = 'all';
+
+  window.filterByTier = function(tier) {
+    activeTierFilter = tier;
+    // update button states
+    document.querySelectorAll('.tier-filter-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.textContent.includes(tier === 'all' ? 'Alle' :
+        tier === 'whale' ? 'Whale' : tier === 'big' ? 'Big' :
+        tier === 'mid' ? 'Mid' : tier === 'low' ? 'Low' : 'Neu'));
+    });
+    const q = document.getElementById('conv-search-input')?.value || '';
+    let filtered = q ? allConvs.filter(c =>
+      c.anon_id.toLowerCase().includes(q.toLowerCase()) ||
+      (c.internal_name||'').toLowerCase().includes(q.toLowerCase()) ||
+      (c.last_msg||'').toLowerCase().includes(q.toLowerCase())
+    ) : [...allConvs];
+    if (tier !== 'all') {
+      filtered = filtered.filter(c => {
+        const spending = getSubscriberSpending(c.tg_id);
+        return getSpendingTier(spending).key === tier;
+      });
+    }
     renderConvList(filtered);
   }
 
@@ -1651,10 +1753,13 @@ if (checkAuth()) {
       const active = c.tg_id === currentChatTgId ? 'active' : '';
       const letter = c.anon_id.replace('User #', '#').slice(0,2);
       const time = c.last_time ? new Date(c.last_time).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
+      const spending = getSubscriberSpending(c.tg_id);
+      const tier = getSpendingTier(spending);
+      const spendBadge = spending > 0 ? `<span class="tier-badge ${tier.cls}" style="font-size:9px;padding:1px 6px;">${tier.label}</span>` : '';
       return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')">
         <div class="conv-avatar">${letter}</div>
         <div class="conv-info">
-          <div class="conv-name">${c.internal_name || c.anon_id}</div>
+          <div class="conv-name" style="display:flex;align-items:center;gap:6px;">${c.internal_name || c.anon_id}${spendBadge}</div>
           ${c.internal_name ? `<div class="conv-iname">${c.anon_id}</div>` : ''}
           <div class="conv-preview">${c.last_msg || '—'}</div>
         </div>
@@ -1684,6 +1789,9 @@ if (checkAuth()) {
     document.getElementById('msg-conv-name').textContent = displayName;
     const panel = document.getElementById('profile-panel');
     const letter = p.anon_id.replace('User #','#').slice(0,2);
+    const profileSpending = getSubscriberSpending(tgId);
+    const profileTier = getSpendingTier(profileSpending);
+    const spendingEuros = profileSpending.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const firstDate = p.first_time ? new Date(p.first_time).toLocaleDateString('de-DE') : '—';
     const lastDate  = p.last_time  ? new Date(p.last_time).toLocaleDateString('de-DE')  : '—';
     panel.innerHTML = `
@@ -1709,6 +1817,14 @@ if (checkAuth()) {
 
       <div class="profile-section">
         <button class="sale-btn" onclick="openSaleModal('${tgId}','${p.internal_name||p.anon_id}')">💰 Sale melden</button>
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-label">💰 Spending</div>
+        <div class="spending-block">
+          <div class="spending-amount">${spendingEuros} €</div>
+          <div class="spending-tier-label"><span class="tier-badge ${profileTier.cls}">${profileTier.label}</span></div>
+        </div>
       </div>
 
       <div class="profile-section">
