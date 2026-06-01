@@ -1086,36 +1086,54 @@
   <div id="page-scripts" style="display:none;">
     <div class="page-header">
       <h1 class="page-title">📋 Scripts</h1>
-      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Vorgefertigte Nachrichten für den Chat — Klick im Chat lädt sie direkt ins Textfeld.</p>
+      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Mehrere Nachrichten pro Script + Shortkey zum schnellen Aufrufen im Chat.</p>
     </div>
 
-    <!-- Add new script -->
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:20px;">
-      <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">+ Neues Script</div>
-      <div style="display:flex;flex-direction:column;gap:10px;">
-        <div>
-          <label style="font-size:11px;color:var(--text2);margin-bottom:5px;display:block;">Name</label>
-          <input id="sp-new-name" type="text" placeholder="z.B. Opener, Closer, Upsell..." class="profile-input" style="width:100%;box-sizing:border-box;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+
+      <!-- LEFT: Script Editor -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;" id="sp-editor-title">+ Neues Script</div>
+
+        <div style="display:flex;gap:10px;margin-bottom:12px;">
+          <div style="flex:1;">
+            <label style="font-size:10px;color:var(--text2);margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:.05em;">Name</label>
+            <input id="sp-new-name" type="text" placeholder="z.B. Opener..." class="profile-input" style="width:100%;box-sizing:border-box;">
+          </div>
+          <div style="width:120px;">
+            <label style="font-size:10px;color:var(--text2);margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:.05em;">Shortkey</label>
+            <input id="sp-new-key" type="text" placeholder="/op oder F1" class="profile-input" style="width:100%;box-sizing:border-box;font-family:monospace;">
+          </div>
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--text2);margin-bottom:5px;display:block;">Kategorie (optional)</label>
-          <input id="sp-new-cat" type="text" placeholder="z.B. Opener, Follow-Up, Offer..." class="profile-input" style="width:100%;box-sizing:border-box;">
+
+        <div style="margin-bottom:12px;">
+          <label style="font-size:10px;color:var(--text2);margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:.05em;">Kategorie</label>
+          <input id="sp-new-cat" type="text" placeholder="Opener, Closer, Upsell..." class="profile-input" style="width:100%;box-sizing:border-box;">
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--text2);margin-bottom:5px;display:block;">Nachricht</label>
-          <textarea id="sp-new-text" placeholder="Deine Nachricht..." class="profile-textarea" style="width:100%;box-sizing:border-box;min-height:90px;resize:vertical;"></textarea>
+
+        <!-- Messages list -->
+        <div style="margin-bottom:10px;">
+          <label style="font-size:10px;color:var(--text2);margin-bottom:8px;display:block;text-transform:uppercase;letter-spacing:.05em;">Nachrichten (Reihenfolge = Sende-Reihenfolge)</label>
+          <div id="sp-msgs-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:6px;">
+            <textarea id="sp-new-msg-input" placeholder="Nachricht hinzufügen..." class="profile-textarea" style="flex:1;min-height:70px;resize:vertical;box-sizing:border-box;"></textarea>
+          </div>
+          <button onclick="addMsgToEditor()" style="margin-top:6px;padding:7px 14px;border-radius:8px;border:1px solid rgba(0,212,170,.4);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;">+ Nachricht hinzufügen</button>
         </div>
-        <button onclick="addScriptFromPage()" style="align-self:flex-start;padding:10px 22px;border-radius:10px;border:none;background:var(--teal);color:#000;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-          ✅ Script speichern
-        </button>
+
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button onclick="saveScriptFromEditor()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--teal);color:#000;font-size:13px;font-weight:700;cursor:pointer;">✅ Speichern</button>
+          <button onclick="resetScriptEditor()" style="padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:none;color:#666;font-size:12px;cursor:pointer;">Reset</button>
+        </div>
       </div>
-    </div>
 
-    <!-- Category filter tabs -->
-    <div id="sp-cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;"></div>
-
-    <!-- Scripts grid -->
-    <div id="sp-scripts-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+      <!-- RIGHT: Scripts list -->
+      <div>
+        <!-- Category filter -->
+        <div id="sp-cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;"></div>
+        <!-- Grid -->
+        <div id="sp-scripts-grid" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </div>
     </div>
   </div>
 
@@ -2172,21 +2190,98 @@ if (checkAuth()) {
   // ══════════════════════════════════════════════════════════
   // SCRIPTS FEATURE
   // ══════════════════════════════════════════════════════════
-  // ── SCRIPTS PAGE ─────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+  // SCRIPTS — multi-message + shortkey
+  // ══════════════════════════════════════════════════════════
   let activeCatFilter = 'all';
+  let editorMsgs = [];      // messages being built in the editor
+  let editingScriptIdx = -1; // -1 = new, >=0 = editing existing
 
-  window.addScriptFromPage = function() {
-    const name  = document.getElementById('sp-new-name')?.value.trim();
-    const cat   = document.getElementById('sp-new-cat')?.value.trim() || 'Allgemein';
-    const text  = document.getElementById('sp-new-text')?.value.trim();
-    if (!name || !text) { alert('Name und Nachricht sind Pflicht.'); return; }
+  function getScripts() {
+    try { return JSON.parse(localStorage.getItem('crm_scripts') || '[]'); } catch { return []; }
+  }
+  function saveScripts(arr) { localStorage.setItem('crm_scripts', JSON.stringify(arr)); }
+
+  // ── Editor helpers ────────────────────────────────────────
+  window.addMsgToEditor = function() {
+    const inp = document.getElementById('sp-new-msg-input');
+    if (!inp?.value.trim()) return;
+    editorMsgs.push(inp.value.trim());
+    inp.value = '';
+    inp.focus();
+    renderEditorMsgList();
+  }
+
+  function renderEditorMsgList() {
+    const el = document.getElementById('sp-msgs-list');
+    if (!el) return;
+    if (!editorMsgs.length) {
+      el.innerHTML = '<div style="font-size:11px;color:#444;padding:6px 0;">Noch keine Nachrichten — oben eingeben und + klicken.</div>';
+      return;
+    }
+    el.innerHTML = editorMsgs.map((m, i) => `
+      <div style="display:flex;align-items:flex-start;gap:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:8px 10px;">
+        <span style="font-size:10px;font-weight:800;color:var(--teal);min-width:18px;margin-top:1px;">${i+1}.</span>
+        <span style="flex:1;font-size:12px;color:var(--text);line-height:1.45;white-space:pre-wrap;">${m}</span>
+        <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;">
+          ${i > 0 ? `<button onclick="moveMsgUp(${i})" style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:1px 4px;">▲</button>` : '<span style="width:22px;"></span>'}
+          ${i < editorMsgs.length-1 ? `<button onclick="moveMsgDown(${i})" style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:1px 4px;">▼</button>` : '<span style="width:22px;"></span>'}
+        </div>
+        <button onclick="removeMsgFromEditor(${i})" style="background:none;border:none;color:#ff5c7a;cursor:pointer;font-size:14px;padding:0 4px;">×</button>
+      </div>`).join('');
+  }
+
+  window.moveMsgUp = function(i) { if(i>0){[editorMsgs[i-1],editorMsgs[i]]=[editorMsgs[i],editorMsgs[i-1]]; renderEditorMsgList();} }
+  window.moveMsgDown = function(i) { if(i<editorMsgs.length-1){[editorMsgs[i+1],editorMsgs[i]]=[editorMsgs[i],editorMsgs[i+1]]; renderEditorMsgList();} }
+  window.removeMsgFromEditor = function(i) { editorMsgs.splice(i,1); renderEditorMsgList(); }
+
+  window.saveScriptFromEditor = function() {
+    const name = document.getElementById('sp-new-name')?.value.trim();
+    const key  = document.getElementById('sp-new-key')?.value.trim();
+    const cat  = document.getElementById('sp-new-cat')?.value.trim() || 'Allgemein';
+    // also grab anything typed but not yet added
+    const lastMsg = document.getElementById('sp-new-msg-input')?.value.trim();
+    if (lastMsg) editorMsgs.push(lastMsg);
+    if (!name) { alert('Name ist Pflicht.'); return; }
+    if (!editorMsgs.length) { alert('Mindestens eine Nachricht eingeben.'); return; }
     const scripts = getScripts();
-    scripts.push({ name, cat, text });
+    const entry = { name, key, cat, messages: [...editorMsgs] };
+    if (editingScriptIdx >= 0) {
+      scripts[editingScriptIdx] = entry;
+    } else {
+      scripts.push(entry);
+    }
     saveScripts(scripts);
-    document.getElementById('sp-new-name').value = '';
-    document.getElementById('sp-new-cat').value = '';
-    document.getElementById('sp-new-text').value = '';
+    resetScriptEditor();
     renderScriptsPage();
+  }
+
+  window.resetScriptEditor = function() {
+    editorMsgs = [];
+    editingScriptIdx = -1;
+    ['sp-new-name','sp-new-key','sp-new-cat','sp-new-msg-input'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    const title = document.getElementById('sp-editor-title');
+    if (title) title.textContent = '+ Neues Script';
+    renderEditorMsgList();
+  }
+
+  window.editScriptFromPage = function(i) {
+    const scripts = getScripts();
+    const s = scripts[i];
+    editingScriptIdx = i;
+    editorMsgs = [...(s.messages || (s.text ? [s.text] : []))];
+    document.getElementById('sp-new-name').value = s.name || '';
+    document.getElementById('sp-new-key').value  = s.key  || '';
+    document.getElementById('sp-new-cat').value  = s.cat  || '';
+    document.getElementById('sp-new-msg-input').value = '';
+    const title = document.getElementById('sp-editor-title');
+    if (title) title.textContent = '✏️ Script bearbeiten';
+    renderEditorMsgList();
+    document.getElementById('sp-new-name').focus();
+    document.getElementById('sp-new-name').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   window.deleteScriptFromPage = function(i) {
@@ -2194,18 +2289,7 @@ if (checkAuth()) {
     const scripts = getScripts();
     scripts.splice(i, 1);
     saveScripts(scripts);
-    renderScriptsPage();
-  }
-
-  window.editScript = function(i) {
-    const scripts = getScripts();
-    const s = scripts[i];
-    document.getElementById('sp-new-name').value = s.name;
-    document.getElementById('sp-new-cat').value = s.cat || '';
-    document.getElementById('sp-new-text').value = s.text;
-    scripts.splice(i, 1);
-    saveScripts(scripts);
-    document.getElementById('sp-new-name').focus();
+    if (editingScriptIdx === i) resetScriptEditor();
     renderScriptsPage();
   }
 
@@ -2220,41 +2304,125 @@ if (checkAuth()) {
     const tabs = document.getElementById('sp-cat-tabs');
     if (!grid || !tabs) return;
 
+    // Init editor msg list on first render
+    renderEditorMsgList();
+
     // Categories
     const cats = ['all', ...new Set(scripts.map(s => s.cat || 'Allgemein'))];
     tabs.innerHTML = cats.map(c => `
-      <button onclick="filterScriptsByCat('${c}')"
-        style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;
-          border:1px solid ${c === activeCatFilter ? 'rgba(0,212,170,.5)' : 'rgba(255,255,255,.1)'};
-          background:${c === activeCatFilter ? 'rgba(0,212,170,.12)' : 'rgba(255,255,255,.04)'};
-          color:${c === activeCatFilter ? 'var(--teal)' : '#666'};transition:all .15s;">
-        ${c === 'all' ? 'Alle' : c} ${c !== 'all' ? `<span style="opacity:.5;">(${scripts.filter(s=>(s.cat||'Allgemein')===c).length})</span>` : ''}
+      <button onclick="filterScriptsByCat('${c.replace(/'/g,"\'")}'"
+        style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${c===activeCatFilter?'rgba(0,212,170,.5)':'rgba(255,255,255,.1)'};background:${c===activeCatFilter?'rgba(0,212,170,.12)':'rgba(255,255,255,.04)'};color:${c===activeCatFilter?'var(--teal)':'#666'};transition:all .15s;">
+        ${c==='all'?'Alle':c} ${c!=='all'?`<span style="opacity:.5;">(${scripts.filter(s=>(s.cat||'Allgemein')===c).length})</span>`:''}
       </button>`).join('');
 
     const filtered = activeCatFilter === 'all' ? scripts : scripts.filter(s => (s.cat||'Allgemein') === activeCatFilter);
 
     if (!filtered.length) {
-      grid.innerHTML = '<div style="color:#444;font-size:13px;padding:20px;">Noch keine Scripts in dieser Kategorie.</div>';
+      grid.innerHTML = '<div style="color:#444;font-size:13px;padding:10px;">Noch keine Scripts.</div>';
       return;
     }
 
-    grid.innerHTML = filtered.map((s, visIdx) => {
+    grid.innerHTML = filtered.map((s) => {
       const realIdx = scripts.indexOf(s);
-      return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;transition:border-color .15s;" onmouseover="this.style.borderColor='rgba(0,212,170,.25)'" onmouseout="this.style.borderColor='var(--border)'">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:8px;">
+      const msgs = s.messages || (s.text ? [s.text] : []);
+      return `<div style="background:var(--bg2);border:1px solid ${editingScriptIdx===realIdx?'rgba(0,212,170,.4)':'var(--border)'};border-radius:12px;padding:14px;transition:border-color .15s;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
           <div>
             <div style="font-size:13px;font-weight:700;color:var(--text);">${s.name}</div>
-            <div style="font-size:10px;color:var(--teal);margin-top:2px;font-weight:600;">${s.cat || 'Allgemein'}</div>
+            <div style="display:flex;gap:6px;margin-top:3px;align-items:center;">
+              <span style="font-size:10px;color:var(--teal);font-weight:600;">${s.cat||'Allgemein'}</span>
+              ${s.key ? `<code style="font-size:10px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:1px 6px;color:#aaa;">${s.key}</code>` : ''}
+              <span style="font-size:10px;color:#444;">${msgs.length} Nachricht${msgs.length!==1?'en':''}</span>
+            </div>
           </div>
           <div style="display:flex;gap:4px;flex-shrink:0;">
-            <button onclick="editScript(${realIdx})" title="Bearbeiten" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:7px;padding:4px 8px;color:#666;cursor:pointer;font-size:11px;">✏️</button>
-            <button onclick="deleteScriptFromPage(${realIdx})" title="Löschen" style="background:rgba(255,92,122,.08);border:1px solid rgba(255,92,122,.2);border-radius:7px;padding:4px 8px;color:#ff5c7a;cursor:pointer;font-size:11px;">🗑️</button>
+            <button onclick="editScriptFromPage(${realIdx})" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:7px;padding:4px 8px;color:#666;cursor:pointer;font-size:11px;">✏️</button>
+            <button onclick="deleteScriptFromPage(${realIdx})" style="background:rgba(255,92,122,.08);border:1px solid rgba(255,92,122,.2);border-radius:7px;padding:4px 8px;color:#ff5c7a;cursor:pointer;font-size:11px;">🗑️</button>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px;white-space:pre-wrap;">${s.text}</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          ${msgs.map((m,mi) => `
+            <div style="display:flex;gap:6px;align-items:flex-start;">
+              <span style="font-size:10px;font-weight:800;color:var(--teal);min-width:16px;margin-top:2px;">${mi+1}.</span>
+              <span style="font-size:11px;color:var(--text2);line-height:1.45;white-space:pre-wrap;">${m}</span>
+            </div>`).join('')}
+        </div>
       </div>`;
     }).join('');
   }
+
+  // ── Chat panel: scripts dropdown (updated for multi-msg) ──
+  window.toggleScriptsPanel = function() {
+    const panel = document.getElementById('scripts-panel');
+    const open = panel.style.display !== 'none';
+    if (open) { panel.style.display = 'none'; return; }
+    renderScriptsChatPanel();
+    panel.style.display = 'block';
+  }
+
+  function renderScriptsChatPanel() {
+    const panel = document.getElementById('scripts-panel');
+    const scripts = getScripts();
+    panel.innerHTML = `
+      <div class="scripts-panel-header">
+        <span>📋 Scripts</span>
+        <span style="font-size:10px;color:#333;">Klick → Nachricht 1 laden</span>
+      </div>
+      ${!scripts.length ? '<div style="padding:14px;text-align:center;color:#444;font-size:12px;">Keine Scripts. Auf der Scripts-Seite erstellen.</div>' : ''}
+      ${scripts.map((s,i) => {
+        const msgs = s.messages || (s.text ? [s.text] : []);
+        return `<div style="display:flex;align-items:stretch;">
+          <div class="script-item" style="flex:1;" onclick="useScript(${i})">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div class="script-item-name">${s.name}</div>
+              ${s.key ? `<code style="font-size:9px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 5px;color:#777;">${s.key}</code>` : ''}
+              <span style="font-size:9px;color:#444;margin-left:auto;">${msgs.length} Msg</span>
+            </div>
+            <div class="script-item-text">${msgs[0] || '—'}</div>
+          </div>
+        </div>`;
+      }).join('')}`;
+  }
+
+  // Track which message index we're on per script
+  let scriptMsgPointers = {};
+
+  window.useScript = function(i) {
+    const scripts = getScripts();
+    const s = scripts[i];
+    if (!s) return;
+    const msgs = s.messages || (s.text ? [s.text] : []);
+    if (!msgs.length) return;
+    const ptr = scriptMsgPointers[i] || 0;
+    const input = document.getElementById('chat-input');
+    if (input) {
+      input.value = msgs[ptr];
+      input.focus();
+    }
+    // advance pointer (cycle)
+    scriptMsgPointers[i] = (ptr + 1) % msgs.length;
+    document.getElementById('scripts-panel').style.display = 'none';
+  }
+
+  // Shortkey: type /key in chat input → auto-load script msg 1
+  document.addEventListener('input', function(e) {
+    if (e.target.id !== 'chat-input') return;
+    const val = e.target.value;
+    const scripts = getScripts();
+    for (let i = 0; i < scripts.length; i++) {
+      const s = scripts[i];
+      if (!s.key) continue;
+      const key = s.key.startsWith('/') ? s.key : '/' + s.key;
+      if (val === key) {
+        const msgs = s.messages || (s.text ? [s.text] : []);
+        if (msgs.length) {
+          e.target.value = msgs[scriptMsgPointers[i] || 0];
+          scriptMsgPointers[i] = ((scriptMsgPointers[i]||0) + 1) % msgs.length;
+        }
+        break;
+      }
+    }
+  });
 
   function getScripts() {
     try { return JSON.parse(localStorage.getItem('crm_scripts') || '[]'); } catch { return []; }
