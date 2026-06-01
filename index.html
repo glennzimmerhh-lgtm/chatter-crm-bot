@@ -885,6 +885,10 @@
       Chat
       <span id="chat-unread-badge" style="display:none;margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:2px 6px;">0</span>
     </div>
+    <div class="nav-item" onclick="showPage('scripts')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      Scripts
+    </div>
     <div class="nav-section">System</div>
     <div class="nav-item" onclick="openSettings()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
@@ -1078,6 +1082,43 @@
   </div>
 
   <!-- CHAT PAGE -->
+  <!-- SCRIPTS PAGE -->
+  <div id="page-scripts" style="display:none;">
+    <div class="page-header">
+      <h1 class="page-title">📋 Scripts</h1>
+      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Vorgefertigte Nachrichten für den Chat — Klick im Chat lädt sie direkt ins Textfeld.</p>
+    </div>
+
+    <!-- Add new script -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:20px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">+ Neues Script</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div>
+          <label style="font-size:11px;color:var(--text2);margin-bottom:5px;display:block;">Name</label>
+          <input id="sp-new-name" type="text" placeholder="z.B. Opener, Closer, Upsell..." class="profile-input" style="width:100%;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text2);margin-bottom:5px;display:block;">Kategorie (optional)</label>
+          <input id="sp-new-cat" type="text" placeholder="z.B. Opener, Follow-Up, Offer..." class="profile-input" style="width:100%;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text2);margin-bottom:5px;display:block;">Nachricht</label>
+          <textarea id="sp-new-text" placeholder="Deine Nachricht..." class="profile-textarea" style="width:100%;box-sizing:border-box;min-height:90px;resize:vertical;"></textarea>
+        </div>
+        <button onclick="addScriptFromPage()" style="align-self:flex-start;padding:10px 22px;border-radius:10px;border:none;background:var(--teal);color:#000;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+          ✅ Script speichern
+        </button>
+      </div>
+    </div>
+
+    <!-- Category filter tabs -->
+    <div id="sp-cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;"></div>
+
+    <!-- Scripts grid -->
+    <div id="sp-scripts-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+    </div>
+  </div>
+
   <div id="page-chat" style="display:none;">
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -1182,6 +1223,10 @@
     <button class="mobile-nav-item" id="mnav-chat" onclick="showPage('chat')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       Chat
+    </button>
+    <button class="mobile-nav-item" id="mnav-scripts" onclick="showPage('scripts')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+      Scripts
     </button>
     <button class="mobile-nav-item" id="mnav-settings" onclick="openSettings()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
@@ -1833,20 +1878,21 @@ function closeSidebar() {
 }
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
   document.querySelectorAll('.nav-item').forEach((el, i) => {
-    el.classList.toggle('active', ['dashboard','sales','shifts','chat'][i] === name);
+    el.classList.toggle('active', ['dashboard','sales','shifts','chat','scripts'][i] === name);
   });
   // Update mobile nav
-  ['dashboard','sales','shifts','chat'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts'].forEach(p => {
     const el = document.getElementById('mnav-' + p);
     if (el) el.classList.toggle('active', p === name);
   });
   // Chat activation
   window.chatPageActive = (name === 'chat');
+  if (name === 'scripts') { renderScriptsPage(); }
   if (name === 'chat') {
     if (window._refreshChatStatus) window._refreshChatStatus();
     if (window._refreshConvs) window._refreshConvs();
@@ -2126,6 +2172,90 @@ if (checkAuth()) {
   // ══════════════════════════════════════════════════════════
   // SCRIPTS FEATURE
   // ══════════════════════════════════════════════════════════
+  // ── SCRIPTS PAGE ─────────────────────────────────────────
+  let activeCatFilter = 'all';
+
+  window.addScriptFromPage = function() {
+    const name  = document.getElementById('sp-new-name')?.value.trim();
+    const cat   = document.getElementById('sp-new-cat')?.value.trim() || 'Allgemein';
+    const text  = document.getElementById('sp-new-text')?.value.trim();
+    if (!name || !text) { alert('Name und Nachricht sind Pflicht.'); return; }
+    const scripts = getScripts();
+    scripts.push({ name, cat, text });
+    saveScripts(scripts);
+    document.getElementById('sp-new-name').value = '';
+    document.getElementById('sp-new-cat').value = '';
+    document.getElementById('sp-new-text').value = '';
+    renderScriptsPage();
+  }
+
+  window.deleteScriptFromPage = function(i) {
+    if (!confirm('Script löschen?')) return;
+    const scripts = getScripts();
+    scripts.splice(i, 1);
+    saveScripts(scripts);
+    renderScriptsPage();
+  }
+
+  window.editScript = function(i) {
+    const scripts = getScripts();
+    const s = scripts[i];
+    document.getElementById('sp-new-name').value = s.name;
+    document.getElementById('sp-new-cat').value = s.cat || '';
+    document.getElementById('sp-new-text').value = s.text;
+    scripts.splice(i, 1);
+    saveScripts(scripts);
+    document.getElementById('sp-new-name').focus();
+    renderScriptsPage();
+  }
+
+  window.filterScriptsByCat = function(cat) {
+    activeCatFilter = cat;
+    renderScriptsPage();
+  }
+
+  function renderScriptsPage() {
+    const scripts = getScripts();
+    const grid = document.getElementById('sp-scripts-grid');
+    const tabs = document.getElementById('sp-cat-tabs');
+    if (!grid || !tabs) return;
+
+    // Categories
+    const cats = ['all', ...new Set(scripts.map(s => s.cat || 'Allgemein'))];
+    tabs.innerHTML = cats.map(c => `
+      <button onclick="filterScriptsByCat('${c}')"
+        style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;
+          border:1px solid ${c === activeCatFilter ? 'rgba(0,212,170,.5)' : 'rgba(255,255,255,.1)'};
+          background:${c === activeCatFilter ? 'rgba(0,212,170,.12)' : 'rgba(255,255,255,.04)'};
+          color:${c === activeCatFilter ? 'var(--teal)' : '#666'};transition:all .15s;">
+        ${c === 'all' ? 'Alle' : c} ${c !== 'all' ? `<span style="opacity:.5;">(${scripts.filter(s=>(s.cat||'Allgemein')===c).length})</span>` : ''}
+      </button>`).join('');
+
+    const filtered = activeCatFilter === 'all' ? scripts : scripts.filter(s => (s.cat||'Allgemein') === activeCatFilter);
+
+    if (!filtered.length) {
+      grid.innerHTML = '<div style="color:#444;font-size:13px;padding:20px;">Noch keine Scripts in dieser Kategorie.</div>';
+      return;
+    }
+
+    grid.innerHTML = filtered.map((s, visIdx) => {
+      const realIdx = scripts.indexOf(s);
+      return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;transition:border-color .15s;" onmouseover="this.style.borderColor='rgba(0,212,170,.25)'" onmouseout="this.style.borderColor='var(--border)'">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:8px;">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--text);">${s.name}</div>
+            <div style="font-size:10px;color:var(--teal);margin-top:2px;font-weight:600;">${s.cat || 'Allgemein'}</div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0;">
+            <button onclick="editScript(${realIdx})" title="Bearbeiten" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:7px;padding:4px 8px;color:#666;cursor:pointer;font-size:11px;">✏️</button>
+            <button onclick="deleteScriptFromPage(${realIdx})" title="Löschen" style="background:rgba(255,92,122,.08);border:1px solid rgba(255,92,122,.2);border-radius:7px;padding:4px 8px;color:#ff5c7a;cursor:pointer;font-size:11px;">🗑️</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px;white-space:pre-wrap;">${s.text}</div>
+      </div>`;
+    }).join('');
+  }
+
   function getScripts() {
     try { return JSON.parse(localStorage.getItem('crm_scripts') || '[]'); } catch { return []; }
   }
