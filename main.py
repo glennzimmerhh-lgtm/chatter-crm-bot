@@ -50,7 +50,8 @@ def init_db():
                 last_time     TEXT DEFAULT '',
                 first_time    TEXT DEFAULT '',
                 unread        INTEGER DEFAULT 0,
-                msg_count     INTEGER DEFAULT 0
+                msg_count     INTEGER DEFAULT 0,
+                time_waster   BOOLEAN DEFAULT FALSE
             )''')
             c.execute('''CREATE TABLE IF NOT EXISTS messages (
                 id        SERIAL PRIMARY KEY,
@@ -70,6 +71,12 @@ def init_db():
                 chatter   TEXT DEFAULT '',
                 timestamp TEXT NOT NULL
             )''')
+        # migration: add time_waster if missing
+            try:
+                c.execute('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS time_waster BOOLEAN DEFAULT FALSE')
+                conn.commit()
+            except Exception:
+                conn.rollback()
         conn.commit()
 
 def ensure_conv(tg_id: str) -> str:
@@ -206,7 +213,7 @@ def status():
 def get_conversations():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count FROM conversations ORDER BY last_time DESC')
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster FROM conversations ORDER BY last_time DESC')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -214,7 +221,7 @@ def get_conversations():
 def get_profile(tg_id: str):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_time,first_time,unread,msg_count FROM conversations WHERE tg_id=%s', (tg_id,))
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_time,first_time,unread,msg_count,time_waster FROM conversations WHERE tg_id=%s', (tg_id,))
             row = c.fetchone()
     if not row:
         raise HTTPException(404, 'Not found')
@@ -223,6 +230,7 @@ def get_profile(tg_id: str):
 class ProfileUpdate(BaseModel):
     internal_name: Optional[str] = None
     notes: Optional[str] = None
+    time_waster: Optional[bool] = None
 
 @app.patch('/profile/{tg_id}')
 def update_profile(tg_id: str, body: ProfileUpdate):
@@ -232,6 +240,8 @@ def update_profile(tg_id: str, body: ProfileUpdate):
                 c.execute('UPDATE conversations SET internal_name=%s WHERE tg_id=%s', (body.internal_name, tg_id))
             if body.notes is not None:
                 c.execute('UPDATE conversations SET notes=%s WHERE tg_id=%s', (body.notes, tg_id))
+            if body.time_waster is not None:
+                c.execute('UPDATE conversations SET time_waster=%s WHERE tg_id=%s', (body.time_waster, tg_id))
         conn.commit()
     return {'ok': True}
 
