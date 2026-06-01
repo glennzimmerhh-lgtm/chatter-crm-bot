@@ -446,6 +446,22 @@
   .profile-stat-val { font-weight: 600; color: var(--text); }
   .profile-saved-tag { font-size: 10px; color: var(--teal); margin-left: 6px; opacity: 0; transition: opacity .3s; }
 
+
+  /* ── SPEND PILL in conv list ── */
+  .spend-pill {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 46px; padding: 2px 7px; border-radius: 8px;
+    font-size: 10px; font-weight: 800; letter-spacing: .02em;
+    flex-shrink: 0; white-space: nowrap;
+  }
+  .spend-pill-whale   { background: rgba(180,130,255,.18); color: #b482ff; border: 1px solid rgba(180,130,255,.4); }
+  .spend-pill-big     { background: rgba(255,209,102,.15); color: #ffd166; border: 1px solid rgba(255,209,102,.4); }
+  .spend-pill-mid     { background: rgba(0,212,170,.12);   color: #00d4aa; border: 1px solid rgba(0,212,170,.35); }
+  .spend-pill-low     { background: rgba(100,149,237,.12); color: #6495ed; border: 1px solid rgba(100,149,237,.35); }
+  .spend-pill-starter { background: rgba(180,220,255,.08); color: #aaccff; border: 1px solid rgba(180,220,255,.2); }
+  .spend-pill-new     { background: rgba(255,255,255,.04); color: #444; border: 1px solid rgba(255,255,255,.07); }
+  body.light .spend-pill-new { color: #bbb; }
+
   /* ── SPENDING TIERS ── */
   .tier-badge {
     display: inline-flex; align-items: center; gap: 4px;
@@ -456,6 +472,7 @@
   .tier-big     { background: rgba(255,209,102,.12); border: 1px solid rgba(255,209,102,.35); color: #ffd166; }
   .tier-mid     { background: rgba(0,212,170,.10);   border: 1px solid rgba(0,212,170,.3);   color: #00d4aa; }
   .tier-low     { background: rgba(100,149,237,.10); border: 1px solid rgba(100,149,237,.3); color: #6495ed; }
+  .tier-starter { background: rgba(180,220,255,.08); border: 1px solid rgba(180,220,255,.25); color: #aaccff; }
   .tier-new     { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #888; }
   .tier-tw1     { background: rgba(255,140,0,.10);   border: 1px solid rgba(255,140,0,.35);   color: #ff8c00; }
   .tier-tw2     { background: rgba(255,80,0,.12);    border: 1px solid rgba(255,80,0,.4);     color: #ff5000; }
@@ -1717,11 +1734,12 @@ if (checkAuth()) {
   }
 
   function getSpendingTier(amount) {
-    if (amount >= 500)  return { key: 'whale', label: '🐋 Whale',   cls: 'tier-whale' };
-    if (amount >= 200)  return { key: 'big',   label: '💰 Big',     cls: 'tier-big'   };
-    if (amount >= 50)   return { key: 'mid',   label: '⚡ Mid',     cls: 'tier-mid'   };
-    if (amount > 0)     return { key: 'low',   label: '🌱 Low',     cls: 'tier-low'   };
-    return               { key: 'new',   label: '🆕 Neu',     cls: 'tier-new'   };
+    if (amount >= 200) return { key: 'whale', label: '🐋 Whale', cls: 'tier-whale' };
+    if (amount >= 100) return { key: 'big',   label: '💰 Big',   cls: 'tier-big'   };
+    if (amount >= 50)  return { key: 'mid',   label: '⚡ Mid',   cls: 'tier-mid'   };
+    if (amount >= 15)  return { key: 'low',   label: '🌱 Low',   cls: 'tier-low'   };
+    if (amount > 0)    return { key: 'starter', label: '💫 Starter', cls: 'tier-starter' };
+    return              { key: 'new',   label: '🆕 Neu',   cls: 'tier-new'   };
   }
 
   function getTimeWasterBadge(isTimeWaster) {
@@ -1766,13 +1784,19 @@ if (checkAuth()) {
       const time = c.last_time ? new Date(c.last_time).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
       const spending = getSubscriberSpending(c.tg_id);
       const tier = getSpendingTier(spending);
-      const spendBadge = spending > 0 ? `<span class="tier-badge ${tier.cls}" style="font-size:9px;padding:1px 6px;">${tier.label}</span>` : '';
+      const pillCls = 'spend-pill-' + tier.key;
+      const pillAmt = spending > 0
+        ? spending.toLocaleString('de-DE', {minimumFractionDigits: 0, maximumFractionDigits: 0}) + '€'
+        : '—';
       const twTier = getTimeWasterBadge(c.time_waster);
-      const twBadge = twTier ? `<span class="tier-badge ${twTier.cls}" style="font-size:9px;padding:1px 6px;">${twTier.label}</span>` : '';
-      return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')">
-        <div class="conv-avatar">${letter}</div>
+      const twBadge = twTier ? `<span class="tier-badge ${twTier.cls}" style="font-size:9px;padding:1px 5px;margin-left:3px;">${twTier.label}</span>` : '';
+      return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;margin-right:10px;">
+          <div class="conv-avatar" style="margin:0;">${letter}</div>
+          <div class="spend-pill ${pillCls}">${pillAmt}</div>
+        </div>
         <div class="conv-info">
-          <div class="conv-name" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">${c.internal_name || c.anon_id}${spendBadge}${twBadge}</div>
+          <div class="conv-name">${c.internal_name || c.anon_id}${twBadge}</div>
           ${c.internal_name ? `<div class="conv-iname">${c.anon_id}</div>` : ''}
           <div class="conv-preview">${c.last_msg || '—'}</div>
         </div>
