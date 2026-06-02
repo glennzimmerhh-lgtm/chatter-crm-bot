@@ -12,6 +12,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
 
+import urllib.parse
 import uvicorn
 import psycopg2
 import psycopg2.extras
@@ -41,18 +42,28 @@ setup_phone: str = ''
 # ── CONNECTION POOL ───────────────────────────────────────────────────────────
 _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 
+def _parse_db_url(url: str) -> dict:
+    """Parse postgres:// or postgresql:// URL into psycopg2 kwargs."""
+    url = url.replace('postgres://', 'postgresql://', 1)
+    r = urllib.parse.urlparse(url)
+    return {
+        'host':     r.hostname,
+        'port':     r.port or 5432,
+        'user':     urllib.parse.unquote(r.username or ''),
+        'password': urllib.parse.unquote(r.password or ''),
+        'dbname':   r.path.lstrip('/'),
+    }
+
 def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None or _pool.closed:
-        # Railway gibt postgres:// — psycopg2 braucht postgresql://
-        dsn = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+        params = _parse_db_url(DATABASE_URL)
         _pool = psycopg2.pool.ThreadedConnectionPool(
-            minconn=2,
-            maxconn=20,
-            dsn=dsn,
-            cursor_factory=psycopg2.extras.RealDictCursor
+            2, 20,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+            **params
         )
-        print('✅ DB connection pool created (2–20 connections)')
+        print(f'✅ DB pool connected to {params["host"]}:{params["port"]}/{params["dbname"]}')
     return _pool
 
 @contextmanager
