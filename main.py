@@ -22,6 +22,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from telethon import TelegramClient, events
+from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 from telethon.tl.types import User
 
@@ -43,10 +44,12 @@ _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None or _pool.closed:
+        # Railway gibt postgres:// — psycopg2 braucht postgresql://
+        dsn = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
         _pool = psycopg2.pool.ThreadedConnectionPool(
             minconn=2,
             maxconn=20,
-            dsn=DATABASE_URL,
+            dsn=dsn,
             cursor_factory=psycopg2.extras.RealDictCursor
         )
         print('✅ DB connection pool created (2–20 connections)')
@@ -365,6 +368,8 @@ async def post_reply(body: ReplyIn):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter))
         return {'ok': True}
+    except FloodWaitError as e:
+        raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
     except Exception as e:
         raise HTTPException(500, str(e))
 
