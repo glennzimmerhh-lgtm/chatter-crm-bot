@@ -42,28 +42,16 @@ setup_phone: str = ''
 # ── CONNECTION POOL ───────────────────────────────────────────────────────────
 _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 
-def _parse_db_url(url: str) -> dict:
-    """Parse postgres:// or postgresql:// URL into psycopg2 kwargs."""
-    url = url.replace('postgres://', 'postgresql://', 1)
-    r = urllib.parse.urlparse(url)
-    return {
-        'host':     r.hostname,
-        'port':     r.port or 5432,
-        'user':     urllib.parse.unquote(r.username or ''),
-        'password': urllib.parse.unquote(r.password or ''),
-        'dbname':   r.path.lstrip('/'),
-    }
-
 def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None or _pool.closed:
-        params = _parse_db_url(DATABASE_URL)
+        # Pass DATABASE_URL als positional arg — exakt wie psycopg2.connect(DATABASE_URL)
         _pool = psycopg2.pool.ThreadedConnectionPool(
             2, 20,
-            cursor_factory=psycopg2.extras.RealDictCursor,
-            **params
+            DATABASE_URL,
+            cursor_factory=psycopg2.extras.RealDictCursor
         )
-        print(f'✅ DB pool connected to {params["host"]}:{params["port"]}/{params["dbname"]}')
+        print('✅ DB pool created')
     return _pool
 
 @contextmanager
