@@ -2946,6 +2946,50 @@ if (checkAuth()) {
     if (btn) { btn.textContent='🌐'; btn.disabled=false; }
     if (t) inp.value = t;
   };
+  <!-- BLOCKED WORDS PATCH -->
+<script>
+(function(){
+  const _openS = window.openSettings;
+  window.openSettings = function() {
+    _openS();
+    const box = document.querySelector('.settings-box');
+    if (box && !document.getElementById('cfg-blocked-words')) {
+      const lbl = document.createElement('label');
+      lbl.style.cssText = 'margin-top:4px;color:#ff5c7a;';
+      lbl.textContent = '🚫 Blocked Words (kommagetrennt)';
+      const inp = document.createElement('input');
+      inp.type='text'; inp.id='cfg-blocked-words';
+      inp.placeholder='preis, rabatt, WhatsApp, instagram';
+      inp.style.cssText='width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;margin-bottom:16px;outline:none;';
+      inp.value=localStorage.getItem('crm_blocked_words')||'';
+      const btns=box.querySelector('div[style*="justify-content:flex-end"]');
+      box.insertBefore(lbl,btns); box.insertBefore(inp,btns);
+    }
+  };
+  const _saveS=window.saveSettings;
+  window.saveSettings=function(){
+    const bw=document.getElementById('cfg-blocked-words')?.value.trim();
+    if(bw!==undefined) localStorage.setItem('crm_blocked_words',bw);
+    _saveS();
+  };
+  const _send=window.sendChatReply;
+  window.sendChatReply=async function(){
+    const input=document.getElementById('chat-input');
+    const text=(input?.value||'').toLowerCase();
+    const blocked=(localStorage.getItem('crm_blocked_words')||'').split(',').map(w=>w.trim().toLowerCase()).filter(Boolean);
+    const found=blocked.find(w=>w&&text.includes(w));
+    if(found){
+      let warn=document.getElementById('bw-warn');
+      if(!warn){warn=document.createElement('div');warn.id='bw-warn';warn.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#2a0a10;border:1px solid #ff5c7a;border-radius:10px;padding:12px 20px;color:#ff5c7a;font-size:13px;font-weight:600;z-index:9999;';document.body.appendChild(warn);}
+      warn.textContent='🚫 Geblockt: "'+found+'" darf nicht gesendet werden.';
+      warn.style.display='block';
+      setTimeout(()=>warn.style.display='none',3000);
+      return;
+    }
+    return _send();
+  };
+})();
+</script>
 })();
 </script>
 </body>
