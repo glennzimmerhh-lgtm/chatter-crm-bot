@@ -33,6 +33,10 @@ PORT        = int(os.environ.get('PORT', 8000))
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 SUBSCRIBER_BACKUP_WEBHOOK = os.environ.get('SUBSCRIBER_BACKUP_WEBHOOK', '')
 
+# ── DEBUG: zeige ob DATABASE_URL gesetzt ist ─────────────────────────────────
+_db_preview = DATABASE_URL[:40] + '...' if len(DATABASE_URL) > 40 else DATABASE_URL
+print(f'🔍 DATABASE_URL (erste 40 Zeichen): [{_db_preview}]  (leer={not DATABASE_URL})')
+
 # ── SETUP STATE ───────────────────────────────────────────────────────────────
 setup_client: Optional[TelegramClient] = None
 setup_phone: str = ''
