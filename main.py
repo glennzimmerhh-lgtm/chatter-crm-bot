@@ -12,11 +12,9 @@ from datetime import datetime
 from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
 
-import urllib.parse
 import uvicorn
 import psycopg2
 import psycopg2.extras
-import psycopg2.pool
 from fastapi import FastAPI, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -39,26 +37,11 @@ SUBSCRIBER_BACKUP_WEBHOOK = os.environ.get('SUBSCRIBER_BACKUP_WEBHOOK', '')
 setup_client: Optional[TelegramClient] = None
 setup_phone: str = ''
 
-# ── CONNECTION POOL ───────────────────────────────────────────────────────────
-_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
-
-def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
-    global _pool
-    if _pool is None or _pool.closed:
-        # Pass DATABASE_URL als positional arg — exakt wie psycopg2.connect(DATABASE_URL)
-        _pool = psycopg2.pool.ThreadedConnectionPool(
-            2, 20,
-            DATABASE_URL,
-            cursor_factory=psycopg2.extras.RealDictCursor
-        )
-        print('✅ DB pool created')
-    return _pool
-
+# ── DATABASE ──────────────────────────────────────────────────────────────────
 @contextmanager
 def db():
-    """Get a connection from the pool, auto-commit or rollback, return to pool."""
-    pool = get_pool()
-    conn = pool.getconn()
+    """Open a fresh connection per request — commit on success, rollback+close on error."""
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         yield conn
         conn.commit()
@@ -66,7 +49,7 @@ def db():
         conn.rollback()
         raise
     finally:
-        pool.putconn(conn)
+        conn.close()
 
 def init_db():
     with db() as conn:
@@ -247,8 +230,6 @@ async def lifespan(app: FastAPI):
     _userbot_running = False
     if tg_client:
         await tg_client.disconnect()
-    if _pool and not _pool.closed:
-        _pool.closeall()
 
 app = FastAPI(title='Chatter CRM', lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
