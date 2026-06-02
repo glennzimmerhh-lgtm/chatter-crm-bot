@@ -2931,6 +2931,12 @@ if (checkAuth()) {
       return d.choices?.[0]?.message?.content?.trim() || null;
     } catch(e) { alert('Fehler: '+e.message); return null; }
   }
+  const _save = window.saveSettings || saveSettings;
+  window.saveSettings = function() {
+    const ok = document.getElementById('cfg-openai-key')?.value.trim();
+    if (ok) localStorage.setItem('crm_openai_key', ok);
+    _save();
+  };
   window.translateInput = async function() {
     const inp = document.getElementById('chat-input');
     if (!inp?.value.trim()) return;
