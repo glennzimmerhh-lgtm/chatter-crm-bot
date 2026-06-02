@@ -2882,5 +2882,65 @@ if (checkAuth()) {
     <button onclick="closeListsModal()" style="width:100%;margin-top:10px;padding:9px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;cursor:pointer;font-size:12px;">Schließen</button>
   </div>
 </div>
+<!-- CHATGPT TRANSLATOR PATCH -->
+<script>
+(function(){
+  // OpenAI Key Feld in Settings einfügen
+  const _openSettings = window.openSettings || openSettings;
+  window.openSettings = function() {
+    _openSettings();
+    const box = document.querySelector('.settings-box');
+    if (box && !document.getElementById('cfg-openai-key')) {
+      const lbl = document.createElement('label');
+      lbl.style.cssText = 'margin-top:4px;color:#4a9eff;';
+      lbl.textContent = '🌐 OpenAI API Key (Übersetzer)';
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.id = 'cfg-openai-key';
+      inp.placeholder = 'sk-proj-...'; inp.autocomplete = 'off';
+      inp.style.cssText = 'width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;margin-bottom:16px;outline:none;';
+      inp.value = localStorage.getItem('crm_openai_key') || '';
+      const btns = box.querySelector('div[style*="justify-content:flex-end"]');
+      box.insertBefore(lbl, btns); box.insertBefore(inp, btns);
+    }
+  };
+  // 🌐 Button in Reply Bar
+  document.addEventListener('DOMContentLoaded', () => {
+    const rb = document.querySelector('.reply-bar');
+    if (rb) {
+      const btn = document.createElement('button');
+      btn.id = 'translate-out-btn'; btn.title = 'ChatGPT: DE → EN';
+      btn.textContent = '🌐';
+      btn.style.cssText = 'background:rgba(74,158,255,.15);border:1px solid rgba(74,158,255,.3);color:#4a9eff;border-radius:12px;padding:11px 13px;font-size:16px;cursor:pointer;flex-shrink:0;';
+      const sendBtn = rb.querySelector('button');
+      rb.insertBefore(btn, sendBtn);
+      btn.onclick = () => window.translateInput();
+    }
+  });
+  // Übersetzer-Funktionen
+  async function _gptTranslate(text, lang) {
+    const key = localStorage.getItem('crm_openai_key');
+    if (!key) { alert('OpenAI Key in Einstellungen (⚙) eintragen!'); return null; }
+    const sys = lang==='de' ? 'Übersetze ins Deutsche. Nur Übersetzung.' : 'Translate to English. Only translation.';
+    try {
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+        body: JSON.stringify({model:'gpt-4o-mini',messages:[{role:'system',content:sys},{role:'user',content:text}],max_tokens:500})
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error.message);
+      return d.choices?.[0]?.message?.content?.trim() || null;
+    } catch(e) { alert('Fehler: '+e.message); return null; }
+  }
+  window.translateInput = async function() {
+    const inp = document.getElementById('chat-input');
+    if (!inp?.value.trim()) return;
+    const btn = document.getElementById('translate-out-btn');
+    if (btn) { btn.textContent='⏳'; btn.disabled=true; }
+    const t = await _gptTranslate(inp.value.trim(), 'en');
+    if (btn) { btn.textContent='🌐'; btn.disabled=false; }
+    if (t) inp.value = t;
+  };
+})();
+</script>
 </body>
 </html>
