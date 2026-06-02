@@ -2885,10 +2885,9 @@ if (checkAuth()) {
 <!-- CHATGPT TRANSLATOR PATCH -->
 <script>
 (function(){
-  // OpenAI Key Feld in Settings einfügen
-  const _openSettings = window.openSettings || openSettings;
+  const _os0 = window.openSettings || openSettings;
   window.openSettings = function() {
-    _openSettings();
+    _os0();
     const box = document.querySelector('.settings-box');
     if (box && !document.getElementById('cfg-openai-key')) {
       const lbl = document.createElement('label');
@@ -2903,7 +2902,6 @@ if (checkAuth()) {
       box.insertBefore(lbl, btns); box.insertBefore(inp, btns);
     }
   };
-  // 🌐 Button in Reply Bar
   document.addEventListener('DOMContentLoaded', () => {
     const rb = document.querySelector('.reply-bar');
     if (rb) {
@@ -2916,11 +2914,10 @@ if (checkAuth()) {
       btn.onclick = () => window.translateInput();
     }
   });
-  // Übersetzer-Funktionen
   async function _gptTranslate(text, lang) {
     const key = localStorage.getItem('crm_openai_key');
-    if (!key) { alert('OpenAI Key in Einstellungen (⚙) eintragen!'); return null; }
-    const sys = lang==='de' ? 'Übersetze ins Deutsche. Nur Übersetzung.' : 'Translate to English. Only translation.';
+    if (!key) { alert('OpenAI Key in Einstellungen eintragen!'); return null; }
+    const sys = lang==='de' ? 'Uebersetze ins Deutsche. Nur Uebersetzung.' : 'Translate to English. Only translation.';
     try {
       const r = await fetch('https://api.openai.com/v1/chat/completions', {
         method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
@@ -2931,11 +2928,11 @@ if (checkAuth()) {
       return d.choices?.[0]?.message?.content?.trim() || null;
     } catch(e) { alert('Fehler: '+e.message); return null; }
   }
-  const _save = window.saveSettings || saveSettings;
+  const _sv0 = window.saveSettings || saveSettings;
   window.saveSettings = function() {
     const ok = document.getElementById('cfg-openai-key')?.value.trim();
     if (ok) localStorage.setItem('crm_openai_key', ok);
-    _save();
+    _sv0();
   };
   window.translateInput = async function() {
     const inp = document.getElementById('chat-input');
@@ -2946,12 +2943,14 @@ if (checkAuth()) {
     if (btn) { btn.textContent='🌐'; btn.disabled=false; }
     if (t) inp.value = t;
   };
-  <!-- BLOCKED WORDS PATCH -->
+})();
+</script>
+<!-- BLOCKED WORDS PATCH -->
 <script>
 (function(){
-  const _openS = window.openSettings;
+  const _os1 = window.openSettings;
   window.openSettings = function() {
-    _openS();
+    _os1();
     const box = document.querySelector('.settings-box');
     if (box && !document.getElementById('cfg-blocked-words')) {
       const lbl = document.createElement('label');
@@ -2966,13 +2965,13 @@ if (checkAuth()) {
       box.insertBefore(lbl,btns); box.insertBefore(inp,btns);
     }
   };
-  const _saveS=window.saveSettings;
+  const _sv1=window.saveSettings;
   window.saveSettings=function(){
     const bw=document.getElementById('cfg-blocked-words')?.value.trim();
     if(bw!==undefined) localStorage.setItem('crm_blocked_words',bw);
-    _saveS();
+    _sv1();
   };
-  const _send=window.sendChatReply;
+  const _sd1=window.sendChatReply;
   window.sendChatReply=async function(){
     const input=document.getElementById('chat-input');
     const text=(input?.value||'').toLowerCase();
@@ -2981,15 +2980,13 @@ if (checkAuth()) {
     if(found){
       let warn=document.getElementById('bw-warn');
       if(!warn){warn=document.createElement('div');warn.id='bw-warn';warn.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#2a0a10;border:1px solid #ff5c7a;border-radius:10px;padding:12px 20px;color:#ff5c7a;font-size:13px;font-weight:600;z-index:9999;';document.body.appendChild(warn);}
-      warn.textContent='🚫 Geblockt: "'+found+'" darf nicht gesendet werden.';
+      warn.textContent='Geblockt: "'+found+'" darf nicht gesendet werden.';
       warn.style.display='block';
       setTimeout(()=>warn.style.display='none',3000);
       return;
     }
-    return _send();
+    return _sd1();
   };
-})();
-</script>
 })();
 </script>
 </body>
