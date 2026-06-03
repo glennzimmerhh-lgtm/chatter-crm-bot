@@ -3504,9 +3504,77 @@ if (checkAuth()) {
 
   // Start chat polling when chat page is open
   window.chatPageActive = false;
-  setInterval(() => { if (window.chatPageActive && window._refreshConvs) window._refreshConvs(); }, 5000);
+
+  // ── WEBSOCKET (real-time) ─────────────────────────────────────────────
+  let _ws = null;
+  let _wsAlive = false;
+  let _wsRetry = 1000;
+  const WS_URL = 'wss://worker-production-806f.up.railway.app/ws';
+
+  function connectWS() {
+    try {
+      _ws = new WebSocket(WS_URL);
+      _ws.onopen = () => {
+        _wsAlive = true;
+        _wsRetry = 1000;
+        console.log('🔌 WS connected');
+        // Send ping every 25s to keep connection alive
+        _ws._pingInterval = setInterval(() => { if (_ws.readyState === 1) _ws.send('ping'); }, 25000);
+      };
+      _ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          handleWSMessage(msg);
+        } catch(_) {}
+      };
+      _ws.onclose = () => {
+        _wsAlive = false;
+        clearInterval(_ws._pingInterval);
+        console.log(`🔌 WS closed — retry in ${_wsRetry}ms`);
+        setTimeout(connectWS, _wsRetry);
+        _wsRetry = Math.min(_wsRetry * 2, 30000);
+      };
+      _ws.onerror = () => { _ws.close(); };
+    } catch(e) { setTimeout(connectWS, 5000); }
+  }
+
+  function handleWSMessage(msg) {
+    switch(msg.type) {
+      case 'new_message':
+        // Refresh messages if this is the current conversation
+        if (msg.tg_id === currentChatTgId) loadMsgs();
+        // Always refresh conversation list for unread badge
+        if (window._refreshConvs) window._refreshConvs();
+        // Update follow-up badge timing
+        if (allConvs.length) renderConvList(allConvs);
+        break;
+      case 'read_receipt':
+        // Refresh messages to update ✓✓ color
+        if (msg.tg_id === currentChatTgId) loadMsgs();
+        break;
+      case 'online_status':
+        // Update local conv cache
+        const conv = allConvs.find(c => c.tg_id === msg.tg_id);
+        if (conv) {
+          conv.is_online = msg.is_online;
+          conv.last_seen = msg.is_online ? new Date().toISOString() : conv.last_seen;
+          renderConvList(allConvs);
+          if (msg.tg_id === currentChatTgId) updateConvStatus(msg.tg_id);
+          refreshOnlinePanel();
+        }
+        break;
+    }
+  }
+
+  // Start WebSocket connection
+  connectWS();
+
+  // Fallback polling — only if WS is not alive, or as safety net
+  setInterval(() => {
+    if (!_wsAlive && window.chatPageActive && window._refreshConvs) window._refreshConvs();
+  }, 5000);
   setInterval(() => { if (window.chatPageActive && window._refreshChatStatus) window._refreshChatStatus(); }, 15000);
-  // Fix follow-up lag: re-render conv list every 30s using cached data so badges appear on time
+  // Re-render conv list every 30s for follow-up badge timing
   setInterval(() => { if (window.chatPageActive && allConvs.length) renderConvList(allConvs); }, 30000);
 }
 </script>

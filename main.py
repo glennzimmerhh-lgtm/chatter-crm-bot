@@ -15,7 +15,7 @@ from typing import Optional
 import uvicorn
 import psycopg2
 import psycopg2.extras
-from fastapi import FastAPI, HTTPException, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Form, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -36,6 +36,31 @@ PORT        = int(os.environ.get('PORT', 8000))
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 SUBSCRIBER_BACKUP_WEBHOOK = os.environ.get('SUBSCRIBER_BACKUP_WEBHOOK', '')
+
+# ── WEBSOCKET MANAGER ────────────────────────────────────────────────────────
+class WSManager:
+    def __init__(self):
+        self._connections: set = set()
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self._connections.add(ws)
+        print(f'🔌 WS connected — total: {len(self._connections)}')
+
+    def disconnect(self, ws: WebSocket):
+        self._connections.discard(ws)
+        print(f'🔌 WS disconnected — total: {len(self._connections)}')
+
+    async def broadcast(self, data: dict):
+        dead = set()
+        for ws in list(self._connections):
+            try:
+                await ws.send_json(data)
+            except Exception:
+                dead.add(ws)
+        self._connections -= dead
+
+ws_manager = WSManager()
 
 # ── DEBUG: zeige ob DATABASE_URL gesetzt ist ─────────────────────────────────
 _db_preview = DATABASE_URL[:40] + '...' if len(DATABASE_URL) > 40 else DATABASE_URL
@@ -357,6 +382,9 @@ async def start_userbot():
                 is_online = isinstance(event.status, UserStatusOnline)
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, lambda: update_online_status(tg_id, is_online))
+                asyncio.create_task(ws_manager.broadcast({
+                    'type': 'online_status', 'tg_id': tg_id, 'is_online': is_online
+                }))
 
             @tg_client.on(events.Raw(UpdateReadHistoryOutbox))
             async def on_outbox_read(event):
@@ -366,6 +394,9 @@ async def start_userbot():
                     max_id = event.max_id
                     loop = asyncio.get_event_loop()
                     await loop.run_in_executor(None, lambda: mark_read(tg_id, max_id))
+                    asyncio.create_task(ws_manager.broadcast({
+                        'type': 'read_receipt', 'tg_id': tg_id, 'max_id': max_id
+                    }))
 
             @tg_client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
             async def on_dm(event):
@@ -393,6 +424,15 @@ async def start_userbot():
                 else:                   text = '[Nachricht]'
                 await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'in', tg_msg_id=msg_tg_id))
                 print(f'📨 {tg_id}: {text[:80]}')
+                # Push to all connected CRM clients
+                asyncio.create_task(ws_manager.broadcast({
+                    'type': 'new_message',
+                    'tg_id': tg_id,
+                    'text': text,
+                    'direction': 'in',
+                    'timestamp': datetime.now().isoformat(),
+                    'tg_msg_id': msg_tg_id,
+                }))
 
             await tg_client.start()
             print('✅ Userbot verbunden!')
@@ -481,7 +521,19 @@ def healthz():
 @app.get('/status')
 def status():
     ok = tg_client is not None and tg_client.is_connected()
-    return {'userbot': 'connected' if ok else 'disconnected'}
+    return {'userbot': 'connected' if ok else 'disconnected', 'ws_clients': len(ws_manager._connections)}
+
+@app.websocket('/ws')
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            # Keep alive — client sends pings, we just read them
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
 
 # ── CONVERSATIONS ─────────────────────────────────────────────────────────────
 @app.get('/conversations')
@@ -692,6 +744,16 @@ async def post_reply(body: ReplyIn):
         tg_msg_id = sent_msg.id
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter, tg_msg_id))
+        # Broadcast sent message to all CRM clients
+        asyncio.create_task(ws_manager.broadcast({
+            'type': 'new_message',
+            'tg_id': body.tg_id,
+            'text': body.text,
+            'direction': 'out',
+            'chatter': body.chatter,
+            'timestamp': datetime.now().isoformat(),
+            'tg_msg_id': tg_msg_id,
+        }))
         return {'ok': True}
     except FloodWaitError as e:
         raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
