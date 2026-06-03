@@ -3545,11 +3545,14 @@ if (checkAuth()) {
   function handleWSMessage(msg) {
     switch(msg.type) {
       case 'new_message':
-        // Refresh messages if this is the current conversation
+        // Refresh messages immediately (shows message without translation)
         if (msg.tg_id === currentChatTgId) loadMsgs();
+        // Refresh again after 3s to pick up auto-translation from OpenAI
+        if (msg.direction === 'in' && msg.tg_id === currentChatTgId) {
+          setTimeout(() => { if (currentChatTgId === msg.tg_id) loadMsgs(); }, 3000);
+        }
         // Always refresh conversation list for unread badge
         if (window._refreshConvs) window._refreshConvs();
-        // Update follow-up badge timing
         if (allConvs.length) renderConvList(allConvs);
         break;
       case 'read_receipt':
