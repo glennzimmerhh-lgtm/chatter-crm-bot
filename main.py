@@ -106,6 +106,7 @@ def init_db():
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS time_waster BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_username TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_phone TEXT DEFAULT ''",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_access_hash TEXT DEFAULT ''",
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_last_time ON conversations(last_time DESC)",
@@ -129,7 +130,7 @@ def _fire_webhook_sync(url: str, payload: dict):
             print(f'⚠️  Webhook failed: {e}')
     threading.Thread(target=_send, daemon=True).start()
 
-def ensure_conv(tg_id: str, username: str = '', phone: str = '') -> str:
+def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: str = '') -> str:
     is_new = False
     anon_id = ''
     with db() as conn:
@@ -137,11 +138,10 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '') -> str:
             c.execute('SELECT anon_id FROM conversations WHERE tg_id=%s', (tg_id,))
             row = c.fetchone()
             if row:
-                if username or phone:
-                    c.execute(
-                        "UPDATE conversations SET tg_username=COALESCE(NULLIF(tg_username,''),%s), tg_phone=COALESCE(NULLIF(tg_phone,''),%s) WHERE tg_id=%s",
-                        (username, phone, tg_id)
-                    )
+                c.execute(
+                    "UPDATE conversations SET tg_username=COALESCE(NULLIF(tg_username,''),%s), tg_phone=COALESCE(NULLIF(tg_phone,''),%s), tg_access_hash=COALESCE(NULLIF(tg_access_hash,''),%s) WHERE tg_id=%s",
+                    (username, phone, access_hash, tg_id)
+                )
                 return row['anon_id']
             c.execute('SELECT COUNT(*) as n FROM conversations')
             n = c.fetchone()['n']
@@ -201,8 +201,9 @@ async def start_userbot():
                 tg_id    = str(sender.id)
                 username = sender.username or ''
                 phone    = getattr(sender, 'phone', None) or ''
+                access_hash = str(sender.access_hash) if sender.access_hash else ''
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, lambda: ensure_conv(tg_id, username=username, phone=phone))
+                await loop.run_in_executor(None, lambda: ensure_conv(tg_id, username=username, phone=phone, access_hash=access_hash))
                 if event.text:          text = event.text
                 elif event.photo:       text = '[📷 Foto]'
                 elif event.document:    text = '[📎 Datei]'
@@ -357,7 +358,20 @@ async def post_reply(body: ReplyIn):
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
     try:
-        await tg_client.send_message(int(body.tg_id), body.text)
+        # Look up access_hash from DB for reliable entity resolution
+        from telethon.tl.types import InputPeerUser
+        access_hash = 0
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
+                row = c.fetchone()
+                if row and row['tg_access_hash']:
+                    access_hash = int(row['tg_access_hash'])
+        if access_hash:
+            peer = InputPeerUser(int(body.tg_id), access_hash)
+        else:
+            peer = int(body.tg_id)
+        await tg_client.send_message(peer, body.text)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter))
         return {'ok': True}
