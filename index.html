@@ -1536,7 +1536,7 @@ async function submitSale() {
     if (r.ok) {
       fb.textContent = '✅ Sale erfolgreich gespeichert!';
       fb.style.display = 'block';
-      loadData(); // refresh sales log immediately
+      await loadData(); // refresh sales log + dashboard immediately
       setTimeout(() => { document.getElementById('sale-modal-overlay').style.display = 'none'; }, 1500);
     } else { fb.textContent = '❌ Fehler beim Speichern.'; fb.style.display = 'block'; }
   } catch(e) { fb.textContent = '❌ Backend nicht erreichbar.'; fb.style.display = 'block'; }
@@ -1775,7 +1775,10 @@ function renderDashboard() {
   const filteredSales  = filterByPeriod(salesData,  'Datum', p);
   const filteredShifts = filterByPeriod(shiftsData, 'Datum', p);
 
-  const totalRevenue = filteredSales.reduce((s, r) => s + (parseFloat(r['Betrag (€)']) || 0), 0);
+  const filteredCrmForKpi = filterCrmByPeriod(crmSalesData, p);
+  const crmRevenue   = filteredCrmForKpi.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+  const totalRevenue = filteredSales.reduce((s, r) => s + (parseFloat(r['Betrag (€)']) || 0), 0) + crmRevenue;
+  const totalSalesCount = filteredSales.length + filteredCrmForKpi.length;
   const replyTimes   = filteredShifts.map(r => parseFloat(r['Ø Reply Time (min)'])).filter(v => !isNaN(v) && v > 0);
   const avgReply     = replyTimes.length ? (replyTimes.reduce((a,b) => a+b,0) / replyTimes.length) : null;
 
@@ -1789,9 +1792,9 @@ function renderDashboard() {
   document.getElementById('kpi-avg-label').textContent   = 'Ø pro Shift';
 
   document.getElementById('kpi-today-rev').textContent    = fmt(totalRevenue);
-  document.getElementById('kpi-today-rev-sub').textContent = filteredSales.length + ' Transaktionen';
-  document.getElementById('kpi-today-sales').textContent  = filteredSales.length;
-  document.getElementById('kpi-today-sales-sub').textContent = 'Zahlungen empfangen';
+  document.getElementById('kpi-today-rev-sub').textContent = totalSalesCount + ' Transaktionen';
+  document.getElementById('kpi-today-sales').textContent  = totalSalesCount;
+  document.getElementById('kpi-today-sales-sub').textContent = `${filteredSales.length} Sheet · ${filteredCrmForKpi.length} CRM`;
   document.getElementById('kpi-reply').textContent        = avgReply !== null ? avgReply.toFixed(1) : '0';
   document.getElementById('kpi-week-rev').textContent     = fmt(avgPerShift);
   document.getElementById('kpi-week-sub').textContent     = filteredShifts.length + ' Shifts';
