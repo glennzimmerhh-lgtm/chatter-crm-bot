@@ -104,6 +104,11 @@ def init_db():
                 tg_id   TEXT NOT NULL,
                 PRIMARY KEY (list_id, tg_id)
             )''')
+            # Settings table
+            c.execute('''CREATE TABLE IF NOT EXISTS crm_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT ''
+            )''')
             # safe migrations + indexes for performance
             for stmt in [
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS time_waster BOOLEAN DEFAULT FALSE",
@@ -116,6 +121,7 @@ def init_db():
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS funnel_stage TEXT DEFAULT 'kalt'",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS call_followup_at TEXT DEFAULT NULL",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS call_followup_note TEXT DEFAULT ''",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_auto_msg_at TEXT DEFAULT NULL",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS tg_msg_id INTEGER DEFAULT 0",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TEXT DEFAULT ''",
@@ -224,6 +230,57 @@ def _auto_translate_message(tg_id: str, text: str):
     except Exception as e:
         print(f'Auto-translate error: {e}')
 
+def _send_auto_online_msg(tg_id: str):
+    """Fire auto-message to subscriber who just came online (run in thread)."""
+    import threading
+    def _do():
+        try:
+            enabled = get_setting('auto_online_enabled', '0')
+            if enabled != '1':
+                return
+            text = get_setting('auto_online_text', '').strip()
+            if not text:
+                return
+            cooldown_h = int(get_setting('auto_online_cooldown_h', '24') or 24)
+            allowed_stages = get_setting('auto_online_stages', '')  # comma-sep or empty=all
+
+            with db() as conn:
+                with conn.cursor() as c:
+                    c.execute('SELECT tg_access_hash, funnel_stage, last_auto_msg_at FROM conversations WHERE tg_id=%s', (tg_id,))
+                    row = c.fetchone()
+            if not row:
+                return
+            # Stage filter
+            if allowed_stages:
+                stages = [s.strip() for s in allowed_stages.split(',')]
+                if row['funnel_stage'] not in stages:
+                    return
+            # Cooldown check
+            if row['last_auto_msg_at']:
+                from datetime import timezone
+                last = datetime.fromisoformat(row['last_auto_msg_at'])
+                diff_h = (datetime.now() - last).total_seconds() / 3600
+                if diff_h < cooldown_h:
+                    return
+            # Send message via Telethon (must run in event loop)
+            import asyncio
+            async def _send():
+                if not tg_client or not tg_client.is_connected():
+                    return
+                ah = int(row['tg_access_hash']) if row['tg_access_hash'] else 0
+                peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+                sent = await tg_client.send_message(peer, text)
+                now = datetime.now().isoformat()
+                save_msg(tg_id, text, 'out', 'Auto', tg_msg_id=sent.id)
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute('UPDATE conversations SET last_auto_msg_at=%s WHERE tg_id=%s', (now, tg_id))
+            loop = asyncio.get_event_loop()
+            asyncio.run_coroutine_threadsafe(_send(), loop).result(timeout=15)
+        except Exception as e:
+            print(f'Auto-online-msg error: {e}')
+    threading.Thread(target=_do, daemon=True).start()
+
 def update_online_status(tg_id: str, is_online: bool):
     """Update subscriber online status — only for known conversations."""
     with db() as conn:
@@ -235,6 +292,8 @@ def update_online_status(tg_id: str, is_online: bool):
                     'UPDATE conversations SET is_online=%s, last_seen=%s WHERE tg_id=%s',
                     (is_online, now if is_online else None, tg_id)
                 )
+                if is_online:
+                    _send_auto_online_msg(tg_id)
 
 def mark_read(tg_id: str, max_msg_id: int):
     """Mark outgoing messages as read and start follow-up timer."""
@@ -577,6 +636,46 @@ async def post_reply(body: ReplyIn):
         raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
     except Exception as e:
         raise HTTPException(500, str(e))
+
+# ── CRM SETTINGS ─────────────────────────────────────────────────────────────
+def get_setting(key: str, default: str = '') -> str:
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT value FROM crm_settings WHERE key=%s', (key,))
+            row = c.fetchone()
+    return row['value'] if row else default
+
+def set_setting(key: str, value: str):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('INSERT INTO crm_settings (key,value) VALUES (%s,%s) ON CONFLICT (key) DO UPDATE SET value=%s',
+                      (key, value, value))
+
+@app.get('/settings/crm')
+def get_crm_settings():
+    keys = ['auto_online_enabled','auto_online_text','auto_online_cooldown_h','auto_online_stages','shift_goal']
+    result = {}
+    with db() as conn:
+        with conn.cursor() as c:
+            for k in keys:
+                c.execute('SELECT value FROM crm_settings WHERE key=%s', (k,))
+                row = c.fetchone()
+                result[k] = row['value'] if row else ''
+    return result
+
+class SettingsUpdate(BaseModel):
+    auto_online_enabled: Optional[str] = None
+    auto_online_text: Optional[str] = None
+    auto_online_cooldown_h: Optional[str] = None
+    auto_online_stages: Optional[str] = None
+    shift_goal: Optional[str] = None
+
+@app.post('/settings/crm')
+def save_crm_settings(body: SettingsUpdate):
+    for k, v in body.dict().items():
+        if v is not None:
+            set_setting(k, v)
+    return {'ok': True}
 
 # ── AI ENDPOINTS ─────────────────────────────────────────────────────────────
 import urllib.request as _urllib_req

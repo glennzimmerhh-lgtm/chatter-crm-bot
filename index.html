@@ -898,6 +898,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 10.8a19.79 19.79 0 01-3.07-8.63A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
       Broadcast
     </div>
+    <div class="nav-item" onclick="showPage('performance')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Performance
+    </div>
     <div class="nav-section">System</div>
     <div class="nav-item" onclick="openSettings()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
@@ -1277,6 +1281,79 @@
         <div style="margin-top:16px;padding:12px;background:rgba(255,92,122,0.08);border:1px solid rgba(255,92,122,0.2);border-radius:8px;font-size:12px;color:var(--text2);">
           ⚠️ Broadcast sendet 1 Nachricht/Sekunde. Bei 100 Subscriber = ~2 Minuten. Nicht abbrechen.
         </div>
+      </div>
+    </div>
+
+    <!-- AUTO-ONLINE MESSAGE -->
+    <div style="margin-top:24px;max-width:900px;">
+      <div style="background:var(--bg2);border:1px solid rgba(34,197,94,0.25);border-radius:14px;padding:24px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);">🟢 Auto-Message bei Online</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px;">Wenn ein Subscriber Telegram öffnet, schreibt Marie automatisch.</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="ao-enabled" onchange="saveAutoOnline()" style="width:16px;height:16px;accent-color:#22c55e;">
+            <span style="font-size:13px;font-weight:600;" id="ao-enabled-label">Aus</span>
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Nachricht</label>
+            <textarea id="ao-text" rows="4" placeholder="z.B. hey du.. bin grad online, was machst du so?" onchange="saveAutoOnline()" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <div>
+              <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Cooldown (Stunden zwischen Nachrichten)</label>
+              <select id="ao-cooldown" onchange="saveAutoOnline()" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;">
+                <option value="6">6 Stunden</option>
+                <option value="12">12 Stunden</option>
+                <option value="24" selected>24 Stunden</option>
+                <option value="48">48 Stunden</option>
+                <option value="72">72 Stunden</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Nur für Stage</label>
+              <select id="ao-stages" onchange="saveAutoOnline()" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;">
+                <option value="">Alle Subscriber</option>
+                <option value="kalt">❄️ Kalt</option>
+                <option value="warm">🌱 Warm</option>
+                <option value="hot">🔥 Hot</option>
+                <option value="warm,hot">🌱 Warm + 🔥 Hot</option>
+                <option value="kalt,warm,hot">Alle außer Gebucht/Done</option>
+              </select>
+            </div>
+            <div id="ao-save-status" style="font-size:12px;color:#22c55e;display:none;">✅ Gespeichert</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PERFORMANCE PAGE -->
+  <div id="page-performance" style="display:none;">
+    <div class="page-header">
+      <h1 class="page-title">📊 Chatter Performance</h1>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="period-btn active" id="perf-btn-heute" onclick="loadPerformance('heute')">Heute</button>
+        <button class="period-btn" id="perf-btn-woche" onclick="loadPerformance('woche')">Diese Woche</button>
+        <button class="period-btn" id="perf-btn-monat" onclick="loadPerformance('monat')">Dieser Monat</button>
+        <button class="period-btn" id="perf-btn-alle" onclick="loadPerformance('alle')">Gesamt</button>
+      </div>
+    </div>
+    <div id="perf-podium" style="display:flex;gap:16px;margin-bottom:24px;align-items:flex-end;flex-wrap:wrap;"></div>
+    <div class="panel" style="margin-bottom:20px;">
+      <div class="panel-hd"><div class="panel-title">Umsatz Vergleich</div></div>
+      <div class="panel-body"><div style="height:200px;"><canvas id="perfChart"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd"><div class="panel-title">Details</div></div>
+      <div style="overflow-x:auto;">
+        <table><thead><tr>
+          <th>#</th><th>Chatter</th><th>Umsatz</th><th>Sales</th><th>Ø Sale</th><th>Nachrichten</th><th>€/Msg</th>
+        </tr></thead>
+        <tbody id="perf-tbody"><tr><td colspan="7"><div class="empty">Keine Daten</div></td></tr></tbody></table>
       </div>
     </div>
   </div>
@@ -2118,7 +2195,7 @@ function closeSidebar() {
 }
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','subscribers','broadcast'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','subscribers','broadcast','performance'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -2386,6 +2463,19 @@ if (checkAuth()) {
       <div class="profile-section">
         <div class="profile-label">Interner Name</div>
         <input class="profile-input" id="prof-iname" type="text" placeholder="z.B. Bernd – mag Sport" value="${(p.internal_name||'').replace(/"/g,'&quot;')}">
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-label">🎯 Funnel Stage</div>
+        <select id="prof-funnel" onchange="saveFunnelStage('${tgId}',this.value)"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;">
+          <option value="kalt" ${(p.funnel_stage||'kalt')==='kalt'?'selected':''}>❄️ Kalt</option>
+          <option value="warm" ${p.funnel_stage==='warm'?'selected':''}>🌱 Warm</option>
+          <option value="hot" ${p.funnel_stage==='hot'?'selected':''}>🔥 Hot</option>
+          <option value="angebot" ${p.funnel_stage==='angebot'?'selected':''}>💬 Angebot gemacht</option>
+          <option value="gebucht" ${p.funnel_stage==='gebucht'?'selected':''}>📅 Gebucht</option>
+          <option value="done" ${p.funnel_stage==='done'?'selected':''}>✅ Done</option>
+        </select>
       </div>
 
       <div class="profile-section">
@@ -3410,6 +3500,185 @@ async function startBroadcast() {
     return _sd1();
   };
 })();
+</script>
+
+<script>
+// ── FUNNEL STAGE ──────────────────────────────────────────────────────────────
+async function saveFunnelStage(tgId, stage) {
+  await fetch('/api/profile/' + tgId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ funnel_stage: stage })
+  });
+  // Update local allConvs cache
+  if (typeof allConvs !== 'undefined') {
+    const c = allConvs.find(x => x.tg_id === tgId);
+    if (c) { c.funnel_stage = stage; renderConvList(allConvs); }
+  }
+}
+
+// ── AUTO-ONLINE SETTINGS ──────────────────────────────────────────────────────
+async function loadAutoOnline() {
+  try {
+    const d = await fetch('/api/settings/crm').then(r => r.json());
+    const cb = document.getElementById('ao-enabled');
+    const lbl = document.getElementById('ao-enabled-label');
+    const txt = document.getElementById('ao-text');
+    const cd = document.getElementById('ao-cooldown');
+    const st = document.getElementById('ao-stages');
+    if (cb) { cb.checked = d.auto_online_enabled === '1'; lbl.textContent = cb.checked ? 'An' : 'Aus'; }
+    if (txt && d.auto_online_text) txt.value = d.auto_online_text;
+    if (cd && d.auto_online_cooldown_h) cd.value = d.auto_online_cooldown_h;
+    if (st && d.auto_online_stages !== undefined) st.value = d.auto_online_stages;
+  } catch(e) {}
+}
+
+async function saveAutoOnline() {
+  const cb = document.getElementById('ao-enabled');
+  const lbl = document.getElementById('ao-enabled-label');
+  if (lbl) lbl.textContent = cb?.checked ? 'An' : 'Aus';
+  const body = {
+    auto_online_enabled: cb?.checked ? '1' : '0',
+    auto_online_text: document.getElementById('ao-text')?.value || '',
+    auto_online_cooldown_h: document.getElementById('ao-cooldown')?.value || '24',
+    auto_online_stages: document.getElementById('ao-stages')?.value || ''
+  };
+  await fetch('/api/settings/crm', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const st = document.getElementById('ao-save-status');
+  if (st) { st.style.display = 'block'; setTimeout(() => st.style.display = 'none', 2000); }
+}
+
+// Load settings when broadcast page opens
+const _origShowPage = window.showPage || showPage;
+// Hook into showPage for broadcast
+document.addEventListener('DOMContentLoaded', () => {
+  // Wrap to load settings on broadcast
+  const _sp = window.showPage;
+  if (_sp) {
+    window.showPage = function(name) {
+      _sp(name);
+      if (name === 'broadcast') loadAutoOnline();
+      if (name === 'performance') loadPerformance('heute');
+    };
+  }
+});
+
+// ── PERFORMANCE DASHBOARD ─────────────────────────────────────────────────────
+let perfChart = null;
+let currentPerfPeriod = 'heute';
+
+async function loadPerformance(period) {
+  currentPerfPeriod = period;
+  // Update period buttons
+  ['heute','woche','monat','alle'].forEach(p => {
+    const btn = document.getElementById('perf-btn-' + p);
+    if (btn) btn.classList.toggle('active', p === period);
+  });
+
+  try {
+    const data = await fetch('/api/analytics/chatters').then(r => r.json());
+    // Filter by period using crmSalesData
+    const filtered = filterPerfByPeriod(data, period);
+    renderPerfPodium(filtered);
+    renderPerfChart(filtered);
+    renderPerfTable(filtered);
+  } catch(e) { console.error('Performance load error:', e); }
+}
+
+function filterPerfByPeriod(chatters, period) {
+  if (period === 'alle' || typeof crmSalesData === 'undefined') return chatters;
+  const now = new Date();
+  const periodSales = crmSalesData.filter(s => {
+    const d = new Date(s.timestamp);
+    if (period === 'heute') return d.toDateString() === now.toDateString();
+    if (period === 'woche') { const w = new Date(now); w.setDate(w.getDate()-7); return d >= w; }
+    if (period === 'monat') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    return true;
+  });
+  // Re-aggregate per chatter
+  const map = {};
+  periodSales.forEach(s => {
+    if (!map[s.chatter]) map[s.chatter] = { chatter: s.chatter, sales_count: 0, total_revenue: 0, avg_sale: 0, msgs_sent: 0 };
+    map[s.chatter].sales_count++;
+    map[s.chatter].total_revenue += parseFloat(s.amount) || 0;
+  });
+  // Merge msgs_sent from full data
+  chatters.forEach(c => { if (map[c.chatter]) map[c.chatter].msgs_sent = c.msgs_sent; });
+  return Object.values(map).map(r => ({
+    ...r,
+    avg_sale: r.sales_count > 0 ? r.total_revenue / r.sales_count : 0,
+    revenue_per_msg: r.msgs_sent > 0 ? r.total_revenue / r.msgs_sent : 0
+  })).sort((a, b) => b.total_revenue - a.total_revenue);
+}
+
+function renderPerfPodium(data) {
+  const el = document.getElementById('perf-podium');
+  if (!el) return;
+  if (!data.length) { el.innerHTML = '<div class="empty">Keine Daten im gewählten Zeitraum</div>'; return; }
+  const medals = [
+    { icon: '🥇', color: '#ffd700', height: '140px', rank: 1 },
+    { icon: '🥈', color: '#c0c0c0', height: '110px', rank: 2 },
+    { icon: '🥉', color: '#cd7f32', height: '90px', rank: 3 }
+  ];
+  // Reorder: 2nd, 1st, 3rd for podium effect
+  const order = [data[1], data[0], data[2]].filter(Boolean);
+  const mOrder = [medals[1], medals[0], medals[2]];
+  el.innerHTML = order.map((c, i) => {
+    const m = mOrder[i];
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;min-width:120px;">
+      <div style="font-size:24px;">${m.icon}</div>
+      <div style="font-weight:700;font-size:13px;color:var(--text);">${c.chatter}</div>
+      <div style="font-size:20px;font-weight:700;color:${m.color};">${c.total_revenue.toFixed(0)}€</div>
+      <div style="font-size:11px;color:var(--text2);">${c.sales_count} Sales</div>
+      <div style="width:100%;height:${m.height};background:linear-gradient(to top, ${m.color}33, ${m.color}11);border-radius:8px 8px 0 0;border:1px solid ${m.color}44;"></div>
+    </div>`;
+  }).join('');
+}
+
+function renderPerfChart(data) {
+  const ctx = document.getElementById('perfChart');
+  if (!ctx) return;
+  if (perfChart) perfChart.destroy();
+  const colors = ['#00d4aa','#4a9eff','#ffd166','#ff5c7a','#a78bfa','#fb923c'];
+  perfChart = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: data.map(c => c.chatter),
+      datasets: [{
+        data: data.map(c => c.total_revenue),
+        backgroundColor: data.map((_, i) => colors[i % colors.length] + '99'),
+        borderColor: data.map((_, i) => colors[i % colors.length]),
+        borderWidth: 2, borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.raw.toFixed(0) + ' €' } } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0' } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0', callback: v => v + ' €' } }
+      }
+    }
+  });
+}
+
+function renderPerfTable(data) {
+  const tbody = document.getElementById('perf-tbody');
+  if (!tbody) return;
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty">Keine Daten</div></td></tr>'; return; }
+  tbody.innerHTML = data.map((c, i) => `<tr>
+    <td style="font-weight:700;color:var(--text2);">${i+1}</td>
+    <td style="font-weight:600;color:var(--text);">${c.chatter}</td>
+    <td style="color:#00d4aa;font-weight:700;">${c.total_revenue.toFixed(0)}€</td>
+    <td>${c.sales_count}</td>
+    <td>${c.avg_sale.toFixed(0)}€</td>
+    <td style="color:var(--text2);">${c.msgs_sent || 0}</td>
+    <td style="color:var(--text2);">${(c.revenue_per_msg||0).toFixed(2)}€</td>
+  </tr>`).join('');
+}
 </script>
 </body>
 </html>
