@@ -1561,9 +1561,9 @@
       <div class="panel-hd"><div class="panel-title">Details</div></div>
       <div style="overflow-x:auto;">
         <table><thead><tr>
-          <th>#</th><th>Chatter</th><th>Umsatz</th><th>Sales</th><th>Ø Sale</th><th>Nachrichten</th><th>€/Msg</th>
+          <th>#</th><th>Chatter</th><th>Umsatz</th><th>Sales</th><th>Calls</th><th>Ø Response</th><th>Active Time</th><th>Nachrichten</th><th>€/Msg</th>
         </tr></thead>
-        <tbody id="perf-tbody"><tr><td colspan="7"><div class="empty">Keine Daten</div></td></tr></tbody></table>
+        <tbody id="perf-tbody"><tr><td colspan="9"><div class="empty">Keine Daten</div></td></tr></tbody></table>
       </div>
     </div>
   </div>
@@ -4263,18 +4263,31 @@ function renderPerfChart(data) {
   });
 }
 
+function fmtSeconds(sec) {
+  if (!sec && sec !== 0) return '—';
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60);
+  return h + 'h ' + m + 'm';
+}
+
 function renderPerfTable(data) {
   const tbody = document.getElementById('perf-tbody');
   if (!tbody) return;
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty">Keine Daten</div></td></tr>'; return; }
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty">Keine Daten</div></td></tr>'; return; }
+  const medals = ['🥇','🥈','🥉'];
   tbody.innerHTML = data.map((c, i) => `<tr>
-    <td style="font-weight:700;color:var(--text2);">${i+1}</td>
+    <td style="font-weight:700;color:var(--text2);font-size:16px;">${medals[i] || (i+1)}</td>
     <td style="font-weight:600;color:var(--text);">${c.chatter}</td>
-    <td style="color:#00d4aa;font-weight:700;">${c.total_revenue.toFixed(0)}€</td>
-    <td>${c.sales_count}</td>
-    <td>${c.avg_sale.toFixed(0)}€</td>
-    <td style="color:var(--text2);">${c.msgs_sent || 0}</td>
-    <td style="color:var(--text2);">${(c.revenue_per_msg||0).toFixed(2)}€</td>
+    <td style="color:#00d4aa;font-weight:700;">${(c.total_revenue||0).toFixed(0)}€</td>
+    <td>${c.sales_count||0}</td>
+    <td style="color:#a78bfa;">${c.calls_count||0}</td>
+    <td style="color:${(c.avg_response_sec||999)<60?'#22c55e':(c.avg_response_sec||999)<300?'#ffd166':'#ff5c7a'};">
+      ${fmtSeconds(c.avg_response_sec)}
+    </td>
+    <td style="color:var(--text2);">${fmtSeconds(c.active_sec)}</td>
+    <td style="color:var(--text2);">${c.msgs_sent||0}</td>
+    <td style="color:var(--text3);">${(c.revenue_per_msg||0).toFixed(2)}€</td>
   </tr>`).join('');
 }
 </script>

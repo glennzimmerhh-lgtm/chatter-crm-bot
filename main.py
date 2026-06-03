@@ -551,31 +551,75 @@ def get_chatter_analytics():
                 SELECT chatter,
                        COUNT(*) as sales_count,
                        COALESCE(SUM(amount),0) as total_revenue,
-                       COALESCE(AVG(amount),0) as avg_sale
-                FROM sales
-                WHERE chatter != ''
-                GROUP BY chatter
-                ORDER BY total_revenue DESC
+                       COALESCE(AVG(amount),0) as avg_sale,
+                       COUNT(CASE WHEN LOWER(product) LIKE '%call%' THEN 1 END) as calls_count
+                FROM sales WHERE chatter != ''
+                GROUP BY chatter ORDER BY total_revenue DESC
             ''')
             sales_rows = {r['chatter']: dict(r) for r in c.fetchall()}
-            # Messages sent per chatter
+
+            # Messages sent + active time per chatter
             c.execute('''
-                SELECT chatter, COUNT(*) as msgs_sent
+                SELECT chatter,
+                       COUNT(*) as msgs_sent,
+                       MIN(timestamp) as first_msg,
+                       MAX(timestamp) as last_msg
                 FROM messages
                 WHERE direction='out' AND chatter != ''
                 GROUP BY chatter
             ''')
-            msg_rows = {r['chatter']: r['msgs_sent'] for r in c.fetchall()}
+            msg_rows = {r['chatter']: dict(r) for r in c.fetchall()}
+
+            # Average response time: time from incoming msg to next outgoing by chatter
+            c.execute('''
+                SELECT m_out.chatter,
+                       AVG(EXTRACT(EPOCH FROM (m_out.timestamp::timestamp - m_in.timestamp::timestamp))) as avg_response_sec,
+                       COUNT(*) as response_pairs
+                FROM messages m_in
+                JOIN LATERAL (
+                    SELECT chatter, timestamp FROM messages m
+                    WHERE m.tg_id = m_in.tg_id
+                      AND m.direction = 'out'
+                      AND m.chatter != ''
+                      AND m.timestamp > m_in.timestamp
+                      AND EXTRACT(EPOCH FROM (m.timestamp::timestamp - m_in.timestamp::timestamp)) BETWEEN 5 AND 3600
+                    ORDER BY m.timestamp ASC LIMIT 1
+                ) m_out ON true
+                WHERE m_in.direction = 'in'
+                GROUP BY m_out.chatter
+            ''')
+            response_rows = {r['chatter']: dict(r) for r in c.fetchall()}
+
     chatters = {}
-    for name, s in sales_rows.items():
-        chatters[name] = {**s, 'msgs_sent': msg_rows.get(name, 0)}
-    for name, msgs in msg_rows.items():
-        if name not in chatters:
-            chatters[name] = {'chatter': name, 'sales_count': 0, 'total_revenue': 0, 'avg_sale': 0, 'msgs_sent': msgs}
-    result = list(chatters.values())
-    for r in result:
-        r['revenue_per_msg'] = round(r['total_revenue'] / r['msgs_sent'], 2) if r['msgs_sent'] > 0 else 0
-    return sorted(result, key=lambda x: x['total_revenue'], reverse=True)
+    all_names = set(list(sales_rows.keys()) + list(msg_rows.keys()))
+    for name in all_names:
+        s = sales_rows.get(name, {'sales_count':0,'total_revenue':0,'avg_sale':0,'calls_count':0})
+        m = msg_rows.get(name, {'msgs_sent':0,'first_msg':None,'last_msg':None})
+        r = response_rows.get(name, {'avg_response_sec':None})
+
+        # Active time in seconds (first to last message)
+        active_sec = 0
+        if m['first_msg'] and m['last_msg']:
+            try:
+                from datetime import datetime as _dt
+                t1 = _dt.fromisoformat(str(m['first_msg']))
+                t2 = _dt.fromisoformat(str(m['last_msg']))
+                active_sec = max(0, int((t2 - t1).total_seconds()))
+            except Exception:
+                pass
+
+        chatters[name] = {
+            'chatter': name,
+            'sales_count': s['sales_count'],
+            'total_revenue': float(s['total_revenue']),
+            'avg_sale': float(s['avg_sale']),
+            'calls_count': s['calls_count'] or 0,
+            'msgs_sent': m['msgs_sent'],
+            'active_sec': active_sec,
+            'avg_response_sec': round(float(r['avg_response_sec'])) if r.get('avg_response_sec') else None,
+            'revenue_per_msg': round(float(s['total_revenue']) / m['msgs_sent'], 2) if m['msgs_sent'] > 0 else 0,
+        }
+    return sorted(chatters.values(), key=lambda x: x['total_revenue'], reverse=True)
 
 async def _bg_read_history(tg_id: str):
     """Background: mark messages as read in Telegram."""
