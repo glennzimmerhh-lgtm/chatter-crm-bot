@@ -1949,6 +1949,8 @@ const SHIFT_DEFS = [
 
 let salesData = [];
 let crmSalesData = []; // sales from Railway backend
+window._getCrmSalesData = () => crmSalesData;
+window._setCrmSalesData = (d) => { crmSalesData = d; };
 let shiftsData = [];
 let revenueChart = null;
 let replyChart = null;
@@ -3502,6 +3504,11 @@ if (checkAuth()) {
 // ── SHIFT GOAL ───────────────────────────────────────────────────────────────
 let SHIFT_GOAL = parseInt(localStorage.getItem('crm_shift_goal') || '300');
 
+function _getSalesData() {
+  // Access crmSalesData across script blocks
+  return window._getCrmSalesData ? window._getCrmSalesData() : [];
+}
+
 // Load goal from backend settings on startup
 fetch('/api/settings/crm').then(r => r.json()).then(d => {
   if (d.shift_goal) {
@@ -3529,7 +3536,7 @@ function updateShiftGoal() {
   const user = localStorage.getItem('crm_user') || '';
   const now = new Date();
   // Filter CRM sales for current chatter today
-  const todaySales = (typeof crmSalesData !== 'undefined' ? crmSalesData : []).filter(s => {
+  const todaySales = _getSalesData().filter(s => {
     const d = new Date(s.timestamp);
     const sameDay = d.toDateString() === now.toDateString();
     const sameChatter = !user || s.chatter === user;
