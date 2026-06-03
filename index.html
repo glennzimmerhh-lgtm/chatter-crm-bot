@@ -1006,6 +1006,19 @@
       </div>
     </div>
 
+    <!-- TOP SPENDERS -->
+    <div class="panel" style="margin-bottom:24px;">
+      <div class="panel-hd">
+        <div class="panel-title">🏆 Top Spender</div>
+        <span class="panel-tag" id="top-spenders-tag">Alle Zeit</span>
+      </div>
+      <div class="panel-body" style="padding:0;">
+        <div id="top-spenders-list" style="padding:8px 0;">
+          <div class="empty">Keine Sales vorhanden</div>
+        </div>
+      </div>
+    </div>
+
     <!-- REPLY TIME CHART -->
     <div class="panel" style="margin-bottom:24px;">
       <div class="panel-hd">
@@ -1039,6 +1052,8 @@
       </div>
     </div>
   </div>
+
+  <!-- TOP SPENDERS WIDGET (appended to dashboard above) -->
 
   <!-- SALES PAGE -->
   <div id="page-sales" style="display:none;">
@@ -1789,6 +1804,7 @@ function renderDashboard() {
   renderRevenueChart(p);
   renderReplyChart(p);
   renderShiftsToday(todayShifts, todayRevenue);
+  renderTopSpenders();
   renderRecentSales(filteredSales);
 }
 
@@ -1952,6 +1968,39 @@ function renderRecentSales(sales) {
       <td style="color:#00d4aa;font-weight:600">${fmt(r['Betrag (€)'] || 0)}</td>
       <td style="color:#8888a0">${r['Notiz'] || '—'}</td>
     </tr>`;
+  }).join('');
+}
+
+function renderTopSpenders() {
+  const el = document.getElementById('top-spenders-list');
+  if (!el) return;
+  // Aggregate spending per subscriber from crmSalesData
+  const map = {};
+  crmSalesData.forEach(s => {
+    if (!map[s.tg_id]) map[s.tg_id] = { tg_id: s.tg_id, anon_id: s.anon_id, total: 0, count: 0 };
+    map[s.tg_id].total += parseFloat(s.amount) || 0;
+    map[s.tg_id].count++;
+  });
+  const sorted = Object.values(map).sort((a, b) => b.total - a.total).slice(0, 10);
+  if (!sorted.length) { el.innerHTML = '<div class="empty" style="padding:16px;">Keine Sales vorhanden</div>'; return; }
+  const medals = ['🥇','🥈','🥉'];
+  el.innerHTML = sorted.map((s, i) => {
+    const conv = allConvs ? allConvs.find(c => c.tg_id === s.tg_id) : null;
+    const name = conv?.internal_name || s.anon_id || s.tg_id;
+    const tier = getSpendingTier ? getSpendingTier(s.total) : { color: '#00d4aa' };
+    const medal = medals[i] || `${i+1}.`;
+    const pct = sorted[0].total > 0 ? (s.total / sorted[0].total * 100) : 0;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--border);" onclick="openConv('${s.tg_id}','${s.anon_id}');showPage('chat')" style2="cursor:pointer;">
+      <span style="font-size:16px;width:24px;text-align:center;flex-shrink:0;">${medal}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
+        <div style="height:4px;background:var(--bg3);border-radius:4px;margin-top:4px;"><div style="height:4px;background:${tier.color||'#00d4aa'};border-radius:4px;width:${pct.toFixed(0)}%;"></div></div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <div style="font-size:14px;font-weight:700;color:${tier.color||'#00d4aa'};">${s.total.toLocaleString('de-DE',{minimumFractionDigits:0,maximumFractionDigits:0})}€</div>
+        <div style="font-size:10px;color:var(--text3);">${s.count} Sale${s.count!==1?'s':''}</div>
+      </div>
+    </div>`;
   }).join('');
 }
 
