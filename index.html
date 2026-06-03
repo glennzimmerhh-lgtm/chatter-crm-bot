@@ -2027,14 +2027,20 @@ if (checkAuth()) {
   }
 
   async function chatApiPost(path, body) {
+    const url = '/api' + path;
     try {
-      const r = await fetch('/api' + path, {
+      const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      return await r.json();
-    } catch { return null; }
+      const data = await r.json();
+      if (!r.ok) alert('⚠️ HTTP ' + r.status + ': ' + JSON.stringify(data));
+      return data;
+    } catch(e) {
+      alert('❌ Netzwerkfehler bei ' + url + ': ' + e.message);
+      return null;
+    }
   }
 
   window._refreshChatStatus = async function refreshChatStatus() {
