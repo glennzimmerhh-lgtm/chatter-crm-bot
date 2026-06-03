@@ -824,11 +824,8 @@
     <div class="login-logo">Chatter CRM</div>
     <div class="login-sub">Bitte anmelden um fortzufahren</div>
     <div class="login-field">
-      <label>Nutzer</label>
-      <select id="login-user">
-        <option value="Glenn">Glenn</option>
-        <option value="Jonas">Jonas</option>
-      </select>
+      <label>Benutzername</label>
+      <input type="text" id="login-user" placeholder="Dein Name" onkeydown="if(event.key==='Enter')document.getElementById('login-pw').focus()" autocomplete="username">
     </div>
     <div class="login-field">
       <label>Passwort</label>
@@ -901,6 +898,10 @@
     <div class="nav-item" onclick="showPage('performance')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       Performance
+    </div>
+    <div class="nav-item admin-only" onclick="showPage('members')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Mitglieder
     </div>
     <div class="nav-section">System</div>
     <div class="nav-item" onclick="openSettings()">
@@ -1331,6 +1332,44 @@
     </div>
   </div>
 
+  <!-- MEMBERS PAGE -->
+  <div id="page-members" style="display:none;">
+    <div class="page-header">
+      <h1 class="page-title">👥 Mitglieder</h1>
+      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Zugänge verwalten — Chatter einladen und Rollen vergeben.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px;align-items:start;">
+      <!-- Create user -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;">+ Neues Mitglied</div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Benutzername</label>
+          <input id="mu-name" type="text" placeholder="z.B. Maria" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Passwort</label>
+          <input id="mu-pw" type="password" placeholder="••••••••" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Rolle</label>
+          <select id="mu-role" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;">
+            <option value="chatter">💬 Chatter (nur Chat + Broadcast)</option>
+            <option value="admin">👑 Admin (voller Zugang)</option>
+          </select>
+        </div>
+        <button onclick="createMember()" style="width:100%;background:var(--teal);color:#000;border:none;border-radius:8px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;">➕ Hinzufügen</button>
+        <div id="mu-status" style="margin-top:10px;font-size:12px;display:none;"></div>
+      </div>
+      <!-- Member list -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;">Aktive Mitglieder</div>
+        <div id="members-list" style="display:flex;flex-direction:column;gap:10px;">
+          <div style="color:var(--text3);font-size:13px;">Laden...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- PERFORMANCE PAGE -->
   <div id="page-performance" style="display:none;">
     <div class="page-header">
@@ -1526,27 +1565,46 @@
 
 <script>
 // ── AUTH ─────────────────────────────────────────────────
-const USERS = {
-  'Glenn': 'Smartviral1!',
-  'Jonas': 'Fontenay',
-};
+// Role loaded from backend at login — stored in localStorage
+function isChatter() {
+  return localStorage.getItem('crm_role') === 'chatter';
+}
+function isAdmin() {
+  return localStorage.getItem('crm_role') === 'admin';
+}
 
-function doLogin() {
-  const user = document.getElementById('login-user').value;
+async function doLogin() {
+  const user = document.getElementById('login-user').value.trim();
   const pw   = document.getElementById('login-pw').value;
   const err  = document.getElementById('login-error');
-  if (USERS[user] && pw === USERS[user]) {
-    localStorage.setItem('crm_user', user);
-    localStorage.setItem('crm_auth', btoa(user + ':' + pw));
-    err.style.display = 'none';
-    document.getElementById('login-pw').value = '';
-    document.getElementById('login-screen').style.display = 'none';
-    showLoadingBar(user);
-  } else {
+  const btn  = document.querySelector('.login-btn');
+  if (!user || !pw) return;
+  btn.textContent = '...'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pw })
+    });
+    if (r.ok) {
+      const data = await r.json();
+      localStorage.setItem('crm_user', data.username);
+      localStorage.setItem('crm_role', data.role);
+      localStorage.setItem('crm_auth', btoa(data.username + ':' + data.role));
+      err.style.display = 'none';
+      document.getElementById('login-pw').value = '';
+      document.getElementById('login-screen').style.display = 'none';
+      showLoadingBar(data.username);
+    } else {
+      err.textContent = 'Falscher Benutzername oder Passwort';
+      err.style.display = 'block';
+      document.getElementById('login-pw').value = '';
+      document.getElementById('login-pw').focus();
+    }
+  } catch(e) {
+    err.textContent = 'Server nicht erreichbar';
     err.style.display = 'block';
-    document.getElementById('login-pw').value = '';
-    document.getElementById('login-pw').focus();
   }
+  btn.textContent = 'Anmelden'; btn.disabled = false;
 }
 
 function showLoadingBar(user) {
@@ -1650,6 +1708,7 @@ function toggleTheme() {
 function doLogout() {
   localStorage.removeItem('crm_user');
   localStorage.removeItem('crm_auth');
+  localStorage.removeItem('crm_role');
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-pw').value = '';
   document.querySelector('.sidebar').style.display = 'none';
@@ -1664,19 +1723,41 @@ function showApp(user) {
   document.getElementById('user-name-display').textContent = user;
   document.getElementById('user-avatar').textContent = user[0].toUpperCase();
   document.title = 'Chatter CRM';
+
+  const role = localStorage.getItem('crm_role') || 'chatter';
+  if (role === 'chatter') {
+    // Hide admin-only nav items
+    const hiddenPages = ['dashboard','sales','shifts','subscribers','scripts','performance','members'];
+    document.querySelectorAll('.nav-item').forEach(el => {
+      const onclick = el.getAttribute('onclick') || '';
+      const hidden = hiddenPages.some(p => onclick.includes("'" + p + "'"));
+      if (hidden) el.style.display = 'none';
+    });
+    document.querySelectorAll('.nav-section').forEach(sec => {
+      let next = sec.nextElementSibling;
+      let allHidden = true;
+      while (next && !next.classList.contains('nav-section')) {
+        if (next.style.display !== 'none') { allHidden = false; break; }
+        next = next.nextElementSibling;
+      }
+      if (allHidden) sec.style.display = 'none';
+    });
+    showPage('chat');
+  } else {
+    // Admin: show all, load members page data when opened
+    document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+  }
 }
 
 function checkAuth() {
   const storedUser = localStorage.getItem('crm_user');
+  const storedRole = localStorage.getItem('crm_role');
   const storedAuth = localStorage.getItem('crm_auth');
-  if (storedUser && USERS[storedUser]) {
-    const expected = btoa(storedUser + ':' + USERS[storedUser]);
-    if (storedAuth === expected) {
-      showApp(storedUser);
-      return true;
-    }
+  if (storedUser && storedRole && storedAuth === btoa(storedUser + ':' + storedRole)) {
+    showApp(storedUser);
+    return true;
   }
-  // Not logged in — hide app until auth
+  // Not logged in
   document.querySelector('.sidebar').style.display = 'none';
   document.querySelector('.main').style.display = 'none';
   return false;
@@ -2195,7 +2276,7 @@ function closeSidebar() {
 }
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','subscribers','broadcast','performance'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','subscribers','broadcast','performance','members'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -2456,8 +2537,8 @@ if (checkAuth()) {
         <div class="profile-big-avatar">${letter}</div>
         <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px;">${p.internal_name || p.anon_id}</div>
         <div class="profile-anon">${p.anon_id}</div>
-        ${p.tg_username ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;">@${p.tg_username}</div>` : ''}
-        ${p.tg_phone ? `<div style="font-size:11px;color:#55556a;margin-top:1px;">📞 +${p.tg_phone}</div>` : ''}
+        ${(!isChatter() && p.tg_username) ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;">@${p.tg_username}</div>` : ''}
+        ${(!isChatter() && p.tg_phone) ? `<div style="font-size:11px;color:#55556a;margin-top:1px;">📞 +${p.tg_phone}</div>` : ''}
       </div>
 
       <div class="profile-section">
@@ -2522,7 +2603,7 @@ if (checkAuth()) {
         <div class="profile-stat-row"><span>Erste Nachricht</span><span class="profile-stat-val">${firstDate}</span></div>
         <div class="profile-stat-row"><span>Letzte Nachricht</span><span class="profile-stat-val">${lastDate}</span></div>
         <div class="profile-stat-row"><span>Nachrichten</span><span class="profile-stat-val">${p.msg_count||0}</span></div>
-        <div class="profile-stat-row"><span>Kontakt</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ Kein Kontakt'}</span></div>
+        ${!isChatter() ? `<div class="profile-stat-row"><span>Kontakt</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ Kein Kontakt'}</span></div>` : ''}
 
       </div>
     `;
@@ -3503,6 +3584,64 @@ async function startBroadcast() {
 </script>
 
 <script>
+// ── MEMBERS MANAGEMENT ────────────────────────────────────────────────────────
+async function loadMembers() {
+  const list = document.getElementById('members-list');
+  if (!list) return;
+  try {
+    const users = await fetch('/api/auth/users').then(r => r.json());
+    const currentUser = localStorage.getItem('crm_user');
+    list.innerHTML = users.map(u => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:${u.role==='admin'?'rgba(0,212,170,0.2)':'rgba(74,158,255,0.15)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:${u.role==='admin'?'var(--teal)':'var(--blue)'};">${u.username[0].toUpperCase()}</div>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;color:var(--text);">${u.username}</div>
+          <div style="font-size:11px;color:var(--text3);">${u.role === 'admin' ? '👑 Admin' : '💬 Chatter'}</div>
+        </div>
+        <select onchange="changeMemberRole(${u.id},this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:4px 6px;outline:none;">
+          <option value="chatter" ${u.role==='chatter'?'selected':''}>Chatter</option>
+          <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+        </select>
+        ${u.username !== currentUser ? `<button onclick="deleteMember(${u.id},'${u.username}')" style="background:rgba(255,92,122,0.15);border:1px solid rgba(255,92,122,0.3);color:#ff5c7a;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:11px;">✕</button>` : '<div style="width:34px;"></div>'}
+      </div>`).join('');
+  } catch(e) { list.innerHTML = '<div style="color:var(--red)">Fehler beim Laden</div>'; }
+}
+
+async function createMember() {
+  const name = document.getElementById('mu-name')?.value.trim();
+  const pw = document.getElementById('mu-pw')?.value;
+  const role = document.getElementById('mu-role')?.value;
+  const status = document.getElementById('mu-status');
+  if (!name || !pw) { status.textContent = '⚠️ Name und Passwort erforderlich'; status.style.color='var(--red)'; status.style.display='block'; return; }
+  try {
+    const r = await fetch('/api/auth/users', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: name, password: pw, role })
+    });
+    if (r.ok) {
+      status.textContent = `✅ ${name} wurde hinzugefügt`; status.style.color='var(--teal)'; status.style.display='block';
+      document.getElementById('mu-name').value = '';
+      document.getElementById('mu-pw').value = '';
+      loadMembers();
+    } else { const d = await r.json(); status.textContent = '❌ ' + (d.detail||'Fehler'); status.style.color='var(--red)'; status.style.display='block'; }
+  } catch(e) { status.textContent = '❌ ' + e.message; status.style.color='var(--red)'; status.style.display='block'; }
+}
+
+async function changeMemberRole(id, role) {
+  await fetch('/api/auth/users/' + id, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role })
+  });
+  loadMembers();
+}
+
+async function deleteMember(id, name) {
+  if (!confirm(`${name} wirklich entfernen?`)) return;
+  const r = await fetch('/api/auth/users/' + id, { method: 'DELETE' });
+  if (r.ok) loadMembers();
+  else { const d = await r.json(); alert(d.detail || 'Fehler'); }
+}
+
 // ── FUNNEL STAGE ──────────────────────────────────────────────────────────────
 async function saveFunnelStage(tgId, stage) {
   await fetch('/api/profile/' + tgId, {
@@ -3562,6 +3701,7 @@ document.addEventListener('DOMContentLoaded', () => {
       _sp(name);
       if (name === 'broadcast') loadAutoOnline();
       if (name === 'performance') loadPerformance('heute');
+      if (name === 'members') loadMembers();
     };
   }
 });

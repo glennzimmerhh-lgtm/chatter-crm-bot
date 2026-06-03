@@ -104,6 +104,23 @@ def init_db():
                 tg_id   TEXT NOT NULL,
                 PRIMARY KEY (list_id, tg_id)
             )''')
+            # Users table
+            c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
+                id            SERIAL PRIMARY KEY,
+                username      TEXT NOT NULL UNIQUE,
+                email         TEXT DEFAULT '',
+                password_hash TEXT NOT NULL,
+                role          TEXT DEFAULT 'chatter'
+            )''')
+            # Seed default admin if no users exist
+            c.execute('SELECT COUNT(*) as n FROM crm_users')
+            if c.fetchone()['n'] == 0:
+                import hashlib
+                c.execute(
+                    "INSERT INTO crm_users (username,email,password_hash,role) VALUES (%s,%s,%s,%s)",
+                    ('Glenn', 'glennzimmerhh@gmail.com', hashlib.sha256('Smartviral1!'.encode()).hexdigest(), 'admin')
+                )
+
             # Settings table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_settings (
                 key   TEXT PRIMARY KEY,
@@ -636,6 +653,86 @@ async def post_reply(body: ReplyIn):
         raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
     except Exception as e:
         raise HTTPException(500, str(e))
+
+# ── AUTH & USERS ─────────────────────────────────────────────────────────────
+import hashlib as _hashlib
+
+def _hash_pw(pw: str) -> str:
+    return _hashlib.sha256(pw.encode()).hexdigest()
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+@app.post('/auth/login')
+def auth_login(body: LoginIn):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT id,username,email,role FROM crm_users WHERE username=%s AND password_hash=%s',
+                      (body.username, _hash_pw(body.password)))
+            row = c.fetchone()
+    if not row:
+        raise HTTPException(401, 'Falscher Benutzername oder Passwort')
+    return dict(row)
+
+@app.get('/auth/users')
+def list_users():
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT id,username,email,role FROM crm_users ORDER BY id')
+            rows = c.fetchall()
+    return [dict(r) for r in rows]
+
+class UserCreate(BaseModel):
+    username: str
+    email: str = ''
+    password: str
+    role: str = 'chatter'
+
+@app.post('/auth/users')
+def create_user(body: UserCreate):
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute(
+                    'INSERT INTO crm_users (username,email,password_hash,role) VALUES (%s,%s,%s,%s) RETURNING id',
+                    (body.username.strip(), body.email.strip(), _hash_pw(body.password), body.role)
+                )
+                new_id = c.fetchone()['id']
+        return {'ok': True, 'id': new_id}
+    except Exception as e:
+        raise HTTPException(400, f'Fehler: {e}')
+
+class UserUpdate(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+
+@app.patch('/auth/users/{user_id}')
+def update_user(user_id: int, body: UserUpdate):
+    with db() as conn:
+        with conn.cursor() as c:
+            if body.email is not None:
+                c.execute('UPDATE crm_users SET email=%s WHERE id=%s', (body.email, user_id))
+            if body.password:
+                c.execute('UPDATE crm_users SET password_hash=%s WHERE id=%s', (_hash_pw(body.password), user_id))
+            if body.role is not None:
+                c.execute('UPDATE crm_users SET role=%s WHERE id=%s', (body.role, user_id))
+    return {'ok': True}
+
+@app.delete('/auth/users/{user_id}')
+def delete_user(user_id: int):
+    with db() as conn:
+        with conn.cursor() as c:
+            # Prevent deleting last admin
+            c.execute("SELECT COUNT(*) as n FROM crm_users WHERE role='admin'")
+            if c.fetchone()['n'] <= 1:
+                c.execute("SELECT role FROM crm_users WHERE id=%s", (user_id,))
+                row = c.fetchone()
+                if row and row['role'] == 'admin':
+                    raise HTTPException(400, 'Letzter Admin kann nicht gelöscht werden')
+            c.execute('DELETE FROM crm_users WHERE id=%s', (user_id,))
+    return {'ok': True}
 
 # ── CRM SETTINGS ─────────────────────────────────────────────────────────────
 def get_setting(key: str, default: str = '') -> str:
