@@ -2033,8 +2033,8 @@ if (checkAuth()) {
     try {
       const r = await fetch(base + path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body ? new URLSearchParams(body).toString() : ''
       });
       return await r.json();
     } catch { return null; }
