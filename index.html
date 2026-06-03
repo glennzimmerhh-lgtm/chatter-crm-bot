@@ -2481,11 +2481,16 @@ function renderDonutChart(productMap, totalRev) {
   }).join('');
 }
 
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function filterCrmByPeriod(data, period) {
   const now = new Date();
+  const todayStr = localDateStr(now);
   return data.filter(s => {
     const d = new Date(s.timestamp);
-    if (period === 'heute') return d.toDateString() === now.toDateString();
+    if (period === 'heute') return localDateStr(d) === todayStr;
     if (period === 'woche') { const w = new Date(now); w.setDate(w.getDate() - 7); return d >= w; }
     if (period === 'monat') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     if (period === 'range' && customRangeFrom && customRangeTo) return d >= customRangeFrom && d <= customRangeTo;
@@ -3538,7 +3543,7 @@ function updateShiftGoal() {
   // Filter CRM sales for current chatter today
   const todaySales = _getSalesData().filter(s => {
     const d = new Date(s.timestamp);
-    const sameDay = d.toDateString() === now.toDateString();
+    const sameDay = localDateStr(d) === localDateStr(now);
     const sameChatter = !user || s.chatter === user;
     return sameDay && sameChatter;
   });
@@ -4177,7 +4182,7 @@ function filterPerfByPeriod(chatters, period) {
   const now = new Date();
   const periodSales = crmSalesData.filter(s => {
     const d = new Date(s.timestamp);
-    if (period === 'heute') return d.toDateString() === now.toDateString();
+    if (period === 'heute') return localDateStr(d) === localDateStr(now);
     if (period === 'woche') { const w = new Date(now); w.setDate(w.getDate()-7); return d >= w; }
     if (period === 'monat') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     return true;
