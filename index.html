@@ -1314,7 +1314,10 @@
       <div class="msg-area">
         <div class="msg-topbar" id="msg-topbar">
           <div class="msg-topbar-avatar" id="msg-avatar">?</div>
-          <span id="msg-conv-name" style="letter-spacing:.01em;">Gespräch auswählen</span>
+          <div style="display:flex;flex-direction:column;gap:1px;">
+            <span id="msg-conv-name" style="letter-spacing:.01em;">Gespräch auswählen</span>
+            <span id="msg-conv-status" style="font-size:11px;color:var(--text3);"></span>
+          </div>
         </div>
         <div class="msg-list" id="msg-list">
           <div class="chat-empty">← Gespräch auswählen</div>
@@ -2250,14 +2253,37 @@ if (checkAuth()) {
     }).join('');
   }
 
+  function updateConvStatus(tgId) {
+    const statusEl = document.getElementById('msg-conv-status');
+    if (!statusEl) return;
+    const conv = allConvs.find(c => c.tg_id === tgId);
+    if (!conv) { statusEl.textContent = ''; return; }
+    if (conv.is_online) {
+      statusEl.innerHTML = '<span style="color:#22c55e;">🟢 Online</span>';
+    } else if (conv.last_seen) {
+      const d = new Date(conv.last_seen);
+      const now = new Date();
+      const diffMin = Math.floor((now - d) / 60000);
+      let txt;
+      if (diffMin < 1) txt = 'Gerade eben gesehen';
+      else if (diffMin < 60) txt = `Zuletzt gesehen vor ${diffMin} Min.`;
+      else if (diffMin < 1440) txt = `Zuletzt gesehen heute ${d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}`;
+      else txt = `Zuletzt gesehen ${d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})} ${d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}`;
+      statusEl.textContent = txt;
+    } else {
+      statusEl.textContent = '';
+    }
+  }
+
   window.openConv = async function openConv(tgId, anonId) {
     currentChatTgId = tgId;
     document.getElementById('msg-conv-name').textContent = anonId;
     document.getElementById('msg-avatar').textContent = anonId.replace('User #','#').slice(0,2);
+    updateConvStatus(tgId);
     renderConvList(allConvs);
     await Promise.all([loadMsgs(), loadProfile(tgId)]);
     if (chatMsgInterval) clearInterval(chatMsgInterval);
-    chatMsgInterval = setInterval(loadMsgs, 3000);
+    chatMsgInterval = setInterval(() => { loadMsgs(); updateConvStatus(currentChatTgId); }, 3000);
   }
 
   async function loadProfile(tgId) {
