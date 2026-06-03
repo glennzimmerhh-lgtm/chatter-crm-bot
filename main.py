@@ -119,6 +119,7 @@ def init_db():
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS tg_msg_id INTEGER DEFAULT 0",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TEXT DEFAULT ''",
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS translation TEXT DEFAULT ''",
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_last_time ON conversations(last_time DESC)",
@@ -173,6 +174,7 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: st
     return anon_id
 
 def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id: int = 0):
+    import threading
     ts = datetime.now().isoformat()
     with db() as conn:
         with conn.cursor() as c:
@@ -186,11 +188,41 @@ def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id
                     'UPDATE conversations SET last_msg=%s, last_time=%s, unread=unread+1, msg_count=msg_count+1, followup_at=NULL WHERE tg_id=%s',
                     (text[:100], ts, tg_id)
                 )
+                # Auto-translate in background thread
+                threading.Thread(target=_auto_translate_message, args=(tg_id, text), daemon=True).start()
             else:
                 c.execute(
                     'UPDATE conversations SET last_msg=%s, last_time=%s, msg_count=msg_count+1 WHERE tg_id=%s',
                     (text[:100], ts, tg_id)
                 )
+
+def _auto_translate_message(tg_id: str, text: str):
+    """Translate incoming message to English and store in DB (background thread)."""
+    if not OPENAI_API_KEY or not text.strip():
+        return
+    try:
+        import urllib.request as _r, json as _j
+        payload = _j.dumps({
+            'model': 'gpt-4o-mini',
+            'messages': [
+                {'role': 'system', 'content': 'Translate the following message to English. Return ONLY the translation.'},
+                {'role': 'user', 'content': text}
+            ],
+            'max_tokens': 200, 'temperature': 0.3
+        }).encode()
+        req = _r.Request('https://api.openai.com/v1/chat/completions', data=payload,
+                         headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {OPENAI_API_KEY}'})
+        with _r.urlopen(req, timeout=12) as resp:
+            data = _j.loads(resp.read())
+        translation = data['choices'][0]['message']['content'].strip()
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute(
+                    "UPDATE messages SET translation=%s WHERE tg_id=%s AND text=%s AND direction='in' AND translation='' ORDER BY id DESC LIMIT 1",
+                    (translation, tg_id, text)
+                )
+    except Exception as e:
+        print(f'Auto-translate error: {e}')
 
 def update_online_status(tg_id: str, is_online: bool):
     """Update subscriber online status — only for known conversations."""
@@ -482,7 +514,7 @@ async def get_messages(tg_id: str, bg: BackgroundTasks):
     with db() as conn:
         with conn.cursor() as c:
             c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
-            c.execute('SELECT text,direction,timestamp,chatter,is_read,read_at FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
+            c.execute('SELECT text,direction,timestamp,chatter,is_read,read_at,translation FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
             rows = c.fetchall()
     bg.add_task(_bg_read_history, tg_id)
     return [dict(r) for r in rows]
