@@ -2014,7 +2014,8 @@ if (checkAuth()) {
   let chatMsgInterval = null;
 
   function getChatBackendUrl() {
-    return (localStorage.getItem('crm_backend_url') || 'https://worker-production-806f.up.railway.app').replace(/\/$/, '');
+    const custom = localStorage.getItem('crm_backend_url');
+    return custom ? custom.replace(/\/$/, '') : '/api';
   }
 
   async function chatApiGet(path) {
@@ -2028,13 +2029,14 @@ if (checkAuth()) {
   }
 
   async function chatApiPost(path, body) {
-    const base = getChatBackendUrl();
-    if (!base) return null;
+    // Use /api proxy (same-origin, no CORS) unless a custom backend URL is set
+    const custom = localStorage.getItem('crm_backend_url');
+    const base = custom ? custom.replace(/\/$/, '') : '/api';
     try {
       const r = await fetch(base + path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body ? new URLSearchParams(body).toString() : ''
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
       });
       return await r.json();
     } catch { return null; }

@@ -347,14 +347,19 @@ def get_messages(tg_id: str):
     return [dict(r) for r in rows]
 
 # ── REPLY ─────────────────────────────────────────────────────────────────────
+class ReplyIn(BaseModel):
+    tg_id: str
+    text: str
+    chatter: str = 'Chatter'
+
 @app.post('/reply')
-async def post_reply(tg_id: str = Form(...), text: str = Form(...), chatter: str = Form('Chatter')):
+async def post_reply(body: ReplyIn):
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
     try:
-        await tg_client.send_message(int(tg_id), text)
+        await tg_client.send_message(int(body.tg_id), body.text)
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'out', chatter))
+        await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter))
         return {'ok': True}
     except FloodWaitError as e:
         raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
