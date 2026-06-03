@@ -302,13 +302,20 @@ async def start_userbot():
                 access_hash = str(sender.access_hash) if sender.access_hash else ''
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, lambda: ensure_conv(tg_id, username=username, phone=phone, access_hash=access_hash))
+                # Deduplicate: skip if this exact telegram message was already saved
+                msg_tg_id = event.id
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute('SELECT 1 FROM messages WHERE tg_msg_id=%s AND tg_id=%s AND direction=%s', (msg_tg_id, tg_id, 'in'))
+                        if c.fetchone():
+                            return
                 if event.text:          text = event.text
                 elif event.photo:       text = '[📷 Foto]'
                 elif event.document:    text = '[📎 Datei]'
                 elif event.sticker:     text = '[Sticker]'
                 elif event.voice:       text = '[🎤 Sprachnachricht]'
                 else:                   text = '[Nachricht]'
-                await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'in'))
+                await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'in', tg_msg_id=msg_tg_id))
                 print(f'📨 {tg_id}: {text[:80]}')
 
             await tg_client.start()
