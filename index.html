@@ -1846,8 +1846,14 @@ function renderRevenueChart(period) {
   const chartDays = buildChartDays(period || 'heute');
   const labels = chartDays.map(d => d.label);
   const vals   = chartDays.map(d => {
-    const daySales = salesData.filter(r => r['Datum'] === d.dateStr);
-    return Math.round(daySales.reduce((s, r) => s + (parseFloat(r['Betrag (€)']) || 0), 0));
+    const sheetRev = salesData.filter(r => r['Datum'] === d.dateStr)
+      .reduce((s, r) => s + (parseFloat(r['Betrag (€)']) || 0), 0);
+    const crmRev = crmSalesData.filter(r => {
+      const rd = new Date(r.timestamp);
+      const iso = `${rd.getFullYear()}-${String(rd.getMonth()+1).padStart(2,'0')}-${String(rd.getDate()).padStart(2,'0')}`;
+      return iso === d.dateStr;
+    }).reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    return Math.round(sheetRev + crmRev);
   });
 
   const titles = { heute: 'Tagesumsatz (letzte 7 Tage)', woche: 'Tagesumsatz (diese Woche)', monat: 'Tagesumsatz (dieser Monat)' };
@@ -1988,7 +1994,8 @@ function renderTopSpenders() {
   if (!sorted.length) { el.innerHTML = '<div class="empty" style="padding:16px;">Keine Sales vorhanden</div>'; return; }
   const medals = ['🥇','🥈','🥉'];
   el.innerHTML = sorted.map((s, i) => {
-    const conv = allConvs ? allConvs.find(c => c.tg_id === s.tg_id) : null;
+    const _convs = (typeof allConvs !== 'undefined') ? allConvs : [];
+    const conv = _convs.find(c => c.tg_id === s.tg_id);
     const name = conv?.internal_name || s.anon_id || s.tg_id;
     const tier = getSpendingTier ? getSpendingTier(s.total) : { color: '#00d4aa' };
     const medal = medals[i] || `${i+1}.`;
