@@ -1289,9 +1289,22 @@
         </button>
         <div class="topbar-title">💬 Chat</div>
       </div>
-      <div class="chat-status">
-        <div class="chat-status-dot" id="chat-status-dot"></div>
-        <span id="chat-status-text">Verbinde...</span>
+      <div style="display:flex;align-items:center;gap:16px;">
+        <!-- Shift Goal Widget -->
+        <div id="shift-goal-widget" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:7px 14px;min-width:160px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+            <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;">Shift Goal</span>
+            <span style="font-size:12px;font-weight:700;" id="shift-goal-text">0€ / 300€</span>
+          </div>
+          <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
+            <div id="shift-goal-bar" style="height:100%;width:0%;border-radius:4px;background:#ff5c7a;transition:width .5s ease,background .5s ease;"></div>
+          </div>
+          <div style="font-size:9px;color:var(--text3);margin-top:3px;text-align:right;" id="shift-goal-pct">0%</div>
+        </div>
+        <div class="chat-status">
+          <div class="chat-status-dot" id="chat-status-dot"></div>
+          <span id="chat-status-text">Verbinde...</span>
+        </div>
       </div>
     </div>
 
@@ -1537,6 +1550,7 @@ async function submitSale() {
       fb.textContent = '✅ Sale erfolgreich gespeichert!';
       fb.style.display = 'block';
       await loadData(); // refresh sales log + dashboard immediately
+      if (typeof updateShiftGoal === 'function') updateShiftGoal();
       setTimeout(() => { document.getElementById('sale-modal-overlay').style.display = 'none'; }, 1500);
     } else { fb.textContent = '❌ Fehler beim Speichern.'; fb.style.display = 'block'; }
   } catch(e) { fb.textContent = '❌ Backend nicht erreichbar.'; fb.style.display = 'block'; }
@@ -1764,6 +1778,7 @@ async function loadData() {
   renderDashboard();
   renderSalesPage();
   renderShiftsPage();
+  updateShiftGoal();
 }
 
 function renderDashboard() {
@@ -3020,6 +3035,38 @@ if (checkAuth()) {
 </script>
 
 <script>
+// ── SHIFT GOAL ───────────────────────────────────────────────────────────────
+const SHIFT_GOAL = 300;
+
+function updateShiftGoal() {
+  const user = localStorage.getItem('crm_user') || '';
+  const now = new Date();
+  // Filter CRM sales for current chatter today
+  const todaySales = (typeof crmSalesData !== 'undefined' ? crmSalesData : []).filter(s => {
+    const d = new Date(s.timestamp);
+    const sameDay = d.toDateString() === now.toDateString();
+    const sameChatter = !user || s.chatter === user;
+    return sameDay && sameChatter;
+  });
+  const earned = todaySales.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+  const pct = Math.min(100, Math.round((earned / SHIFT_GOAL) * 100));
+  const circumference = 87.96;
+  const offset = circumference - (pct / 100) * circumference;
+
+  const txt = document.getElementById('shift-goal-text');
+  const bar = document.getElementById('shift-goal-bar');
+  const pctEl = document.getElementById('shift-goal-pct');
+  if (!txt || !bar || !pctEl) return;
+
+  const color = pct >= 100 ? '#00d4aa' : pct >= 66 ? '#ffd166' : pct >= 33 ? '#ff9f43' : '#ff5c7a';
+  txt.textContent = `${earned.toFixed(0)}€ / ${SHIFT_GOAL}€`;
+  txt.style.color = pct >= 100 ? '#00d4aa' : 'var(--text)';
+  bar.style.width = pct + '%';
+  bar.style.background = color;
+  pctEl.textContent = pct + '%';
+  pctEl.style.color = color;
+}
+
 // ── TYPING INDICATOR ─────────────────────────────────────────────────────────
 let _typingTimer = null;
 let _lastTypingSent = 0;
