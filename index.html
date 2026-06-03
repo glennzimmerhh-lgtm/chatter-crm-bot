@@ -2968,15 +2968,19 @@ if (checkAuth()) {
       return;
     }
     const wasAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 40;
-    el.innerHTML = msgs.map(m => {
+    el.innerHTML = msgs.map((m, i) => {
       const dir = m.direction === 'in' ? 'in' : 'out';
       const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
       const ticks = dir === 'out' ? `<svg width="15" height="10" viewBox="0 0 15 10" style="margin-left:3px;vertical-align:middle;flex-shrink:0" fill="${m.is_read ? '#00d4aa' : 'rgba(255,255,255,0.35)'}"><path d="M0 5l1.4-1.4 3.1 3.1 6.1-6.1 1.4 1.4-7.5 7.5z"/><path d="M4 5l1.4-1.4 3.1 3.1 6.1-6.1 1.4 1.4-7.5 7.5z" opacity="0.7"/></svg>` : '';
+      const msgId = 'msg-' + i;
+      const translateBtn = dir === 'in'
+        ? `<button onclick="translateIncoming('${msgId}',this)" style="background:none;border:none;cursor:pointer;font-size:10px;color:rgba(255,255,255,0.3);padding:0 2px;margin-left:4px;vertical-align:middle;" title="Auf Englisch übersetzen">🇬🇧</button>`
+        : '';
       const meta = dir === 'out'
         ? `<div class="msg-meta" style="display:flex;align-items:center;justify-content:flex-end;gap:2px;">${m.chatter||'Chatter'} · ${time}${ticks}</div>`
-        : `<div class="msg-meta">${time}</div>`;
+        : `<div class="msg-meta">${time}${translateBtn}</div>`;
       return `<div class="msg-row">
-        <div class="msg-bubble msg-${dir}">${m.text}${meta}</div>
+        <div class="msg-bubble msg-${dir}" id="${msgId}">${m.text}${meta}</div>
       </div>`;
     }).join('');
     if (wasAtBottom) el.scrollTop = el.scrollHeight;
@@ -3288,6 +3292,60 @@ Aufgabe: Schreibe die folgende Nachricht in Maries natürlichem Chattingstil um.
     if (ok) localStorage.setItem('crm_openai_key', ok);
     _sv0();
   };
+
+  // Cache translations so re-renders don't re-fetch
+  const _translationCache = {};
+
+  window.translateIncoming = async function(msgId, btn) {
+    const bubble = document.getElementById(msgId);
+    if (!bubble) return;
+    // Get original text (first text node)
+    const originalText = bubble.childNodes[0]?.textContent?.trim();
+    if (!originalText) return;
+
+    // Check cache
+    if (_translationCache[msgId]) {
+      _showTranslation(bubble, _translationCache[msgId], btn);
+      return;
+    }
+
+    const key = localStorage.getItem('crm_openai_key');
+    if (!key) { alert('OpenAI Key in Einstellungen eintragen!'); return; }
+
+    btn.textContent = '⏳';
+    try {
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'Translate the following message to English. Return ONLY the translation, nothing else.' },
+            { role: 'user', content: originalText }
+          ],
+          max_tokens: 200
+        })
+      });
+      const d = await r.json();
+      const translation = d.choices?.[0]?.message?.content?.trim();
+      if (translation) {
+        _translationCache[msgId] = translation;
+        _showTranslation(bubble, translation, btn);
+      }
+    } catch(e) { btn.textContent = '🇬🇧'; }
+  };
+
+  function _showTranslation(bubble, translation, btn) {
+    let existing = bubble.querySelector('.msg-translation');
+    if (existing) { existing.remove(); btn.textContent = '🇬🇧'; return; } // toggle
+    const div = document.createElement('div');
+    div.className = 'msg-translation';
+    div.style.cssText = 'margin-top:6px;padding:5px 8px;background:rgba(255,255,255,0.06);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.55);border-left:2px solid rgba(74,158,255,0.4);';
+    div.textContent = '🇬🇧 ' + translation;
+    const meta = bubble.querySelector('.msg-meta');
+    bubble.insertBefore(div, meta);
+    btn.textContent = '✕';
+  }
 
   window.translateInput = async function() {
     const inp = document.getElementById('chat-input');
