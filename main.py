@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
-from telethon.tl.types import User
+from telethon.tl.types import User, InputPeerUser, UpdateReadHistoryOutbox, PeerUser
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 TG_API_ID   = os.environ.get('TG_API_ID', '')
@@ -107,6 +107,10 @@ def init_db():
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_username TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_phone TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_access_hash TEXT DEFAULT ''",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS followup_at TEXT DEFAULT NULL",
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS tg_msg_id INTEGER DEFAULT 0",
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TEXT DEFAULT ''",
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_last_time ON conversations(last_time DESC)",
@@ -160,18 +164,43 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: st
         })
     return anon_id
 
-def save_msg(tg_id: str, text: str, direction: str, chatter: str = ''):
+def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id: int = 0):
     ts = datetime.now().isoformat()
     with db() as conn:
         with conn.cursor() as c:
             c.execute(
-                'INSERT INTO messages (tg_id,text,direction,timestamp,chatter) VALUES (%s,%s,%s,%s,%s)',
-                (tg_id, text, direction, ts, chatter)
+                'INSERT INTO messages (tg_id,text,direction,timestamp,chatter,tg_msg_id) VALUES (%s,%s,%s,%s,%s,%s)',
+                (tg_id, text, direction, ts, chatter, tg_msg_id)
             )
+            if direction == 'in':
+                # Incoming message clears follow-up timer
+                c.execute(
+                    'UPDATE conversations SET last_msg=%s, last_time=%s, unread=unread+1, msg_count=msg_count+1, followup_at=NULL WHERE tg_id=%s',
+                    (text[:100], ts, tg_id)
+                )
+            else:
+                c.execute(
+                    'UPDATE conversations SET last_msg=%s, last_time=%s, msg_count=msg_count+1 WHERE tg_id=%s',
+                    (text[:100], ts, tg_id)
+                )
+
+def mark_read(tg_id: str, max_msg_id: int):
+    """Mark outgoing messages as read and start follow-up timer."""
+    now = datetime.now().isoformat()
+    with db() as conn:
+        with conn.cursor() as c:
             c.execute(
-                'UPDATE conversations SET last_msg=%s, last_time=%s, unread=unread+%s, msg_count=msg_count+1 WHERE tg_id=%s',
-                (text[:100], ts, 1 if direction == 'in' else 0, tg_id)
+                "UPDATE messages SET is_read=TRUE, read_at=%s WHERE tg_id=%s AND direction='out' AND tg_msg_id>0 AND tg_msg_id<=%s AND is_read=FALSE",
+                (now, tg_id, max_msg_id)
             )
+            updated = c.rowcount
+            if updated > 0:
+                # Start follow-up timer only if not already set
+                c.execute(
+                    "UPDATE conversations SET followup_at=%s WHERE tg_id=%s AND followup_at IS NULL",
+                    (now, tg_id)
+                )
+                print(f'✓✓ {tg_id}: gelesen, Follow-up Timer gestartet')
 
 # ── USERBOT WITH AUTO-RECONNECT ───────────────────────────────────────────────
 tg_client: Optional[TelegramClient] = None
@@ -192,6 +221,15 @@ async def start_userbot():
                 StringSession(TG_SESSION), int(TG_API_ID), TG_API_HASH,
                 connection_retries=5, retry_delay=3, auto_reconnect=True
             )
+
+            @tg_client.on(events.Raw(UpdateReadHistoryOutbox))
+            async def on_outbox_read(event):
+                """Fires when subscriber reads our outgoing messages."""
+                if isinstance(event.peer, PeerUser):
+                    tg_id = str(event.peer.user_id)
+                    max_id = event.max_id
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, lambda: mark_read(tg_id, max_id))
 
             @tg_client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
             async def on_dm(event):
@@ -307,7 +345,7 @@ def status():
 def get_conversations():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone FROM conversations ORDER BY last_time DESC')
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,followup_at FROM conversations ORDER BY last_time DESC')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -343,7 +381,7 @@ def get_messages(tg_id: str):
     with db() as conn:
         with conn.cursor() as c:
             c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
-            c.execute('SELECT text,direction,timestamp,chatter FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
+            c.execute('SELECT text,direction,timestamp,chatter,is_read,read_at FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -359,7 +397,6 @@ async def post_reply(body: ReplyIn):
         raise HTTPException(503, 'Userbot nicht verbunden')
     try:
         # Look up access_hash from DB for reliable entity resolution
-        from telethon.tl.types import InputPeerUser
         access_hash = 0
         with db() as conn:
             with conn.cursor() as c:
@@ -371,9 +408,10 @@ async def post_reply(body: ReplyIn):
             peer = InputPeerUser(int(body.tg_id), access_hash)
         else:
             peer = int(body.tg_id)
-        await tg_client.send_message(peer, body.text)
+        sent_msg = await tg_client.send_message(peer, body.text)
+        tg_msg_id = sent_msg.id
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter))
+        await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter, tg_msg_id))
         return {'ok': True}
     except FloodWaitError as e:
         raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
