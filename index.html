@@ -797,29 +797,88 @@
 
   /* ── RESPONSIVE ── */
   @media (max-width: 768px) {
+    /* Layout */
     .sidebar { transform: translateX(-100%); transition: transform 0.25s ease; z-index: 101; }
     .sidebar.open { transform: translateX(0); }
-    .main { margin-left: 0; padding: 16px 14px 90px; }
+    .main { margin-left: 0; padding: 12px 12px 80px; }
     .hamburger { display: flex; align-items: center; }
     .fab-refresh { display: flex; }
     .mobile-nav { display: block; }
-    .cards-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+    /* Dashboard */
+    .cards-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px; }
     .grid3, .grid2 { grid-template-columns: 1fr; }
-    .kpi-val { font-size: 22px; }
-    .topbar { margin-bottom: 16px; }
+    .kpi-val { font-size: 20px; }
+    .kpi-card { padding: 12px 14px; }
+    .topbar { margin-bottom: 12px; }
     .topbar-title { font-size: 17px; }
-    .date-badge { display: none; }
-    .config-btn { display: none; }
-    .refresh-btn { display: none; }
-    .chart-wrap { height: 160px; }
-    .period-bar { gap: 5px; margin-bottom: 14px; }
-    .period-btn { padding: 6px 12px; font-size: 11px; }
-    .panel-body { padding: 14px; }
-    .kpi-card { padding: 14px; }
+    .date-badge, .config-btn, .refresh-btn { display: none; }
+    .chart-wrap { height: 150px; }
+    .period-bar { gap: 5px; margin-bottom: 12px; }
+    .period-btn { padding: 6px 10px; font-size: 11px; }
+    .panel-body { padding: 12px; }
+    .panel-hd { padding: 12px 14px; }
+    #range-from, #range-to { font-size: 11px; padding: 4px 6px; }
+
+    /* Revenue breakdown donut — stack vertically */
+    #donutChart { width: 100px !important; height: 100px !important; }
+
+    /* Chat — FULL SCREEN on mobile */
+    #page-chat { padding: 0; }
+    #page-chat .topbar { margin-bottom: 0; padding: 10px 12px; }
+    .chat-layout {
+      grid-template-columns: 1fr !important;
+      height: calc(100dvh - 130px);
+      position: relative;
+    }
+    .conv-list {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 10; background: var(--bg);
+      display: flex; flex-direction: column;
+      transition: transform 0.3s ease;
+    }
+    .conv-list.hidden-mobile { transform: translateX(-100%); }
+    .msg-area {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s ease;
+      background: var(--bg);
+    }
+    .msg-area.visible-mobile { transform: translateX(0); }
+    .profile-panel { display: none !important; }
+    .msg-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
+    .msg-bubble { max-width: 80% !important; }
+
+    /* Chat input area */
+    .reply-bar { padding: 8px 10px; gap: 6px; }
+    .reply-bar input { font-size: 16px !important; min-height: 44px; }
+    .reply-bar button { min-width: 70px; min-height: 44px; padding: 0 14px; font-size: 13px; }
+    #translate-out-btn, #ai-suggest-btn { padding: 10px 11px; font-size: 15px; min-height: 44px; }
+    .emoji-btn { padding: 9px 7px; font-size: 17px; min-height: 40px; }
+
+    /* Chat topbar with back button */
+    .msg-topbar { padding: 10px 12px; }
+    #shift-goal-widget { min-width: 110px; padding: 5px 10px; }
+
+    /* Broadcast / other pages */
+    #page-broadcast > div:nth-child(2) { grid-template-columns: 1fr !important; }
+    #page-broadcast .auto-online-grid { grid-template-columns: 1fr !important; }
+
+    /* Performance / Members */
+    #perf-podium { gap: 10px; }
+    #page-members > div:nth-child(2) { grid-template-columns: 1fr !important; }
+
+    /* Subscriber profile actions */
+    .profile-save-btn { min-height: 44px; font-size: 14px; }
+    .sale-btn { min-height: 44px; font-size: 14px; }
   }
+
   @media (max-width: 400px) {
-    .cards-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .main { padding: 12px 10px 90px; }
+    .main { padding: 10px 8px 80px; }
+    .cards-grid { gap: 8px; }
+    .kpi-val { font-size: 18px; }
+    .period-btn { padding: 5px 8px; font-size: 10px; }
   }
 
   /* ── LOADING SCREEN ── */
@@ -1569,6 +1628,7 @@
       <!-- Nachrichten -->
       <div class="msg-area">
         <div class="msg-topbar" id="msg-topbar">
+          <button id="mobile-back-btn" onclick="mobileShowConvList()" style="display:none;background:none;border:none;color:var(--text2);cursor:pointer;padding:4px 8px 4px 0;font-size:20px;line-height:1;">‹</button>
           <div class="msg-topbar-avatar" id="msg-avatar">?</div>
           <div style="display:flex;flex-direction:column;gap:1px;">
             <span id="msg-conv-name" style="letter-spacing:.01em;">Gespräch auswählen</span>
@@ -3885,6 +3945,44 @@ async function startBroadcast() {
 </script>
 
 <script>
+// ── MOBILE CHAT NAVIGATION ────────────────────────────────────────────────────
+function isMobile() { return window.innerWidth <= 768; }
+
+function mobileShowMessages() {
+  if (!isMobile()) return;
+  document.querySelector('.conv-list')?.classList.add('hidden-mobile');
+  document.querySelector('.msg-area')?.classList.add('visible-mobile');
+  const backBtn = document.getElementById('mobile-back-btn');
+  if (backBtn) backBtn.style.display = 'inline-block';
+}
+
+function mobileShowConvList() {
+  if (!isMobile()) return;
+  document.querySelector('.conv-list')?.classList.remove('hidden-mobile');
+  document.querySelector('.msg-area')?.classList.remove('visible-mobile');
+  const backBtn = document.getElementById('mobile-back-btn');
+  if (backBtn) backBtn.style.display = 'none';
+}
+
+// Hook into openConv to slide to messages on mobile
+const _mobileOpenConvOrig = window.openConv;
+if (_mobileOpenConvOrig) {
+  window.openConv = async function(...args) {
+    await _mobileOpenConvOrig(...args);
+    mobileShowMessages();
+  };
+}
+
+// On page load, show conv list on mobile
+window.addEventListener('resize', () => {
+  if (!isMobile()) {
+    document.querySelector('.conv-list')?.classList.remove('hidden-mobile');
+    document.querySelector('.msg-area')?.classList.remove('visible-mobile');
+    const backBtn = document.getElementById('mobile-back-btn');
+    if (backBtn) backBtn.style.display = 'none';
+  }
+});
+
 // ── AI SUGGESTIONS ───────────────────────────────────────────────────────────
 window.getAiSuggestions = async function() {
   const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
