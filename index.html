@@ -3547,9 +3547,12 @@ function updateShiftGoal() {
   const user = localStorage.getItem('crm_user') || '';
   const now = new Date();
   // Filter CRM sales for current chatter today
+  const todayStr = typeof localDateStr === 'function' ? localDateStr(now) :
+    `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const todaySales = _getSalesData().filter(s => {
-    const d = parseTs(s.timestamp);
-    const sameDay = localDateStr(parseTs(d)) === localDateStr(now);
+    const d = typeof parseTs === 'function' ? parseTs(s.timestamp) : new Date((s.timestamp||'') + 'Z');
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const sameDay = ds === todayStr;
     const sameChatter = !user || s.chatter === user;
     return sameDay && sameChatter;
   });
