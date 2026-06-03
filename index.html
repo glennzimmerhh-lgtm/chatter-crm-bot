@@ -2270,7 +2270,7 @@ function renderRevenueChart(period) {
     const sheetRev = salesData.filter(r => r['Datum'] === d.dateStr)
       .reduce((s, r) => s + (parseFloat(r['Betrag (€)']) || 0), 0);
     const crmRev = crmSalesData.filter(r => {
-      const rd = new Date(r.timestamp);
+      const rd = parseTs(r.timestamp);
       const iso = `${rd.getFullYear()}-${String(rd.getMonth()+1).padStart(2,'0')}-${String(rd.getDate()).padStart(2,'0')}`;
       return iso === d.dateStr;
     }).reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
@@ -2485,11 +2485,17 @@ function localDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+function parseTs(ts) {
+  // Railway stores timestamps as UTC without 'Z' — add it so Safari parses correctly
+  if (!ts) return new Date(0);
+  return new Date(ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z');
+}
+
 function filterCrmByPeriod(data, period) {
   const now = new Date();
   const todayStr = localDateStr(now);
   return data.filter(s => {
-    const d = new Date(s.timestamp);
+    const d = parseTs(s.timestamp);
     if (period === 'heute') return localDateStr(d) === todayStr;
     if (period === 'woche') { const w = new Date(now); w.setDate(w.getDate() - 7); return d >= w; }
     if (period === 'monat') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
@@ -2507,7 +2513,7 @@ function renderSalesPage() {
 
   // CRM sales rows (from Railway backend)
   const crmRows = [...filteredCrm].reverse().map(s => {
-    const d = new Date(s.timestamp);
+    const d = parseTs(s.timestamp);
     const datum = d.toLocaleDateString('de-DE');
     const uhrzeit = d.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
     return `<tr style="border-left:3px solid #ffd166;">
@@ -3542,8 +3548,8 @@ function updateShiftGoal() {
   const now = new Date();
   // Filter CRM sales for current chatter today
   const todaySales = _getSalesData().filter(s => {
-    const d = new Date(s.timestamp);
-    const sameDay = localDateStr(d) === localDateStr(now);
+    const d = parseTs(s.timestamp);
+    const sameDay = localDateStr(parseTs(d)) === localDateStr(now);
     const sameChatter = !user || s.chatter === user;
     return sameDay && sameChatter;
   });
@@ -4181,7 +4187,7 @@ function filterPerfByPeriod(chatters, period) {
   if (period === 'alle' || typeof crmSalesData === 'undefined') return chatters;
   const now = new Date();
   const periodSales = crmSalesData.filter(s => {
-    const d = new Date(s.timestamp);
+    const d = parseTs(s.timestamp);
     if (period === 'heute') return localDateStr(d) === localDateStr(now);
     if (period === 'woche') { const w = new Date(now); w.setDate(w.getDate()-7); return d >= w; }
     if (period === 'monat') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
