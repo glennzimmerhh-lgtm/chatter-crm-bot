@@ -108,6 +108,9 @@ def init_db():
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_phone TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_access_hash TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS followup_at TEXT DEFAULT NULL",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS funnel_stage TEXT DEFAULT 'kalt'",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS call_followup_at TEXT DEFAULT NULL",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS call_followup_note TEXT DEFAULT ''",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS tg_msg_id INTEGER DEFAULT 0",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TEXT DEFAULT ''",
@@ -345,7 +348,7 @@ def status():
 def get_conversations():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,followup_at FROM conversations ORDER BY last_time DESC')
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,call_followup_note FROM conversations ORDER BY last_time DESC')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -353,7 +356,7 @@ def get_conversations():
 def get_profile(tg_id: str):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone FROM conversations WHERE tg_id=%s', (tg_id,))
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,funnel_stage,call_followup_at,call_followup_note FROM conversations WHERE tg_id=%s', (tg_id,))
             row = c.fetchone()
     if not row:
         raise HTTPException(404, 'Not found')
@@ -363,6 +366,9 @@ class ProfileUpdate(BaseModel):
     internal_name: Optional[str] = None
     notes: Optional[str] = None
     time_waster: Optional[bool] = None
+    funnel_stage: Optional[str] = None
+    call_followup_at: Optional[str] = None
+    call_followup_note: Optional[str] = None
 
 @app.patch('/profile/{tg_id}')
 def update_profile(tg_id: str, body: ProfileUpdate):
@@ -374,7 +380,48 @@ def update_profile(tg_id: str, body: ProfileUpdate):
                 c.execute('UPDATE conversations SET notes=%s WHERE tg_id=%s', (body.notes, tg_id))
             if body.time_waster is not None:
                 c.execute('UPDATE conversations SET time_waster=%s WHERE tg_id=%s', (body.time_waster, tg_id))
+            if body.funnel_stage is not None:
+                c.execute('UPDATE conversations SET funnel_stage=%s WHERE tg_id=%s', (body.funnel_stage, tg_id))
+            if body.call_followup_at is not None:
+                c.execute('UPDATE conversations SET call_followup_at=%s, call_followup_note=%s WHERE tg_id=%s',
+                          (body.call_followup_at or None, body.call_followup_note or '', tg_id))
     return {'ok': True}
+
+# ── ANALYTICS ─────────────────────────────────────────────────────────────────
+@app.get('/analytics/chatters')
+def get_chatter_analytics():
+    with db() as conn:
+        with conn.cursor() as c:
+            # Sales per chatter
+            c.execute('''
+                SELECT chatter,
+                       COUNT(*) as sales_count,
+                       COALESCE(SUM(amount),0) as total_revenue,
+                       COALESCE(AVG(amount),0) as avg_sale
+                FROM sales
+                WHERE chatter != ''
+                GROUP BY chatter
+                ORDER BY total_revenue DESC
+            ''')
+            sales_rows = {r['chatter']: dict(r) for r in c.fetchall()}
+            # Messages sent per chatter
+            c.execute('''
+                SELECT chatter, COUNT(*) as msgs_sent
+                FROM messages
+                WHERE direction='out' AND chatter != ''
+                GROUP BY chatter
+            ''')
+            msg_rows = {r['chatter']: r['msgs_sent'] for r in c.fetchall()}
+    chatters = {}
+    for name, s in sales_rows.items():
+        chatters[name] = {**s, 'msgs_sent': msg_rows.get(name, 0)}
+    for name, msgs in msg_rows.items():
+        if name not in chatters:
+            chatters[name] = {'chatter': name, 'sales_count': 0, 'total_revenue': 0, 'avg_sale': 0, 'msgs_sent': msgs}
+    result = list(chatters.values())
+    for r in result:
+        r['revenue_per_msg'] = round(r['total_revenue'] / r['msgs_sent'], 2) if r['msgs_sent'] > 0 else 0
+    return sorted(result, key=lambda x: x['total_revenue'], reverse=True)
 
 @app.get('/messages/{tg_id}')
 def get_messages(tg_id: str):
@@ -417,6 +464,50 @@ async def post_reply(body: ReplyIn):
         raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
     except Exception as e:
         raise HTTPException(500, str(e))
+
+# ── BROADCAST ────────────────────────────────────────────────────────────────
+class BroadcastIn(BaseModel):
+    text: str
+    chatter: str = 'Broadcast'
+    filter_stage: Optional[str] = None   # 'kalt','warm','hot','angebot','gebucht','done' or None=all
+    filter_min_spend: Optional[float] = None
+    tg_ids: Optional[list] = None        # explicit list overrides filters
+
+@app.post('/broadcast')
+async def post_broadcast(body: BroadcastIn):
+    if not tg_client or not tg_client.is_connected():
+        raise HTTPException(503, 'Userbot nicht verbunden')
+    if not body.text.strip():
+        raise HTTPException(400, 'Text darf nicht leer sein')
+
+    # Build recipient list
+    with db() as conn:
+        with conn.cursor() as c:
+            if body.tg_ids:
+                fmt = ','.join(['%s'] * len(body.tg_ids))
+                c.execute(f'SELECT tg_id,tg_access_hash FROM conversations WHERE tg_id IN ({fmt})', body.tg_ids)
+            elif body.filter_stage:
+                c.execute('SELECT tg_id,tg_access_hash FROM conversations WHERE funnel_stage=%s', (body.filter_stage,))
+            else:
+                c.execute('SELECT tg_id,tg_access_hash FROM conversations')
+            recipients = c.fetchall()
+
+    sent_ok, sent_fail = 0, 0
+    for r in recipients:
+        try:
+            ah = int(r['tg_access_hash']) if r['tg_access_hash'] else 0
+            peer = InputPeerUser(int(r['tg_id']), ah) if ah else int(r['tg_id'])
+            sent_msg = await tg_client.send_message(peer, body.text)
+            save_msg(r['tg_id'], body.text, 'out', body.chatter, sent_msg.id)
+            sent_ok += 1
+            await asyncio.sleep(1.2)   # ~50 msg/min — safe for Telegram
+        except FloodWaitError as e:
+            await asyncio.sleep(e.seconds + 5)
+        except Exception as ex:
+            print(f'Broadcast skip {r["tg_id"]}: {ex}')
+            sent_fail += 1
+
+    return {'ok': True, 'sent': sent_ok, 'failed': sent_fail, 'total': len(recipients)}
 
 # ── SALES ─────────────────────────────────────────────────────────────────────
 class SaleIn(BaseModel):
