@@ -1345,7 +1345,7 @@
           <button class="scripts-btn" onclick="toggleScriptsPanel()" title="Scripts">📋 Scripts</button>
         </div>
         <div class="reply-bar">
-          <input type="text" id="chat-input" placeholder="Nachricht schreiben..." onkeydown="if(event.key==='Enter')sendChatReply()">
+          <input type="text" id="chat-input" placeholder="Nachricht schreiben..." onkeydown="if(event.key==='Enter')sendChatReply()" oninput="onChatInput()">
           <button onclick="sendChatReply()">Senden ↑</button>
         </div>
       </div>
@@ -2958,6 +2958,22 @@ if (checkAuth()) {
 </script>
 
 <script>
+// ── TYPING INDICATOR ─────────────────────────────────────────────────────────
+let _typingTimer = null;
+let _lastTypingSent = 0;
+
+function onChatInput() {
+  if (!currentChatTgId) return;
+  const now = Date.now();
+  // Send typing indicator max every 3 seconds
+  if (now - _lastTypingSent > 3000) {
+    _lastTypingSent = now;
+    fetch('/api/typing/' + currentChatTgId, { method: 'POST' }).catch(() => {});
+  }
+  // Clear previous timer
+  if (_typingTimer) clearTimeout(_typingTimer);
+}
+
 // ── ONLINE STATUS PANEL ───────────────────────────────────────────────────────
 async function refreshOnlinePanel() {
   try {

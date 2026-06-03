@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, functions, types
 from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 from telethon.tl.types import (User, InputPeerUser, UpdateReadHistoryOutbox, PeerUser,
@@ -462,13 +462,42 @@ def get_chatter_analytics():
     return sorted(result, key=lambda x: x['total_revenue'], reverse=True)
 
 @app.get('/messages/{tg_id}')
-def get_messages(tg_id: str):
+async def get_messages(tg_id: str):
     with db() as conn:
         with conn.cursor() as c:
             c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
+            c.execute('SELECT text,direction,timestamp,chatter,is_read,read_at,tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+            conv = c.fetchone()
             c.execute('SELECT text,direction,timestamp,chatter,is_read,read_at FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
             rows = c.fetchall()
+    # Mark as read in Telegram so subscriber sees double-checkmark
+    if tg_client and tg_client.is_connected():
+        try:
+            ah = int(conv['tg_access_hash']) if conv and conv['tg_access_hash'] else 0
+            peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+            await tg_client(functions.messages.ReadHistoryRequest(peer=peer, max_id=0))
+        except Exception as e:
+            print(f'ReadHistory skip: {e}')
     return [dict(r) for r in rows]
+
+@app.post('/typing/{tg_id}')
+async def send_typing(tg_id: str):
+    """Send typing indicator to subscriber so they see '...' in Telegram."""
+    if not tg_client or not tg_client.is_connected():
+        return {'ok': False}
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+                row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        await tg_client(functions.messages.SetTypingRequest(
+            peer=peer, action=types.SendMessageTypingAction()
+        ))
+        return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'detail': str(e)}
 
 # ── REPLY ─────────────────────────────────────────────────────────────────────
 class ReplyIn(BaseModel):
