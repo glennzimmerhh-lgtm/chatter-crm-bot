@@ -3249,40 +3249,16 @@ async function startBroadcast() {
   }
 
   async function _marieStyle(rawText) {
-    const key = localStorage.getItem('crm_openai_key');
-    if (!key) { alert('OpenAI Key in Einstellungen eintragen!'); return null; }
-
     const context = _getChatContext();
-    const contextStr = context.length
-      ? 'Bisheriger Chat:\n' + context.map(m => (m.role === 'user' ? 'Fan: ' : 'Marie: ') + m.content).join('\n') + '\n\n'
-      : '';
-
-    const systemPrompt = `Du bist Marie, eine junge Creatorin die mit Fans auf Telegram chattet. Dein Ziel ist es Verbindung aufzubauen und Video Calls zu verkaufen.
-
-Dein Stil:
-- Locker, warm, direkt — kein formelles Deutsch
-- Flirty aber kontextabhängig — passe die Intensität dem Gesprächsverlauf an
-- Kurze, natürliche Sätze — wie echte Chat-Nachrichten
-- Emojis sparsam und passend einsetzen
-- Echte Neugier zeigen ("wie ist das bei dir so?", "magst du das?")
-- Nie roboterhaft oder zu perfekt klingen
-
-Aufgabe: Schreibe die folgende Nachricht in Maries natürlichem Chattingstil um. Passe den Ton dem bisherigen Chat an. Gib NUR die umgeschriebene Nachricht zurück — keinen Kommentar.`;
-
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: contextStr + 'Umschreiben: ' + rawText }
-    ];
-
     try {
-      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      const r = await fetch('/api/ai/style', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages, max_tokens: 300, temperature: 0.85 })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: rawText, context })
       });
       const d = await r.json();
-      if (d.error) throw new Error(d.error.message);
-      return d.choices?.[0]?.message?.content?.trim() || null;
+      if (d.ok && d.result) return d.result;
+      throw new Error(d.detail || 'Unbekannter Fehler');
     } catch(e) { alert('Fehler: ' + e.message); return null; }
   }
 
@@ -3299,39 +3275,26 @@ Aufgabe: Schreibe die folgende Nachricht in Maries natürlichem Chattingstil um.
   window.translateIncoming = async function(msgId, btn) {
     const bubble = document.getElementById(msgId);
     if (!bubble) return;
-    // Get original text (first text node)
     const originalText = bubble.childNodes[0]?.textContent?.trim();
     if (!originalText) return;
 
-    // Check cache
     if (_translationCache[msgId]) {
       _showTranslation(bubble, _translationCache[msgId], btn);
       return;
     }
 
-    const key = localStorage.getItem('crm_openai_key');
-    if (!key) { alert('OpenAI Key in Einstellungen eintragen!'); return; }
-
     btn.textContent = '⏳';
     try {
-      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      const r = await fetch('/api/ai/translate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: 'Translate the following message to English. Return ONLY the translation, nothing else.' },
-            { role: 'user', content: originalText }
-          ],
-          max_tokens: 200
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: originalText })
       });
       const d = await r.json();
-      const translation = d.choices?.[0]?.message?.content?.trim();
-      if (translation) {
-        _translationCache[msgId] = translation;
-        _showTranslation(bubble, translation, btn);
-      }
+      if (d.ok && d.result) {
+        _translationCache[msgId] = d.result;
+        _showTranslation(bubble, d.result, btn);
+      } else { btn.textContent = '🇬🇧'; }
     } catch(e) { btn.textContent = '🇬🇧'; }
   };
 

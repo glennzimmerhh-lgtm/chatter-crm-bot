@@ -34,6 +34,7 @@ TG_API_HASH = os.environ.get('TG_API_HASH', '')
 TG_SESSION  = os.environ.get('TG_SESSION', '')
 PORT        = int(os.environ.get('PORT', 8000))
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 SUBSCRIBER_BACKUP_WEBHOOK = os.environ.get('SUBSCRIBER_BACKUP_WEBHOOK', '')
 
 # ── DEBUG: zeige ob DATABASE_URL gesetzt ist ─────────────────────────────────
@@ -535,6 +536,82 @@ async def post_reply(body: ReplyIn):
         return {'ok': True}
     except FloodWaitError as e:
         raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+# ── AI ENDPOINTS ─────────────────────────────────────────────────────────────
+import urllib.request as _urllib_req
+import json as _json
+
+def _openai_chat(messages: list, max_tokens: int = 300, temperature: float = 0.8) -> str:
+    """Call OpenAI chat completions. Returns content string or raises."""
+    if not OPENAI_API_KEY:
+        raise HTTPException(503, 'OPENAI_API_KEY nicht gesetzt')
+    payload = _json.dumps({
+        'model': 'gpt-4o-mini',
+        'messages': messages,
+        'max_tokens': max_tokens,
+        'temperature': temperature,
+    }).encode()
+    req = _urllib_req.Request(
+        'https://api.openai.com/v1/chat/completions',
+        data=payload,
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {OPENAI_API_KEY}'}
+    )
+    with _urllib_req.urlopen(req, timeout=15) as resp:
+        data = _json.loads(resp.read())
+    return data['choices'][0]['message']['content'].strip()
+
+class TranslateIn(BaseModel):
+    text: str
+
+@app.post('/ai/translate')
+async def ai_translate(body: TranslateIn):
+    """Translate incoming subscriber message to English."""
+    if not body.text.strip():
+        return {'ok': False, 'result': ''}
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: _openai_chat([
+            {'role': 'system', 'content': 'Translate the following message to English. Return ONLY the translation, nothing else.'},
+            {'role': 'user', 'content': body.text}
+        ], max_tokens=200, temperature=0.3))
+        return {'ok': True, 'result': result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+class StyleIn(BaseModel):
+    text: str
+    context: Optional[list] = None  # [{role, content}, ...] last few messages
+
+@app.post('/ai/style')
+async def ai_style(body: StyleIn):
+    """Rewrite outgoing chatter text in Marie's natural German style."""
+    if not body.text.strip():
+        return {'ok': False, 'result': ''}
+
+    system_prompt = """Du bist Marie, eine junge Creatorin die mit Fans auf Telegram chattet. Dein Ziel ist Verbindung aufzubauen und Video Calls zu verkaufen.
+
+Dein Stil:
+- Locker, warm, direkt — kein formelles Deutsch
+- Flirty aber kontextabhängig — passe die Intensität dem Gesprächsverlauf an
+- Kurze, natürliche Sätze wie echte Chat-Nachrichten
+- Emojis sparsam und passend (🥰😊🔥💫)
+- Echte Neugier zeigen, auf den Fan eingehen
+- Nie roboterhaft oder zu perfekt klingen
+- Verletzlichkeit zeigen wirkt authentisch
+
+Aufgabe: Schreibe die folgende Nachricht in Maries natürlichem Chattingstil um. Passe den Ton dem bisherigen Chat an. Gib NUR die umgeschriebene Nachricht zurück."""
+
+    messages = [{'role': 'system', 'content': system_prompt}]
+    if body.context:
+        messages.extend(body.context[-6:])  # last 6 messages for context
+    messages.append({'role': 'user', 'content': 'Umschreiben: ' + body.text})
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: _openai_chat(messages, max_tokens=300, temperature=0.85))
+        return {'ok': True, 'result': result}
     except Exception as e:
         raise HTTPException(500, str(e))
 
