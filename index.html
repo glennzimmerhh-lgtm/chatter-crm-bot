@@ -1443,7 +1443,7 @@ async function submitSale() {
   const product = document.getElementById('sale-product').value.trim();
   const notes   = document.getElementById('sale-notes').value.trim();
   const user    = localStorage.getItem('crm_user') || 'Chatter';
-  const base    = (localStorage.getItem('crm_backend_url') || 'https://worker-production-806f.up.railway.app').replace(/\/$/, '');
+  const base    = ('/api').replace(/\/$/, '');
   const fb = document.getElementById('sale-feedback');
   try {
     const r = await fetch(base + '/sale', {
@@ -1639,7 +1639,7 @@ function loadSettings() {
   return {
     salesUrl:   localStorage.getItem('crm_sales_url')   || DEFAULT_SALES_URL,
     shiftsUrl:  localStorage.getItem('crm_shifts_url')  || DEFAULT_SHIFTS_URL,
-    backendUrl: localStorage.getItem('crm_backend_url') || 'https://worker-production-806f.up.railway.app',
+    backendUrl: '/api',
   };
 }
 
@@ -1670,7 +1670,7 @@ function closeSettings(e) {
 
 async function loadData() {
   const { salesUrl, shiftsUrl } = loadSettings();
-  const backendUrl = (localStorage.getItem('crm_backend_url') || 'https://worker-production-806f.up.railway.app').replace(/\/$/, '');
+  const backendUrl = ('/api').replace(/\/$/, '');
   const results = await Promise.allSettled([
     fetchCSV(salesUrl),
     fetchCSV(shiftsUrl),
@@ -2014,26 +2014,21 @@ if (checkAuth()) {
   let chatMsgInterval = null;
 
   function getChatBackendUrl() {
-    const custom = localStorage.getItem('crm_backend_url');
-    return custom ? custom.replace(/\/$/, '') : '/api';
+    // Always use same-origin /api proxy — Vercel routes to Railway, no CORS
+    return '/api';
   }
 
   async function chatApiGet(path) {
-    const base = getChatBackendUrl();
-    if (!base) return null;
     try {
-      const r = await fetch(base + path);
+      const r = await fetch('/api' + path);
       if (!r.ok) return null;
       return await r.json();
     } catch { return null; }
   }
 
   async function chatApiPost(path, body) {
-    // Use /api proxy (same-origin, no CORS) unless a custom backend URL is set
-    const custom = localStorage.getItem('crm_backend_url');
-    const base = custom ? custom.replace(/\/$/, '') : '/api';
     try {
-      const r = await fetch(base + path, {
+      const r = await fetch('/api' + path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
