@@ -2821,10 +2821,10 @@ if (checkAuth()) {
       let readIcon = '';
       if (dir === 'out') {
         readIcon = m.is_read
-          ? ' <span style="color:#00d4aa;font-size:11px" title="Gelesen">✓✓</span>'
-          : ' <span style="color:rgba(255,255,255,0.4);font-size:11px" title="Gesendet">✓</span>';
+          ? '<span style="color:#00d4aa;font-size:12px;font-weight:700;margin-left:4px;" title="Gelesen">✓✓</span>'
+          : '<span style="color:rgba(255,255,255,0.35);font-size:12px;font-weight:700;margin-left:4px;" title="Gesendet">✓✓</span>';
       }
-      const meta = dir === 'out' ? `${m.chatter || 'Chatter'} · ${time}${readIcon}` : time;
+      const meta = dir === 'out' ? `<span style="font-size:11px;color:rgba(255,255,255,0.5)">${m.chatter||'Chatter'} · ${time}</span>${readIcon}` : `<span style="font-size:11px">${time}</span>`;
       return `<div class="msg-row">
         <div class="msg-bubble msg-${dir}">${m.text}<div class="msg-meta">${meta}</div></div>
       </div>`;
