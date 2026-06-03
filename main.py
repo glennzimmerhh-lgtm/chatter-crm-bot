@@ -218,7 +218,7 @@ def _auto_translate_message(tg_id: str, text: str):
         with db() as conn:
             with conn.cursor() as c:
                 c.execute(
-                    "UPDATE messages SET translation=%s WHERE tg_id=%s AND text=%s AND direction='in' AND translation='' ORDER BY id DESC LIMIT 1",
+                    "UPDATE messages SET translation=%s WHERE id=(SELECT id FROM messages WHERE tg_id=%s AND text=%s AND direction='in' AND translation='' ORDER BY id DESC LIMIT 1)",
                     (translation, tg_id, text)
                 )
     except Exception as e:
