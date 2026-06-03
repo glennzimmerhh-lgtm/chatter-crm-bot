@@ -24,7 +24,9 @@ from pydantic import BaseModel
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
-from telethon.tl.types import User, InputPeerUser, UpdateReadHistoryOutbox, PeerUser
+from telethon.tl.types import (User, InputPeerUser, UpdateReadHistoryOutbox, PeerUser,
+                               UpdateUserStatus, UserStatusOnline, UserStatusOffline,
+                               UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth)
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 TG_API_ID   = os.environ.get('TG_API_ID', '')
@@ -108,6 +110,8 @@ def init_db():
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_phone TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_access_hash TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS followup_at TEXT DEFAULT NULL",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_seen TEXT DEFAULT NULL",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS funnel_stage TEXT DEFAULT 'kalt'",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS call_followup_at TEXT DEFAULT NULL",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS call_followup_note TEXT DEFAULT ''",
@@ -187,6 +191,18 @@ def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id
                     (text[:100], ts, tg_id)
                 )
 
+def update_online_status(tg_id: str, is_online: bool):
+    """Update subscriber online status — only for known conversations."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT 1 FROM conversations WHERE tg_id=%s', (tg_id,))
+            if c.fetchone():
+                now = datetime.now().isoformat()
+                c.execute(
+                    'UPDATE conversations SET is_online=%s, last_seen=%s WHERE tg_id=%s',
+                    (is_online, now if is_online else None, tg_id)
+                )
+
 def mark_read(tg_id: str, max_msg_id: int):
     """Mark outgoing messages as read and start follow-up timer."""
     now = datetime.now().isoformat()
@@ -224,6 +240,14 @@ async def start_userbot():
                 StringSession(TG_SESSION), int(TG_API_ID), TG_API_HASH,
                 connection_retries=5, retry_delay=3, auto_reconnect=True
             )
+
+            @tg_client.on(events.Raw(UpdateUserStatus))
+            async def on_user_status(event):
+                """Track subscriber online/offline status."""
+                tg_id = str(event.user_id)
+                is_online = isinstance(event.status, UserStatusOnline)
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: update_online_status(tg_id, is_online))
 
             @tg_client.on(events.Raw(UpdateReadHistoryOutbox))
             async def on_outbox_read(event):
@@ -348,7 +372,21 @@ def status():
 def get_conversations():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,call_followup_note FROM conversations ORDER BY last_time DESC')
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,call_followup_note,is_online,last_seen FROM conversations ORDER BY is_online DESC, last_time DESC')
+            rows = c.fetchall()
+    return [dict(r) for r in rows]
+
+@app.get('/online')
+def get_online():
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('''SELECT tg_id,anon_id,internal_name,last_seen,
+                         COALESCE(SUM(s.amount),0) as total_spent
+                         FROM conversations c
+                         LEFT JOIN sales s USING(tg_id)
+                         WHERE c.is_online=TRUE
+                         GROUP BY c.tg_id,c.anon_id,c.internal_name,c.last_seen
+                         ORDER BY c.last_seen DESC''')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
