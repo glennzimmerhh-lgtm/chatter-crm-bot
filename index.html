@@ -2822,7 +2822,10 @@ if (checkAuth()) {
     renderConvList(allConvs);
     await Promise.all([loadMsgs(), loadProfile(tgId)]);
     if (chatMsgInterval) clearInterval(chatMsgInterval);
-    chatMsgInterval = setInterval(() => { loadMsgs(); updateConvStatus(currentChatTgId); }, 3000);
+    // Only poll as fallback if WebSocket is not alive
+    chatMsgInterval = setInterval(() => {
+      if (!window._wsAlive) { loadMsgs(); updateConvStatus(currentChatTgId); }
+    }, 5000);
   }
 
   async function loadProfile(tgId) {
@@ -3508,6 +3511,7 @@ if (checkAuth()) {
   // ── WEBSOCKET (real-time) ─────────────────────────────────────────────
   let _ws = null;
   let _wsAlive = false;
+  window._wsAlive = false; // shared across script blocks
   let _wsRetry = 1000;
   const WS_URL = 'wss://worker-production-806f.up.railway.app/ws';
 
@@ -3515,7 +3519,7 @@ if (checkAuth()) {
     try {
       _ws = new WebSocket(WS_URL);
       _ws.onopen = () => {
-        _wsAlive = true;
+        _wsAlive = true; window._wsAlive = true;
         _wsRetry = 1000;
         console.log('🔌 WS connected');
         // Send ping every 25s to keep connection alive
@@ -3528,7 +3532,7 @@ if (checkAuth()) {
         } catch(_) {}
       };
       _ws.onclose = () => {
-        _wsAlive = false;
+        _wsAlive = false; window._wsAlive = false;
         clearInterval(_ws._pingInterval);
         console.log(`🔌 WS closed — retry in ${_wsRetry}ms`);
         setTimeout(connectWS, _wsRetry);
