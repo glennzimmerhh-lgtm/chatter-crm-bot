@@ -2078,6 +2078,7 @@ if (checkAuth()) {
 
   // ── CHAT ─────────────────────────────────────────────────
   let currentChatTgId = null;
+  window._getCurrentTgId = () => currentChatTgId;
   let allConvs = [];
   let chatMsgInterval = null;
 
@@ -2963,14 +2964,14 @@ let _typingTimer = null;
 let _lastTypingSent = 0;
 
 function onChatInput() {
-  if (!currentChatTgId) return;
+  const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
+  if (!tgId) return;
   const now = Date.now();
   // Send typing indicator max every 3 seconds
   if (now - _lastTypingSent > 3000) {
     _lastTypingSent = now;
-    fetch('/api/typing/' + currentChatTgId, { method: 'POST' }).catch(() => {});
+    fetch('/api/typing/' + tgId, { method: 'POST' }).catch(() => {});
   }
-  // Clear previous timer
   if (_typingTimer) clearTimeout(_typingTimer);
 }
 
