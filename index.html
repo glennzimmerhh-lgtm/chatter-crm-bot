@@ -3196,7 +3196,7 @@ async function startBroadcast() {
     <button onclick="closeListsModal()" style="width:100%;margin-top:10px;padding:9px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;cursor:pointer;font-size:12px;">Schließen</button>
   </div>
 </div>
-<!-- CHATGPT TRANSLATOR PATCH -->
+<!-- MARIE STIL-ÜBERSETZER PATCH -->
 <script>
 (function(){
   const _os0 = window.openSettings || openSettings;
@@ -3205,8 +3205,8 @@ async function startBroadcast() {
     const box = document.querySelector('.settings-box');
     if (box && !document.getElementById('cfg-openai-key')) {
       const lbl = document.createElement('label');
-      lbl.style.cssText = 'margin-top:4px;color:#4a9eff;';
-      lbl.textContent = '🌐 OpenAI API Key (Übersetzer)';
+      lbl.style.cssText = 'margin-top:4px;color:#4a9eff;font-size:12px;font-weight:600;';
+      lbl.textContent = '✨ OpenAI API Key (Marie-Stil Übersetzer)';
       const inp = document.createElement('input');
       inp.type = 'text'; inp.id = 'cfg-openai-key';
       inp.placeholder = 'sk-proj-...'; inp.autocomplete = 'off';
@@ -3216,46 +3216,88 @@ async function startBroadcast() {
       box.insertBefore(lbl, btns); box.insertBefore(inp, btns);
     }
   };
+
   document.addEventListener('DOMContentLoaded', () => {
     const rb = document.querySelector('.reply-bar');
     if (rb) {
       const btn = document.createElement('button');
-      btn.id = 'translate-out-btn'; btn.title = 'ChatGPT: DE → EN';
-      btn.textContent = '🌐';
-      btn.style.cssText = 'background:rgba(74,158,255,.15);border:1px solid rgba(74,158,255,.3);color:#4a9eff;border-radius:12px;padding:11px 13px;font-size:16px;cursor:pointer;flex-shrink:0;';
+      btn.id = 'translate-out-btn';
+      btn.title = 'In Maries Stil umschreiben';
+      btn.textContent = '✨';
+      btn.style.cssText = 'background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.35);color:#a78bfa;border-radius:12px;padding:11px 13px;font-size:16px;cursor:pointer;flex-shrink:0;';
       const sendBtn = rb.querySelector('button');
       rb.insertBefore(btn, sendBtn);
       btn.onclick = () => window.translateInput();
     }
   });
-  async function _gptTranslate(text, lang) {
+
+  function _getChatContext() {
+    // Get last 6 messages from the current conversation for context
+    const msgs = document.querySelectorAll('#msg-list .msg-bubble');
+    const context = [];
+    const last = Array.from(msgs).slice(-6);
+    last.forEach(el => {
+      const isOut = el.classList.contains('msg-out');
+      const text = el.childNodes[0]?.textContent?.trim() || '';
+      if (text) context.push({ role: isOut ? 'assistant' : 'user', content: text });
+    });
+    return context;
+  }
+
+  async function _marieStyle(rawText) {
     const key = localStorage.getItem('crm_openai_key');
     if (!key) { alert('OpenAI Key in Einstellungen eintragen!'); return null; }
-    const sys = lang==='de' ? 'Uebersetze ins Deutsche. Nur Uebersetzung.' : 'Translate to English. Only translation.';
+
+    const context = _getChatContext();
+    const contextStr = context.length
+      ? 'Bisheriger Chat:\n' + context.map(m => (m.role === 'user' ? 'Fan: ' : 'Marie: ') + m.content).join('\n') + '\n\n'
+      : '';
+
+    const systemPrompt = `Du bist Marie, eine junge Creatorin die mit Fans auf Telegram chattet. Dein Ziel ist es Verbindung aufzubauen und Video Calls zu verkaufen.
+
+Dein Stil:
+- Locker, warm, direkt — kein formelles Deutsch
+- Flirty aber kontextabhängig — passe die Intensität dem Gesprächsverlauf an
+- Kurze, natürliche Sätze — wie echte Chat-Nachrichten
+- Emojis sparsam und passend einsetzen
+- Echte Neugier zeigen ("wie ist das bei dir so?", "magst du das?")
+- Nie roboterhaft oder zu perfekt klingen
+
+Aufgabe: Schreibe die folgende Nachricht in Maries natürlichem Chattingstil um. Passe den Ton dem bisherigen Chat an. Gib NUR die umgeschriebene Nachricht zurück — keinen Kommentar.`;
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: contextStr + 'Umschreiben: ' + rawText }
+    ];
+
     try {
       const r = await fetch('https://api.openai.com/v1/chat/completions', {
-        method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-        body: JSON.stringify({model:'gpt-4o-mini',messages:[{role:'system',content:sys},{role:'user',content:text}],max_tokens:500})
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages, max_tokens: 300, temperature: 0.85 })
       });
       const d = await r.json();
       if (d.error) throw new Error(d.error.message);
       return d.choices?.[0]?.message?.content?.trim() || null;
-    } catch(e) { alert('Fehler: '+e.message); return null; }
+    } catch(e) { alert('Fehler: ' + e.message); return null; }
   }
+
   const _sv0 = window.saveSettings || saveSettings;
   window.saveSettings = function() {
     const ok = document.getElementById('cfg-openai-key')?.value.trim();
     if (ok) localStorage.setItem('crm_openai_key', ok);
     _sv0();
   };
+
   window.translateInput = async function() {
     const inp = document.getElementById('chat-input');
     if (!inp?.value.trim()) return;
     const btn = document.getElementById('translate-out-btn');
-    if (btn) { btn.textContent='⏳'; btn.disabled=true; }
-    const t = await _gptTranslate(inp.value.trim(), 'en');
-    if (btn) { btn.textContent='🌐'; btn.disabled=false; }
-    if (t) inp.value = t;
+    const original = inp.value.trim();
+    if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+    const result = await _marieStyle(original);
+    if (btn) { btn.textContent = '✨'; btn.disabled = false; }
+    if (result) inp.value = result;
   };
 })();
 </script>
