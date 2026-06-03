@@ -15,7 +15,7 @@ from typing import Optional
 import uvicorn
 import psycopg2
 import psycopg2.extras
-from fastapi import FastAPI, HTTPException, Form
+from fastapi import FastAPI, HTTPException, Form, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -461,23 +461,29 @@ def get_chatter_analytics():
         r['revenue_per_msg'] = round(r['total_revenue'] / r['msgs_sent'], 2) if r['msgs_sent'] > 0 else 0
     return sorted(result, key=lambda x: x['total_revenue'], reverse=True)
 
+async def _bg_read_history(tg_id: str):
+    """Background: mark messages as read in Telegram."""
+    if not tg_client or not tg_client.is_connected():
+        return
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+                row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        await tg_client(functions.messages.ReadHistoryRequest(peer=peer, max_id=0))
+    except Exception as e:
+        print(f'ReadHistory skip: {e}')
+
 @app.get('/messages/{tg_id}')
-async def get_messages(tg_id: str):
+async def get_messages(tg_id: str, bg: BackgroundTasks):
     with db() as conn:
         with conn.cursor() as c:
             c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
-            c.execute('SELECT text,direction,timestamp,chatter,is_read,read_at,tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
-            conv = c.fetchone()
             c.execute('SELECT text,direction,timestamp,chatter,is_read,read_at FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
             rows = c.fetchall()
-    # Mark as read in Telegram so subscriber sees double-checkmark
-    if tg_client and tg_client.is_connected():
-        try:
-            ah = int(conv['tg_access_hash']) if conv and conv['tg_access_hash'] else 0
-            peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
-            await tg_client(functions.messages.ReadHistoryRequest(peer=peer, max_id=0))
-        except Exception as e:
-            print(f'ReadHistory skip: {e}')
+    bg.add_task(_bg_read_history, tg_id)
     return [dict(r) for r in rows]
 
 @app.post('/typing/{tg_id}')
