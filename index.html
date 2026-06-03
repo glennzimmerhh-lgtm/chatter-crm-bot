@@ -972,6 +972,16 @@
       </div>
     </div>
 
+    <!-- ONLINE NOW WIDGET -->
+    <div id="dash-online-widget" style="margin-bottom:20px;background:var(--card);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:16px 20px;display:none;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <span style="width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;animation:pulse 1.5s infinite;"></span>
+        <span style="font-size:12px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.06em;">Jetzt online</span>
+        <span id="dash-online-count" style="background:rgba(34,197,94,0.15);color:#22c55e;font-size:11px;font-weight:700;border-radius:10px;padding:1px 8px;margin-left:auto;"></span>
+      </div>
+      <div id="dash-online-list" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+    </div>
+
     <!-- CHART + SHIFTS -->
     <div class="grid3">
       <div class="panel">
@@ -1293,6 +1303,7 @@
           <button class="tier-filter-btn" onclick="filterByTier('low')">🌱 Low</button>
           <button class="tier-filter-btn" onclick="filterByTier('new')">🆕 Neu</button>
           <button class="tier-filter-btn" onclick="filterByTier('tw')">🗑️ Time Waster</button>
+          <button class="tier-filter-btn" id="online-filter-btn" onclick="filterByTier('online')" style="color:#22c55e;border-color:rgba(34,197,94,0.3);">🟢 Online</button>
         </div>
         <div id="conv-list-body">
           <div class="chat-empty" style="height:200px;">Keine Gespräche</div>
@@ -2189,6 +2200,7 @@ if (checkAuth()) {
       filtered = filtered.filter(c => {
         const spending = getSubscriberSpending(c.tg_id);
         if (tier === 'tw') return !!c.time_waster;
+        if (tier === 'online') return !!c.is_online;
         return getSpendingTier(spending).key === tier;
       });
     }
@@ -2914,6 +2926,8 @@ if (checkAuth()) {
   window.chatPageActive = false;
   setInterval(() => { if (window.chatPageActive && window._refreshConvs) window._refreshConvs(); }, 5000);
   setInterval(() => { if (window.chatPageActive && window._refreshChatStatus) window._refreshChatStatus(); }, 15000);
+  // Fix follow-up lag: re-render conv list every 30s using cached data so badges appear on time
+  setInterval(() => { if (window.chatPageActive && allConvs.length) renderConvList(allConvs); }, 30000);
 }
 </script>
 
@@ -2922,20 +2936,46 @@ if (checkAuth()) {
 async function refreshOnlinePanel() {
   try {
     const online = await fetch('/api/online').then(r => r.json());
+
+    // Chat sidebar panel
     const panel = document.getElementById('online-panel');
     const list = document.getElementById('online-list');
-    if (!panel || !list) return;
-    if (!online.length) { panel.style.display = 'none'; return; }
-    panel.style.display = 'block';
-    list.innerHTML = online.map(u => {
-      const name = u.internal_name || u.anon_id;
-      const spent = u.total_spent > 0 ? ` · ${u.total_spent.toFixed(0)}€` : '';
-      return `<div onclick="openConv('${u.tg_id}','${u.anon_id}')" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;background:rgba(34,197,94,0.08);">
-        <span style="width:7px;height:7px;background:#22c55e;border-radius:50%;flex-shrink:0;"></span>
-        <span style="font-size:12px;color:var(--text);font-weight:600;">${name}</span>
-        <span style="font-size:11px;color:#22c55e;">${spent}</span>
-      </div>`;
-    }).join('');
+    if (panel && list) {
+      if (!online.length) { panel.style.display = 'none'; }
+      else {
+        panel.style.display = 'block';
+        list.innerHTML = online.map(u => {
+          const name = u.internal_name || u.anon_id;
+          const spent = u.total_spent > 0 ? ` · ${u.total_spent.toFixed(0)}€` : '';
+          return `<div onclick="openConv('${u.tg_id}','${u.anon_id}');showPage('chat')" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;background:rgba(34,197,94,0.08);">
+            <span style="width:7px;height:7px;background:#22c55e;border-radius:50%;flex-shrink:0;"></span>
+            <span style="font-size:12px;color:var(--text);font-weight:600;">${name}</span>
+            <span style="font-size:11px;color:#22c55e;">${spent}</span>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // Dashboard widget
+    const dashWidget = document.getElementById('dash-online-widget');
+    const dashList = document.getElementById('dash-online-list');
+    const dashCount = document.getElementById('dash-online-count');
+    if (dashWidget && dashList) {
+      if (!online.length) { dashWidget.style.display = 'none'; }
+      else {
+        dashWidget.style.display = 'block';
+        if (dashCount) dashCount.textContent = online.length + ' online';
+        dashList.innerHTML = online.map(u => {
+          const name = u.internal_name || u.anon_id;
+          const spent = u.total_spent > 0 ? `${u.total_spent.toFixed(0)}€` : '—';
+          return `<div onclick="openConv('${u.tg_id}','${u.anon_id}');showPage('chat')" style="cursor:pointer;display:flex;align-items:center;gap:6px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:6px 10px;">
+            <span style="width:8px;height:8px;background:#22c55e;border-radius:50;flex-shrink:0;animation:pulse 1.5s infinite;"></span>
+            <span style="font-size:13px;font-weight:600;color:var(--text);">${name}</span>
+            <span style="font-size:11px;color:#22c55e;margin-left:4px;">${spent}</span>
+          </div>`;
+        }).join('');
+      }
+    }
   } catch(e) {}
 }
 // Poll online status every 15 seconds
