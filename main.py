@@ -871,6 +871,61 @@ Aufgabe: Schreibe die Nachricht in Maries echtem Stil um. Nur die Nachricht zur�
     except Exception as e:
         raise HTTPException(500, str(e))
 
+class SuggestIn(BaseModel):
+    tg_id: str
+    context: Optional[list] = None  # last messages [{role,content}]
+
+@app.post('/ai/suggest')
+async def ai_suggest(body: SuggestIn):
+    """Generate 3 reply suggestions for the current conversation."""
+    # Get last messages from DB for context
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT text,direction FROM messages WHERE tg_id=%s ORDER BY timestamp DESC LIMIT 10", (body.tg_id,))
+            recent = list(reversed(c.fetchall()))
+            c.execute("SELECT internal_name,notes,funnel_stage FROM conversations WHERE tg_id=%s", (body.tg_id,))
+            conv = c.fetchone()
+
+    context_msgs = [
+        {'role': 'user' if m['direction']=='in' else 'assistant', 'content': m['text']}
+        for m in recent if not m['text'].startswith('[')
+    ]
+
+    stage_hint = ''
+    if conv:
+        stage_map = {'kalt':'Erster Kontakt','warm':'Subscriber ist warm','hot':'Hot Lead','angebot':'Angebot wurde gemacht','gebucht':'Call gebucht','done':'Deal abgeschlossen'}
+        stage_hint = f"\nAktueller Funnel-Status: {stage_map.get(conv['funnel_stage'],'Unbekannt')}"
+        if conv['notes']: stage_hint += f"\nNotizen über den Fan: {conv['notes']}"
+
+    system_prompt = f"""Du bist Marie, 18 Jahre aus Köln, Creatorin die Video Calls verkauft (6 Min = 15€).
+Du chattest mit einem Fan auf Telegram. Generiere 3 verschiedene kurze Antwortmöglichkeiten.{stage_hint}
+
+Stil: Kleinschreibung, locker, flirty, kurz (1-2 Sätze), echte Chat-Sprache.
+Emojis: nur gelegentlich (jede 3-4. Nachricht), nie mehrere hintereinander.
+
+Gib EXAKT dieses JSON-Format zurück (kein anderer Text):
+["antwort 1","antwort 2","antwort 3"]
+
+Die 3 Optionen sollen unterschiedliche Stile haben:
+1. Warm/neugierig (Frage stellen)
+2. Flirty/direkt
+3. Kurz und knapp"""
+
+    messages = [{'role': 'system', 'content': system_prompt}]
+    messages.extend(context_msgs[-8:])
+    messages.append({'role': 'user', 'content': 'Generiere jetzt 3 Antwortoptionen als JSON-Array.'})
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: _openai_chat(messages, max_tokens=300, temperature=0.9))
+        import json as _json2
+        suggestions = _json2.loads(result)
+        if isinstance(suggestions, list):
+            return {'ok': True, 'suggestions': suggestions[:3]}
+        return {'ok': False, 'suggestions': []}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 # ── BROADCAST ────────────────────────────────────────────────────────────────
 class BroadcastIn(BaseModel):
     text: str

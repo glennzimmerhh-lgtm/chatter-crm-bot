@@ -366,6 +366,27 @@
   .conv-item.active .conv-avatar { border-color: var(--teal); box-shadow: 0 0 14px rgba(0,212,170,.3); }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.6;} }
 
+  /* ── MOBILE CHAT OPTIMIERUNG ── */
+  @media (max-width: 600px) {
+    .chat-layout { grid-template-columns: 1fr !important; height: auto !important; }
+    .profile-panel { display: none !important; }
+    .msg-area { height: calc(100dvh - 120px); display: flex; flex-direction: column; }
+    .msg-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .reply-bar { padding: 8px 10px; gap: 6px; }
+    .reply-bar input { font-size: 16px; /* prevents zoom on iOS */ }
+    .reply-bar button { padding: 12px 16px; font-size: 14px; }
+    .emoji-bar { padding: 6px 8px; gap: 1px; }
+    .emoji-btn { padding: 8px 6px; font-size: 18px; }
+    #shift-goal-widget { min-width: 120px; padding: 5px 10px; }
+    #shift-goal-widget > div:first-child span:first-child { display: none; }
+    .msg-bubble { max-width: 85% !important; }
+    .msg-topbar { padding: 10px 12px; }
+    .conv-list { max-height: 40vh; overflow-y: auto; }
+    #script-quick-bar { display: none; } /* hide on mobile to save space */
+    #ai-suggest-panel { padding: 6px 10px; }
+    #ai-suggest-chips > div { font-size: 12px; padding: 6px 10px; }
+  }
+
   .conv-info { flex: 1; min-width: 0; }
   .conv-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .conv-iname { font-size: 10px; color: var(--teal); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; opacity: .8; }
@@ -1285,6 +1306,31 @@
       </div>
     </div>
 
+    <!-- RE-ENGAGEMENT -->
+    <div style="margin-top:24px;max-width:900px;">
+      <div style="background:var(--bg2);border:1px solid rgba(255,209,102,0.2);border-radius:14px;padding:24px;">
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;">🔄 Re-Engagement</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">Subscriber die lange nicht geantwortet haben wieder anschreiben.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Nachricht</label>
+            <textarea id="reeng-text" rows="4" placeholder="z.B. hey du.. lange nichts gehört 👀" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <button onclick="loadReengagement(3)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">3 Tage</button>
+              <button onclick="loadReengagement(7)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">7 Tage</button>
+              <button onclick="loadReengagement(14)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">14 Tage</button>
+            </div>
+            <button onclick="sendReengagement()" style="width:100%;margin-top:8px;background:var(--yellow);color:#000;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:13px;cursor:pointer;">🔄 Alle anschreiben</button>
+            <div id="reeng-status" style="margin-top:8px;font-size:12px;display:none;"></div>
+          </div>
+          <div>
+            <div id="reeng-count" style="font-size:12px;color:var(--text2);margin-bottom:8px;">Klick einen Filter-Button</div>
+            <div id="reeng-list" style="max-height:180px;overflow-y:auto;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- AUTO-ONLINE MESSAGE -->
     <div style="margin-top:24px;max-width:900px;">
       <div style="background:var(--bg2);border:1px solid rgba(34,197,94,0.25);border-radius:14px;padding:24px;">
@@ -1409,7 +1455,7 @@
         <!-- Shift Goal Widget -->
         <div id="shift-goal-widget" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:7px 14px;min-width:160px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-            <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;">Shift Goal</span>
+            <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;" onclick="editShiftGoal()" title="Klick zum Ändern">Shift Goal ✏️</span>
             <span style="font-size:12px;font-weight:700;" id="shift-goal-text">0€ / 300€</span>
           </div>
           <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
@@ -1487,6 +1533,11 @@
         <div id="scripts-panel" class="scripts-panel" style="display:none;position:relative;">
           </div>
           <button class="scripts-btn" onclick="toggleScriptsPanel()" title="Scripts">📋 Scripts</button>
+        </div>
+        <!-- AI Suggestions Panel -->
+        <div id="ai-suggest-panel" style="display:none;padding:8px 12px;border-top:1px solid rgba(167,139,250,0.2);background:rgba(167,139,250,0.04);flex-shrink:0;">
+          <div style="font-size:10px;color:#a78bfa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">💡 AI Vorschläge</div>
+          <div id="ai-suggest-chips" style="display:flex;flex-direction:column;gap:5px;"></div>
         </div>
         <div class="reply-bar">
           <input type="text" id="chat-input" placeholder="Nachricht schreiben..." onkeydown="if(event.key==='Enter')sendChatReply()" oninput="onChatInput()">
@@ -3207,7 +3258,30 @@ if (checkAuth()) {
 
 <script>
 // ── SHIFT GOAL ───────────────────────────────────────────────────────────────
-const SHIFT_GOAL = 300;
+let SHIFT_GOAL = parseInt(localStorage.getItem('crm_shift_goal') || '300');
+
+// Load goal from backend settings on startup
+fetch('/api/settings/crm').then(r => r.json()).then(d => {
+  if (d.shift_goal) {
+    SHIFT_GOAL = parseInt(d.shift_goal) || 300;
+    localStorage.setItem('crm_shift_goal', SHIFT_GOAL);
+    updateShiftGoal();
+  }
+}).catch(() => {});
+
+function editShiftGoal() {
+  if (!isAdmin()) return; // only admins can change goal
+  const val = prompt(`Shift-Ziel in € (aktuell: ${SHIFT_GOAL}€):`, SHIFT_GOAL);
+  if (!val || isNaN(parseInt(val))) return;
+  SHIFT_GOAL = parseInt(val);
+  localStorage.setItem('crm_shift_goal', SHIFT_GOAL);
+  updateShiftGoal();
+  // Save to backend
+  fetch('/api/settings/crm', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shift_goal: String(SHIFT_GOAL) })
+  });
+}
 
 function updateShiftGoal() {
   const user = localStorage.getItem('crm_user') || '';
@@ -3334,6 +3408,43 @@ if (_origOpenConv) {
 }
 buildScriptQuickBar();
 
+// ── RE-ENGAGEMENT ─────────────────────────────────────────────────────────────
+async function loadReengagement(days) {
+  const convs = await fetch('/api/conversations').then(r => r.json()).catch(() => []);
+  const cutoff = new Date(Date.now() - days * 86400000);
+  const cold = convs.filter(c => {
+    if (!c.last_time) return false;
+    return new Date(c.last_time) < cutoff && !c.time_waster;
+  }).sort((a, b) => new Date(a.last_time) - new Date(b.last_time));
+
+  document.getElementById('reeng-count').textContent = `${cold.length} Subscriber seit ${days}+ Tagen inaktiv`;
+  document.getElementById('reeng-list').innerHTML = cold.slice(0, 20).map(c =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
+      <span style="color:var(--text);">${c.internal_name || c.anon_id}</span>
+      <span style="color:var(--text3);">${new Date(c.last_time).toLocaleDateString('de-DE')}</span>
+    </div>`
+  ).join('') + (cold.length > 20 ? `<div style="color:var(--text3);font-size:11px;margin-top:6px;">+${cold.length-20} weitere...</div>` : '');
+
+  // Store for broadcast
+  window._reengIds = cold.map(c => c.tg_id);
+}
+
+async function sendReengagement() {
+  const text = document.getElementById('reeng-text')?.value.trim();
+  if (!text || !window._reengIds?.length) { alert('Nachricht und Empfänger erforderlich'); return; }
+  const confirmed = confirm(`Nachricht an ${window._reengIds.length} inaktive Subscriber senden?`);
+  if (!confirmed) return;
+  const status = document.getElementById('reeng-status');
+  status.style.display = 'block'; status.style.color = 'var(--text2)'; status.textContent = '⏳ Läuft...';
+  const r = await fetch('/api/broadcast', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, chatter: localStorage.getItem('crm_user') || 'CRM', tg_ids: window._reengIds })
+  });
+  const d = await r.json();
+  status.style.color = d.ok ? 'var(--teal)' : 'var(--red)';
+  status.textContent = d.ok ? `✅ ${d.sent} gesendet` : '❌ Fehler';
+}
+
 // ── BROADCAST ────────────────────────────────────────────────────────────────
 let _bcAllConvs = [];
 
@@ -3448,6 +3559,14 @@ async function startBroadcast() {
       const sendBtn = rb.querySelector('button');
       rb.insertBefore(btn, sendBtn);
       btn.onclick = () => window.translateInput();
+      // Add AI suggest button
+      const suggestBtn = document.createElement('button');
+      suggestBtn.id = 'ai-suggest-btn';
+      suggestBtn.title = 'AI Antwortvorschläge';
+      suggestBtn.textContent = '💡';
+      suggestBtn.style.cssText = 'background:rgba(255,209,102,.1);border:1px solid rgba(255,209,102,.3);color:#ffd166;border-radius:12px;padding:11px 13px;font-size:16px;cursor:pointer;flex-shrink:0;';
+      rb.insertBefore(suggestBtn, sendBtn);
+      suggestBtn.onclick = () => window.getAiSuggestions();
     }
   });
 
@@ -3584,6 +3703,44 @@ async function startBroadcast() {
 </script>
 
 <script>
+// ── AI SUGGESTIONS ───────────────────────────────────────────────────────────
+window.getAiSuggestions = async function() {
+  const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
+  if (!tgId) return;
+  const btn = document.getElementById('ai-suggest-btn');
+  const panel = document.getElementById('ai-suggest-panel');
+  const chips = document.getElementById('ai-suggest-chips');
+  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+  try {
+    const r = await fetch('/api/ai/suggest', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tg_id: tgId })
+    });
+    const d = await r.json();
+    if (d.ok && d.suggestions?.length) {
+      panel.style.display = 'block';
+      chips.innerHTML = d.suggestions.map(s => `
+        <div onclick="useSuggestion(this)" style="cursor:pointer;padding:8px 12px;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.25);border-radius:8px;font-size:13px;color:var(--text);transition:background .15s;" onmouseover="this.style.background='rgba(167,139,250,0.2)'" onmouseout="this.style.background='rgba(167,139,250,0.1)'">${s}</div>
+      `).join('');
+    }
+  } catch(e) { console.error(e); }
+  if (btn) { btn.textContent = '💡'; btn.disabled = false; }
+};
+
+window.useSuggestion = function(el) {
+  const inp = document.getElementById('chat-input');
+  if (inp) { inp.value = el.textContent.trim(); inp.focus(); }
+  document.getElementById('ai-suggest-panel').style.display = 'none';
+};
+
+// Hide suggestions when input is cleared
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('chat-input');
+  if (inp) inp.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.getElementById('ai-suggest-panel').style.display = 'none';
+  });
+});
+
 // ── MEMBERS MANAGEMENT ────────────────────────────────────────────────────────
 async function loadMembers() {
   const list = document.getElementById('members-list');
