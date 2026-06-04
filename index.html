@@ -3009,6 +3009,13 @@ if (checkAuth()) {
       <div class="profile-section">
         <button class="sale-btn" onclick="openSaleModal('${tgId}','${p.internal_name||p.anon_id}')">💰 Sale melden</button>
       </div>
+      <div class="profile-section">
+        <button id="fakecheck-btn-${tgId}" onclick="sendFakecheck('${tgId}','${(p.internal_name||p.anon_id).replace(/'/g,"\\'")}',this)"
+          style="width:100%;padding:10px;border-radius:10px;border:1px solid rgba(167,139,250,.4);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">
+          🎙️ Fakecheck senden
+        </button>
+        <div id="fakecheck-status-${tgId}" style="font-size:11px;color:var(--text3);margin-top:6px;display:none;text-align:center;"></div>
+      </div>
 
       <div class="profile-section">
         <button id="tw-toggle-btn"
@@ -4169,6 +4176,46 @@ async function startBroadcast() {
 </script>
 
 <script>
+// ── FAKECHECK ─────────────────────────────────────────────────────────────────
+async function sendFakecheck(tgId, name, btn) {
+  const statusEl = document.getElementById('fakecheck-status-' + tgId);
+
+  // Ask what to send to bot
+  const command = prompt(`Fakecheck für "${name}"\n\nWas soll an @FakecheckAudioBot gesendet werden?\n(z.B. Name des Subscribers, oder leer lassen für Standard)`, name || '');
+  if (command === null) return; // cancelled
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Warte auf Bot...';
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = '🎙️ Bot wird kontaktiert...'; statusEl.style.color = 'var(--text3)'; }
+
+  try {
+    const r = await fetch('/api/fakecheck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tg_id: tgId, command: command || name || 'start' })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      btn.textContent = '✅ Fakecheck gesendet';
+      btn.style.borderColor = 'rgba(34,197,94,0.4)';
+      btn.style.color = '#22c55e';
+      btn.style.background = 'rgba(34,197,94,0.1)';
+      if (statusEl) { statusEl.textContent = '✅ Sprachnachricht weitergeleitet'; statusEl.style.color = '#22c55e'; }
+      setTimeout(() => {
+        btn.textContent = '🎙️ Fakecheck senden'; btn.disabled = false;
+        btn.style.cssText = ''; btn.style.cssText = 'width:100%;padding:10px;border-radius:10px;border:1px solid rgba(167,139,250,.4);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;';
+        if (statusEl) statusEl.style.display = 'none';
+      }, 5000);
+    } else {
+      throw new Error(d.detail || 'Fehler');
+    }
+  } catch(e) {
+    btn.textContent = '❌ Fehler — nochmal versuchen';
+    btn.disabled = false;
+    if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = 'var(--red)'; }
+  }
+}
+
 // ── MOBILE CHAT NAVIGATION ────────────────────────────────────────────────────
 function isMobile() { return window.innerWidth <= 768; }
 

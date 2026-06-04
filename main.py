@@ -1060,6 +1060,59 @@ Die 3 Optionen sollen unterschiedliche Stile haben:
     except Exception as e:
         raise HTTPException(500, str(e))
 
+# ── FAKECHECK ────────────────────────────────────────────────────────────────
+FAKECHECK_BOT = '@FakecheckAudioBot'
+
+class FakecheckIn(BaseModel):
+    tg_id: str           # subscriber to send audio to
+    command: str = ''    # what to send to the bot (e.g. subscriber name, or /start)
+
+@app.post('/fakecheck')
+async def send_fakecheck(body: FakecheckIn):
+    if not tg_client or not tg_client.is_connected():
+        raise HTTPException(503, 'Userbot nicht verbunden')
+    try:
+        # 1. Send command to the fakecheck bot
+        trigger = body.command.strip() or 'start'
+        await tg_client.send_message(FAKECHECK_BOT, trigger)
+
+        # 2. Wait up to 15s for bot to reply with audio
+        import asyncio as _aio
+        audio_msg = None
+        for _ in range(30):  # poll every 0.5s for 15s
+            await _aio.sleep(0.5)
+            msgs = await tg_client.get_messages(FAKECHECK_BOT, limit=1)
+            if msgs and msgs[0].voice:
+                audio_msg = msgs[0]
+                break
+
+        if not audio_msg:
+            raise HTTPException(408, 'Bot hat keine Sprachnachricht geschickt (Timeout)')
+
+        # 3. Forward audio to subscriber
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
+                row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+        await tg_client.forward_messages(peer, audio_msg)
+
+        # 4. Log as outgoing message
+        save_msg(body.tg_id, '[🎙️ Fakecheck Audio]', 'out', 'System')
+
+        # 5. Broadcast to CRM clients
+        asyncio.create_task(ws_manager.broadcast({
+            'type': 'new_message', 'tg_id': body.tg_id,
+            'text': '[🎙️ Fakecheck Audio]', 'direction': 'out',
+            'timestamp': datetime.now().isoformat()
+        }))
+        return {'ok': True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 # ── BROADCAST ────────────────────────────────────────────────────────────────
 class BroadcastIn(BaseModel):
     text: str
