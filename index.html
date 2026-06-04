@@ -1855,6 +1855,12 @@ function openSaleModal(tgId, displayName) {
   document.getElementById('sale-amount').value = '';
   document.getElementById('sale-product').value = '';
   document.getElementById('sale-notes').value = '';
+  // Reset category buttons
+  document.querySelectorAll('.sale-cat-btn').forEach(b => {
+    b.style.borderColor = 'var(--border)';
+    b.style.background = 'var(--bg3)';
+    b.style.color = 'var(--text)';
+  });
   document.getElementById('sale-feedback').style.display = 'none';
   const overlay = document.getElementById('sale-modal-overlay');
   overlay.style.display = 'flex';
@@ -1868,6 +1874,7 @@ async function submitSale() {
   const amount = parseFloat(document.getElementById('sale-amount').value);
   if (!amount || amount <= 0) { alert('Bitte einen gültigen Betrag eingeben.'); return; }
   const product = document.getElementById('sale-product').value.trim();
+  if (!product) { alert('Bitte eine Kategorie auswählen.'); return; }
   const notes   = document.getElementById('sale-notes').value.trim();
   const user    = localStorage.getItem('crm_user') || 'Chatter';
   const base    = ('/api').replace(/\/$/, '');
@@ -4277,7 +4284,7 @@ function renderNotifications() {
     let detail = '';
     if (n.type === 'new_sub') detail = `subscribed${n.username ? ' (@' + n.username + ')' : ''}`;
     if (n.type === 'message') detail = n.text || '';
-    if (n.type === 'sale') detail = `${n.amount?.toFixed(0)}€${n.product ? ' · ' + n.product : ''}${n.chatter ? ' via ' + n.chatter : ''}`;
+    if (n.type === 'sale') detail = `Neuer Sale! ${n.name} hat ${n.product || 'Produkt'} für ${n.amount?.toFixed(0)}€ gekauft${n.chatter ? ' · ' + n.chatter : ''}`;
 
     return `<div onclick="openConv('${n.tg_id}','${n.anon_id}');showPage('chat')"
       style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:background .15s;"

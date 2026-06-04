@@ -1233,6 +1233,17 @@ async def post_sale(body: SaleIn):
             'amount': body.amount, 'product': body.product,
             'notes': body.notes, 'chatter': body.chatter, 'timestamp': ts
         })
+    # Broadcast sale notification to all connected CRM clients
+    asyncio.create_task(ws_manager.broadcast({
+        'type': 'notification',
+        'notif_type': 'sale',
+        'tg_id': body.tg_id,
+        'anon_id': body.anon_id,
+        'amount': body.amount,
+        'product': body.product,
+        'chatter': body.chatter,
+        'timestamp': ts,
+    }))
     return {'ok': True, 'timestamp': ts}
 
 @app.get('/sales')
