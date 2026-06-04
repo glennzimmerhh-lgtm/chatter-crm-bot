@@ -425,13 +425,21 @@ async def start_userbot():
                 await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'in', tg_msg_id=msg_tg_id))
                 print(f'📨 {tg_id}: {text[:80]}')
                 # Push to all connected CRM clients
+                now_ts = datetime.now().isoformat()
                 asyncio.create_task(ws_manager.broadcast({
                     'type': 'new_message',
                     'tg_id': tg_id,
                     'text': text,
                     'direction': 'in',
-                    'timestamp': datetime.now().isoformat(),
+                    'timestamp': now_ts,
                     'tg_msg_id': msg_tg_id,
+                }))
+                asyncio.create_task(ws_manager.broadcast({
+                    'type': 'notification',
+                    'notif_type': 'message',
+                    'tg_id': tg_id,
+                    'text': text[:80],
+                    'timestamp': now_ts,
                 }))
 
             await tg_client.start()
@@ -1059,6 +1067,49 @@ Die 3 Optionen sollen unterschiedliche Stile haben:
         return {'ok': False, 'suggestions': []}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+# ── NOTIFICATIONS FEED ───────────────────────────────────────────────────────
+@app.get('/notifications')
+def get_notifications(limit: int = 80):
+    """Combined activity feed: new subs, messages, sales."""
+    events = []
+    with db() as conn:
+        with conn.cursor() as c:
+            # New subscribers
+            c.execute('''SELECT tg_id, anon_id, internal_name, tg_username, first_time as ts
+                         FROM conversations ORDER BY first_time DESC LIMIT %s''', (limit,))
+            for r in c.fetchall():
+                events.append({'type': 'new_sub', 'ts': str(r['ts']),
+                               'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
+                               'name': r['internal_name'] or r['anon_id'],
+                               'username': r['tg_username'] or ''})
+            # Incoming messages (last N)
+            c.execute('''SELECT m.tg_id, m.text, m.timestamp as ts,
+                                c.anon_id, c.internal_name
+                         FROM messages m
+                         JOIN conversations c ON c.tg_id = m.tg_id
+                         WHERE m.direction='in'
+                         ORDER BY m.timestamp DESC LIMIT %s''', (limit,))
+            for r in c.fetchall():
+                events.append({'type': 'message', 'ts': str(r['ts']),
+                               'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
+                               'name': r['internal_name'] or r['anon_id'],
+                               'text': r['text'][:80]})
+            # Sales
+            c.execute('''SELECT s.tg_id, s.amount, s.product, s.chatter, s.timestamp as ts,
+                                c.anon_id, c.internal_name
+                         FROM sales s
+                         JOIN conversations c ON c.tg_id = s.tg_id
+                         ORDER BY s.timestamp DESC LIMIT %s''', (limit,))
+            for r in c.fetchall():
+                events.append({'type': 'sale', 'ts': str(r['ts']),
+                               'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
+                               'name': r['internal_name'] or r['anon_id'],
+                               'amount': float(r['amount']), 'product': r['product'] or '',
+                               'chatter': r['chatter'] or ''})
+    # Sort all events by timestamp desc, return top N
+    events.sort(key=lambda x: x['ts'], reverse=True)
+    return events[:limit]
 
 # ── FAKECHECK ────────────────────────────────────────────────────────────────
 FAKECHECK_BOT = '@FakecheckAudioBot'
