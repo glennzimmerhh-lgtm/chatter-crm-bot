@@ -1057,9 +1057,9 @@
         <div class="kpi-sub" id="kpi-reply-sub">Minuten</div>
       </div>
       <div class="kpi-card kpi-red">
-        <div class="kpi-label" id="kpi-avg-label">Ø pro Shift</div>
-        <div class="kpi-val" id="kpi-week-rev">—</div>
-        <div class="kpi-sub" id="kpi-week-sub">—</div>
+        <div class="kpi-label" id="kpi-avg-label">New Subs</div>
+        <div class="kpi-val" id="kpi-week-rev" style="color:#4a9eff;">—</div>
+        <div class="kpi-sub" id="kpi-week-sub">neue Telegram-Kontakte</div>
       </div>
       <div class="kpi-card" style="border-color:rgba(167,139,250,0.3);">
         <div class="kpi-label">ARPPU</div>
@@ -2058,6 +2058,7 @@ const SHIFT_DEFS = [
 
 let salesData = [];
 let crmSalesData = []; // sales from Railway backend
+let crmConvsData = []; // all conversations for new-sub tracking
 window._getCrmSalesData = () => crmSalesData;
 window._setCrmSalesData = (d) => { crmSalesData = d; };
 let shiftsData = [];
@@ -2236,11 +2237,13 @@ async function loadData() {
   const results = await Promise.allSettled([
     fetchCSV(salesUrl),
     fetchCSV(shiftsUrl),
-    fetch(backendUrl + '/sales').then(r => r.json()).catch(() => [])
+    fetch(backendUrl + '/sales').then(r => r.json()).catch(() => []),
+    fetch(backendUrl + '/conversations').then(r => r.json()).catch(() => [])
   ]);
-  salesData   = results[0].status === 'fulfilled' ? results[0].value : salesData;
-  shiftsData  = results[1].status === 'fulfilled' ? results[1].value : shiftsData;
+  salesData    = results[0].status === 'fulfilled' ? results[0].value : salesData;
+  shiftsData   = results[1].status === 'fulfilled' ? results[1].value : shiftsData;
   crmSalesData = results[2].status === 'fulfilled' ? results[2].value : [];
+  crmConvsData = results[3].status === 'fulfilled' ? results[3].value : [];
   renderDashboard();
   renderSalesPage();
   renderShiftsPage();
@@ -2270,7 +2273,7 @@ function renderDashboard() {
   document.getElementById('kpi-rev-label').textContent   = 'Umsatz ' + label;
   document.getElementById('kpi-sales-label').textContent = 'Sales ' + label;
   document.getElementById('kpi-reply-sub').textContent   = 'Minuten (' + label.toLowerCase() + ')';
-  document.getElementById('kpi-avg-label').textContent   = 'Ø pro Shift';
+  document.getElementById('kpi-avg-label').textContent   = 'New Subs';
 
   // ARPPU & Conversion
   const uniqueSpenders = new Set(filteredCrmForKpi.map(s => s.tg_id)).size;
@@ -2326,8 +2329,20 @@ function renderDashboard() {
   // Donut chart
   renderDonutChart(productMap, totalRevenue);
   document.getElementById('kpi-reply').textContent        = avgReply !== null ? avgReply.toFixed(1) : '0';
-  document.getElementById('kpi-week-rev').textContent     = fmt(avgPerShift);
-  document.getElementById('kpi-week-sub').textContent     = filteredShifts.length + ' Shifts';
+  // New Subs: conversations with first_time in the selected period
+  const now = new Date();
+  const todayStr = localDateStr(now);
+  const newSubs = crmConvsData.filter(c => {
+    if (!c.first_time) return false;
+    const ft = parseTs(c.first_time);
+    if (p === 'heute') return localDateStr(ft) === todayStr;
+    if (p === 'woche') { const w = new Date(now); w.setDate(w.getDate()-7); return ft >= w; }
+    if (p === 'monat') return ft.getMonth() === now.getMonth() && ft.getFullYear() === now.getFullYear();
+    if (p === 'range' && customRangeFrom && customRangeTo) return ft >= customRangeFrom && ft <= customRangeTo;
+    return true;
+  }).length;
+  document.getElementById('kpi-week-rev').textContent = newSubs;
+  document.getElementById('kpi-week-sub').textContent  = newSubs === 1 ? 'new contact' : 'new contacts';
   document.getElementById('sales-count-tag').textContent  = filteredSales.length + ' ' + label.toLowerCase();
 
   // Shifts "heute" panel always shows current day
