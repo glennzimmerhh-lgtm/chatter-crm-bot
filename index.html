@@ -1920,10 +1920,119 @@ function showApp(user) {
       if (allHidden) sec.style.display = 'none';
     });
     showPage('chat');
+    applyEnglishUI(); // Chatters see English UI
   } else {
-    // Admin: show all, load members page data when opened
     document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
   }
+}
+
+function applyEnglishUI() {
+  // Translate all German text to English for chatters
+  const translations = {
+    // Nav
+    'Chat': 'Chat',
+    'Broadcast': 'Broadcast',
+    'Einstellungen': 'Settings',
+    // Chat page
+    'Suchen...': 'Search...',
+    'Gespräch auswählen': 'Select conversation',
+    'Nachricht schreiben...': 'Write a message...',
+    'Senden ↑': 'Send ↑',
+    'Scripts': 'Scripts',
+    '💾 Speichern': '💾 Save',
+    '💰 Sale melden': '💰 Report Sale',
+    '🗑️ Als Time Waster markieren': '🗑️ Mark as Time Waster',
+    'Als Time Waster markieren': 'Mark as Time Waster',
+    'Interner Name': 'Internal Name',
+    'Notizen': 'Notes',
+    // Profile
+    'Interessen, Kaufverhalten, Vorlieben...': 'Interests, behavior, preferences...',
+    'z.B. Bernd – mag Sport': 'e.g. John – likes sports',
+    // Funnel stages
+    '🎯 Funnel Stage': '🎯 Funnel Stage',
+    '❄️ Kalt': '❄️ Cold',
+    '🌱 Warm': '🌱 Warm',
+    '🔥 Hot': '🔥 Hot',
+    '💬 Angebot gemacht': '💬 Offer made',
+    '📅 Gebucht': '📅 Booked',
+    '✅ Done': '✅ Done',
+    // Status
+    'Userbot verbunden': 'Userbot connected',
+    'Userbot getrennt': 'Userbot disconnected',
+    'Backend nicht erreichbar': 'Backend unreachable',
+    'Keine Backend-URL': 'No backend URL',
+    'Verbinde...': 'Connecting...',
+    'Jetzt online': 'Online now',
+    // Shift goal
+    'Shift Goal ✏️': 'Shift Goal',
+    // Broadcast page
+    'Nachricht': 'Message',
+    'Deine Nachricht...': 'Your message...',
+    'Absender (dein Name)': 'Sender (your name)',
+    '📣 Senden': '📣 Send',
+    'Empfänger': 'Recipients',
+    'Nach Funnel-Stage filtern': 'Filter by funnel stage',
+    'Alle Subscriber': 'All subscribers',
+    'Wähle einen Filter um Empfänger zu sehen': 'Select a filter to see recipients',
+    '🔍 Empfänger prüfen': '🔍 Check recipients',
+    // Lists
+    '📋 Listen': '📋 Lists',
+    'Keine Listen vorhanden': 'No lists available',
+    // Spending
+    '💰 Spending': '💰 Spending',
+    // Stats
+    'Erste Nachricht': 'First message',
+    'Letzte Nachricht': 'Last message',
+    'Nachrichten': 'Messages',
+    'Kontakt': 'Contact',
+    // Sale modal
+    'Sale melden': 'Report Sale',
+    'BETRAG (€)': 'AMOUNT (€)',
+    'PRODUKT': 'PRODUCT',
+    'NOTIZEN': 'NOTES',
+    '✅ Sale bestätigen': '✅ Confirm Sale',
+    'Abbrechen': 'Cancel',
+    '✅ Sale erfolgreich gespeichert!': '✅ Sale saved successfully!',
+    '❌ Fehler beim Speichern.': '❌ Error saving.',
+    '❌ Backend nicht erreichbar.': '❌ Backend unreachable.',
+    // Errors
+    'Fehler beim Senden. Ist der Userbot verbunden?': 'Send error. Is the userbot connected?',
+    // Filter bar
+    'Alle': 'All',
+    '🟢 Online': '🟢 Online',
+    // Active shift
+    'Aktive Shift': 'Active Shift',
+    'Eingeloggt': 'Logged in',
+  };
+
+  // Walk all text nodes and replace
+  function translateNode(node) {
+    if (node.nodeType === 3) { // text node
+      let t = node.textContent;
+      let changed = false;
+      for (const [de, en] of Object.entries(translations)) {
+        if (t.trim() === de) { node.textContent = t.replace(de, en); changed = true; break; }
+      }
+    } else if (node.nodeType === 1) {
+      // Translate placeholders
+      if (node.placeholder) {
+        for (const [de, en] of Object.entries(translations)) {
+          if (node.placeholder === de) { node.placeholder = en; break; }
+        }
+      }
+      node.childNodes.forEach(translateNode);
+    }
+  }
+
+  // Apply after DOM is ready
+  setTimeout(() => {
+    translateNode(document.body);
+    // Also watch for dynamic changes
+    const obs = new MutationObserver(muts => {
+      muts.forEach(m => m.addedNodes.forEach(n => translateNode(n)));
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  }, 500);
 }
 
 function checkAuth() {
