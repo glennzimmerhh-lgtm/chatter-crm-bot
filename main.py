@@ -972,10 +972,31 @@ VERBOTEN (nie so schreiben):
 
 Schreibe die Nachricht in Maries echtem Stil um. Nur die Nachricht zurückgeben."""
 
-    messages = [{'role': 'system', 'content': system_prompt}]
+    # Build conversation context string for the prompt
+    context_str = ''
     if body.context:
-        messages.extend(body.context[-6:])  # last 6 messages for context
-    messages.append({'role': 'user', 'content': 'Umschreiben: ' + body.text})
+        lines = []
+        for m in body.context[-8:]:
+            role = 'Fan' if m.get('role') == 'user' else 'Marie'
+            lines.append(f'{role}: {m.get("content", "")}')
+        context_str = '\n'.join(lines)
+
+    user_msg = f'''GESPRÄCHSVERLAUF (letzten Nachrichten):
+{context_str if context_str else "(kein Kontext)"}
+
+Der Chatter möchte jetzt antworten mit: "{body.text}"
+(Das kann Englisch, Deutsch, Stichwörter oder schlechtes Deutsch sein)
+
+Aufgabe: Schreib was Marie in DIESEM Gesprächsmoment wirklich sagen würde.
+- Passe die Antwort dem Gesprächsverlauf an — reagiere auf was der Fan zuletzt geschrieben hat
+- Übersetze NICHT wörtlich, sondern denk: "Wie würde Marie das ausdrücken?"
+- Wenn nötig ergänze eine natürliche Gegenfrage die zum aktuellen Thema passt
+
+Nur Maries fertige Nachricht zurückgeben.'''
+
+    messages = [{'role': 'system', 'content': system_prompt}]
+    messages.append({'role': 'user', 'content': user_msg})
+
 
     try:
         loop = asyncio.get_event_loop()
