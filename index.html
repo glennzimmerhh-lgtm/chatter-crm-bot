@@ -1022,7 +1022,7 @@
       <div class="topbar-right">
         <div class="date-badge" id="today-badge"></div>
         <button class="config-btn" onclick="openSettings()">⚙ Einrichten</button>
-        <button class="refresh-btn" onclick="loadData()">↻ Aktualisieren</button>
+        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Aktualisieren</button>
       </div>
     </div>
 
@@ -1199,7 +1199,7 @@
         <div class="topbar-title">Sales Log</div>
       </div>
       <div class="topbar-right">
-        <button class="refresh-btn" onclick="loadData()">↻ Aktualisieren</button>
+        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Aktualisieren</button>
       </div>
     </div>
     <div class="period-bar">
@@ -1229,7 +1229,7 @@
         <div class="topbar-title">Shift Übersicht</div>
       </div>
       <div class="topbar-right">
-        <button class="refresh-btn" onclick="loadData()">↻ Aktualisieren</button>
+        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Aktualisieren</button>
       </div>
     </div>
     <div class="period-bar">
@@ -2165,14 +2165,21 @@ function parseCSV(text) {
   }).filter(r => Object.values(r).some(v => v));
 }
 
+function fetchWithTimeout(promise, ms = 8000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+  ]);
+}
+
 async function fetchCSV(url) {
   if (!url) return [];
   try {
-    const r = await fetch(url + '&t=' + Date.now());
+    const r = await fetchWithTimeout(fetch(url + '&t=' + Date.now()), 8000);
     if (!r.ok) throw new Error('Fetch failed');
     return parseCSV(await r.text());
   } catch (e) {
-    console.warn('CSV fetch error:', e);
+    console.warn('CSV fetch error:', e.message);
     return [];
   }
 }
@@ -2214,19 +2221,33 @@ function closeSettings(e) {
     document.getElementById('settings-overlay').classList.remove('open');
 }
 
+let _loadDataRetries = 0;
+
 async function loadData() {
   const { salesUrl, shiftsUrl } = loadSettings();
   const backendUrl = ('/api').replace(/\/$/, '');
+
   const results = await Promise.allSettled([
     fetchCSV(salesUrl),
     fetchCSV(shiftsUrl),
-    fetch(backendUrl + '/sales').then(r => r.json()).catch(() => []),
-    fetch(backendUrl + '/conversations').then(r => r.json()).catch(() => [])
+    fetchWithTimeout(fetch(backendUrl + '/sales').then(r => r.json()), 8000).catch(() => []),
+    fetchWithTimeout(fetch(backendUrl + '/conversations').then(r => r.json()), 8000).catch(() => [])
   ]);
   salesData    = results[0].status === 'fulfilled' ? results[0].value : salesData;
   shiftsData   = results[1].status === 'fulfilled' ? results[1].value : shiftsData;
   crmSalesData = results[2].status === 'fulfilled' ? results[2].value : [];
   crmConvsData = results[3].status === 'fulfilled' ? results[3].value : [];
+
+  // Auto-retry if backend returned empty data (max 3 retries, delay 3s)
+  const backendEmpty = crmSalesData.length === 0 && crmConvsData.length === 0;
+  if (backendEmpty && _loadDataRetries < 3) {
+    _loadDataRetries++;
+    console.log(`⟳ Data empty, retry ${_loadDataRetries}/3 in 3s...`);
+    setTimeout(loadData, 3000);
+    return;
+  }
+  _loadDataRetries = 0;
+
   renderDashboard();
   renderSalesPage();
   renderShiftsPage();
