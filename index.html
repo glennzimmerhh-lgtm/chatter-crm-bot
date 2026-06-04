@@ -2276,7 +2276,7 @@ function renderDashboard() {
   // Update KPI labels
   document.getElementById('kpi-rev-label').textContent   = 'Umsatz ' + label;
   document.getElementById('kpi-sales-label').textContent = 'Sales ' + label;
-  document.getElementById('kpi-reply-sub').textContent   = 'Minuten (' + label.toLowerCase() + ')';
+  if (document.getElementById('kpi-reply-sub')) document.getElementById('kpi-reply-sub').textContent = 'Minuten (' + label.toLowerCase() + ')';
   document.getElementById('kpi-avg-label').textContent   = 'New Subs';
 
   // ARPPU & Conversion
@@ -2332,7 +2332,7 @@ function renderDashboard() {
 
   // Donut chart
   renderDonutChart(productMap, totalRevenue);
-  document.getElementById('kpi-reply').textContent        = avgReply !== null ? avgReply.toFixed(1) : '0';
+  if (document.getElementById('kpi-reply')) document.getElementById('kpi-reply').textContent = avgReply !== null ? avgReply.toFixed(1) : '0';
   // New Subs: conversations with first_time in the selected period
   const now = new Date();
   const todayStr = localDateStr(now);
