@@ -609,6 +609,71 @@ def update_profile(tg_id: str, body: ProfileUpdate):
     return {'ok': True}
 
 # ── ANALYTICS ─────────────────────────────────────────────────────────────────
+@app.get('/analytics/my-stats')
+def get_my_stats(chatter: str, period: str = 'heute'):
+    """Personal stats for a single chatter filtered by period."""
+    now = datetime.now()
+    if period == 'heute':
+        since = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    elif period == 'woche':
+        from datetime import timedelta
+        since = (now - timedelta(days=7)).isoformat()
+    elif period == 'monat':
+        since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    else:
+        since = '2000-01-01'
+    with db() as conn:
+        with conn.cursor() as c:
+            # Sales
+            c.execute('''SELECT COUNT(*) as sales_count, COALESCE(SUM(amount),0) as revenue,
+                                COALESCE(AVG(amount),0) as avg_sale
+                         FROM sales WHERE chatter=%s AND timestamp >= %s''', (chatter, since))
+            sale_row = c.fetchone()
+            # Messages sent
+            c.execute('''SELECT COUNT(*) as msgs FROM messages
+                         WHERE chatter=%s AND direction='out' AND timestamp >= %s''', (chatter, since))
+            msg_row = c.fetchone()
+            # Avg response time
+            c.execute('''SELECT AVG(EXTRACT(EPOCH FROM (m_out.timestamp::timestamp - m_in.timestamp::timestamp))) as avg_resp
+                         FROM messages m_in
+                         JOIN LATERAL (
+                           SELECT timestamp FROM messages m
+                           WHERE m.tg_id=m_in.tg_id AND m.direction='out' AND m.chatter=%s
+                             AND m.timestamp > m_in.timestamp
+                             AND EXTRACT(EPOCH FROM (m.timestamp::timestamp - m_in.timestamp::timestamp)) BETWEEN 5 AND 3600
+                           ORDER BY m.timestamp ASC LIMIT 1
+                         ) m_out ON true
+                         WHERE m_in.direction='in' AND m_in.timestamp >= %s''', (chatter, since))
+            resp_row = c.fetchone()
+            # Sales by product
+            c.execute('''SELECT product, COUNT(*) as cnt, SUM(amount) as rev
+                         FROM sales WHERE chatter=%s AND timestamp >= %s AND product != ''
+                         GROUP BY product ORDER BY rev DESC''', (chatter, since))
+            products = [dict(r) for r in c.fetchall()]
+    return {
+        'chatter': chatter,
+        'period': period,
+        'revenue': float(sale_row['revenue'] or 0),
+        'sales_count': sale_row['sales_count'] or 0,
+        'avg_sale': float(sale_row['avg_sale'] or 0),
+        'msgs_sent': msg_row['msgs'] or 0,
+        'avg_response_sec': round(float(resp_row['avg_resp'])) if resp_row and resp_row['avg_resp'] else None,
+        'products': products,
+    }
+
+@app.get('/analytics/recent-chatted')
+def get_recent_chatted(hours: int = 5):
+    """Subscribers the userbot messaged in the last N hours."""
+    since = (datetime.now() - __import__('datetime').timedelta(hours=hours)).isoformat()
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('''SELECT DISTINCT m.tg_id, c.anon_id, c.internal_name
+                         FROM messages m
+                         JOIN conversations c ON c.tg_id = m.tg_id
+                         WHERE m.direction='out' AND m.timestamp >= %s''', (since,))
+            rows = c.fetchall()
+    return [dict(r) for r in rows]
+
 @app.get('/analytics/chatters')
 def get_chatter_analytics():
     with db() as conn:
@@ -1006,18 +1071,22 @@ Schreibe die Nachricht in Maries echtem Stil um. Nur die Nachricht zurückgeben.
             lines.append(f'{role}: {m.get("content", "")}')
         context_str = '\n'.join(lines)
 
-    user_msg = f'''GESPRÄCHSVERLAUF (letzten Nachrichten):
-{context_str if context_str else "(kein Kontext)"}
+    last_fan_msg = ''
+    if body.context:
+        for m in reversed(body.context[-4:]):
+            if m.get('role') == 'user':
+                last_fan_msg = m.get('content', '')
+                break
 
-Der Chatter möchte jetzt antworten mit: "{body.text}"
-(Das kann Englisch, Deutsch, Stichwörter oder schlechtes Deutsch sein)
+    user_msg = f'''LETZTER FAN: "{last_fan_msg}"
 
-Aufgabe: Schreib was Marie in DIESEM Gesprächsmoment wirklich sagen würde.
-- Passe die Antwort dem Gesprächsverlauf an — reagiere auf was der Fan zuletzt geschrieben hat
-- Übersetze NICHT wörtlich, sondern denk: "Wie würde Marie das ausdrücken?"
-- Wenn nötig ergänze eine natürliche Gegenfrage die zum aktuellen Thema passt
+GESPRÄCHSVERLAUF:
+{context_str if context_str else "(Erster Kontakt)"}
 
-Nur Maries fertige Nachricht zurückgeben.'''
+CHATTER MEINT: "{body.text}"
+
+Marie reagiert jetzt auf den letzten Fan-Satz und sagt was der Chatter meint.
+Schreib NUR Maries Antwort — kurz, natürlich, im Kontext. KEIN Kommentar.'''
 
     messages = [{'role': 'system', 'content': system_prompt}]
     messages.append({'role': 'user', 'content': user_msg})
@@ -1276,9 +1345,11 @@ async def send_fakecheck(body: FakecheckIn):
 class BroadcastIn(BaseModel):
     text: str
     chatter: str = 'Broadcast'
-    filter_stage: Optional[str] = None   # 'kalt','warm','hot','angebot','gebucht','done' or None=all
+    filter_stage: Optional[str] = None
     filter_min_spend: Optional[float] = None
-    tg_ids: Optional[list] = None        # explicit list overrides filters
+    tg_ids: Optional[list] = None
+    exclude_ids: Optional[list] = None       # exclude specific tg_ids
+    exclude_stages: Optional[list] = None    # exclude by funnel stage
 
 @app.post('/broadcast')
 async def post_broadcast(body: BroadcastIn):
@@ -1292,12 +1363,19 @@ async def post_broadcast(body: BroadcastIn):
         with conn.cursor() as c:
             if body.tg_ids:
                 fmt = ','.join(['%s'] * len(body.tg_ids))
-                c.execute(f'SELECT tg_id,tg_access_hash FROM conversations WHERE tg_id IN ({fmt})', body.tg_ids)
+                c.execute(f'SELECT tg_id,tg_access_hash,funnel_stage FROM conversations WHERE tg_id IN ({fmt})', body.tg_ids)
             elif body.filter_stage:
-                c.execute('SELECT tg_id,tg_access_hash FROM conversations WHERE funnel_stage=%s', (body.filter_stage,))
+                c.execute('SELECT tg_id,tg_access_hash,funnel_stage FROM conversations WHERE funnel_stage=%s', (body.filter_stage,))
             else:
-                c.execute('SELECT tg_id,tg_access_hash FROM conversations')
-            recipients = c.fetchall()
+                c.execute('SELECT tg_id,tg_access_hash,funnel_stage FROM conversations')
+            all_r = c.fetchall()
+
+    # Apply exclusions
+    exclude_set = set(body.exclude_ids or [])
+    exclude_stages = set(body.exclude_stages or [])
+    recipients = [r for r in all_r
+                  if r['tg_id'] not in exclude_set
+                  and (not exclude_stages or r.get('funnel_stage','') not in exclude_stages)]
 
     sent_ok, sent_fail = 0, 0
     for r in recipients:

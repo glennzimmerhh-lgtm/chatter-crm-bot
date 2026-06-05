@@ -976,6 +976,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
       Scripts
     </div>
+    <div class="nav-item" onclick="showPage('mystats')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      My Stats
+    </div>
     <div class="nav-item" onclick="showPage('broadcast')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 10.8a19.79 19.79 0 01-3.07-8.63A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
       Broadcast
@@ -1383,6 +1387,77 @@
     </div>
   </div>
 
+  <!-- MY STATS PAGE -->
+  <div id="page-mystats" style="display:none;">
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div>
+        <h1 class="page-title" id="mystats-greeting">👋 My Stats</h1>
+        <p style="color:var(--text2);font-size:13px;margin-top:4px;" id="mystats-sub">Your personal performance</p>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="period-btn active" id="ms-btn-heute" onclick="loadMyStats('heute')">Today</button>
+        <button class="period-btn" id="ms-btn-woche" onclick="loadMyStats('woche')">Week</button>
+        <button class="period-btn" id="ms-btn-monat" onclick="loadMyStats('monat')">Month</button>
+      </div>
+    </div>
+
+    <!-- KPI Row -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">
+      <div class="kpi-card kpi-teal">
+        <div class="kpi-label">Total Revenue</div>
+        <div class="kpi-val" id="ms-revenue">—</div>
+        <div class="kpi-sub" id="ms-sales">0 sales</div>
+      </div>
+      <div class="kpi-card kpi-blue">
+        <div class="kpi-label">Avg Sale</div>
+        <div class="kpi-val" id="ms-avg">—</div>
+        <div class="kpi-sub">per transaction</div>
+      </div>
+      <div class="kpi-card kpi-yellow">
+        <div class="kpi-label">Messages Sent</div>
+        <div class="kpi-val" id="ms-msgs">—</div>
+        <div class="kpi-sub" id="ms-rpm">— €/msg</div>
+      </div>
+      <div class="kpi-card" style="border-color:rgba(167,139,250,.3);">
+        <div class="kpi-label">Avg Response</div>
+        <div class="kpi-val" id="ms-resp" style="color:#a78bfa;">—</div>
+        <div class="kpi-sub">seconds</div>
+      </div>
+    </div>
+
+    <!-- Product Breakdown -->
+    <div class="panel" style="margin-bottom:24px;">
+      <div class="panel-hd"><div class="panel-title">Revenue by Product</div></div>
+      <div class="panel-body" style="display:flex;align-items:center;gap:24px;padding:16px 20px;">
+        <div style="position:relative;width:140px;height:140px;flex-shrink:0;">
+          <canvas id="myStatsDonut" width="140" height="140"></canvas>
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
+            <div style="font-size:10px;color:var(--text3);">Total</div>
+            <div style="font-size:15px;font-weight:700;" id="ms-donut-total">—</div>
+          </div>
+        </div>
+        <div id="ms-product-legend" style="flex:1;display:flex;flex-direction:column;gap:8px;">
+          <div style="color:var(--text3);font-size:13px;">No sales yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shift Goal Progress -->
+    <div class="panel">
+      <div class="panel-hd"><div class="panel-title">Shift Goal Progress</div></div>
+      <div class="panel-body" style="padding:16px 20px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:13px;color:var(--text2);">Today's progress</span>
+          <span id="ms-goal-text" style="font-size:13px;font-weight:700;">— / —€</span>
+        </div>
+        <div style="height:10px;background:var(--bg3);border-radius:6px;overflow:hidden;">
+          <div id="ms-goal-bar" style="height:100%;background:#00d4aa;border-radius:6px;width:0%;transition:width .5s;"></div>
+        </div>
+        <div id="ms-goal-pct" style="font-size:11px;color:var(--text3);margin-top:4px;text-align:right;">0%</div>
+      </div>
+    </div>
+  </div>
+
   <!-- BROADCAST PAGE -->
   <div id="page-broadcast" style="display:none;">
     <div class="page-header">
@@ -1417,8 +1492,22 @@
           Wähle einen Filter um Empfänger zu sehen
         </div>
         <button onclick="previewBroadcast()" style="width:100%;margin-top:12px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;">🔍 Empfänger prüfen</button>
-        <div style="margin-top:16px;padding:12px;background:rgba(255,92,122,0.08);border:1px solid rgba(255,92,122,0.2);border-radius:8px;font-size:12px;color:var(--text2);">
-          ⚠️ Broadcast sendet 1 Nachricht/Sekunde. Bei 100 Subscriber = ~2 Minuten. Nicht abbrechen.
+        <div style="margin-top:12px;">
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Exclude Stage</label>
+          <select id="bc-exclude-stage" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;margin-bottom:8px;">
+            <option value="">No exclusion</option>
+            <option value="done">✅ Exclude Done</option>
+            <option value="gebucht">📅 Exclude Booked</option>
+            <option value="angebot">💬 Exclude Offered</option>
+            <option value="done,gebucht">Exclude Done + Booked</option>
+          </select>
+          <button onclick="excludeRecentChatted()" style="width:100%;background:var(--bg3);border:1px solid rgba(255,209,102,.3);color:#ffd166;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:8px;">
+            🕐 Exclude subscribers chatted in last 5h
+          </button>
+          <div id="bc-exclude-info" style="font-size:11px;color:var(--teal);margin-bottom:8px;display:none;"></div>
+        </div>
+        <div style="padding:10px;background:rgba(255,92,122,0.08);border:1px solid rgba(255,92,122,0.2);border-radius:8px;font-size:12px;color:var(--text2);">
+          ⚠️ 1 msg/sec. 100 subs ≈ 2 min. Don't close.
         </div>
       </div>
     </div>
@@ -2084,6 +2173,34 @@ function applyEnglishUI() {
     // Active shift
     'Aktive Shift': 'Active Shift',
     'Eingeloggt': 'Logged in',
+    '💾 Speichern': '💾 Save',
+    'Speichern': 'Save',
+    'Alle': 'All',
+    'Suchen...': 'Search...',
+    'Kein Interesse': 'Not interested',
+    'Mag Sport': 'Likes sport',
+    'Zahlt schnell': 'Pays fast',
+    'Immer fragen': 'Always asking',
+    '+ Neu': '+ New',
+    '🎯 Funnel Stage': '🎯 Funnel Stage',
+    '❄️ Kalt': '❄️ Cold',
+    '📋 Listen': '📋 Lists',
+    '💰 Spending': '💰 Spending',
+    'Keine Listen vorhanden': 'No lists',
+    'Erste Nachricht': 'First message',
+    'Letzte Nachricht': 'Last message',
+    'Nachrichten': 'Messages',
+    '🎙️ Fakecheck senden': '🎙️ Send Fakecheck',
+    '⏰ Reminder Timer': '⏰ Reminder Timer',
+    '▶ Start': '▶ Start',
+    'Interessen, Kaufverhalten, Vorlieben...': 'Interests, behavior...',
+    'Broadcast': 'Broadcast',
+    'My Stats': 'My Stats',
+    'Notifications': 'Notifications',
+    'Chat': 'Chat',
+    '⏳ Warte auf Bot...': '⏳ Waiting for bot...',
+    '✅ Fakecheck gesendet': '✅ Fakecheck sent',
+    'Aktive Shift': 'Active Shift',
   };
 
   // Walk all text nodes and replace
@@ -2808,7 +2925,7 @@ function closeSidebar() {
 }
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','subscribers','broadcast','performance','members','notifications','vault'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','subscribers','broadcast','performance','members','notifications','vault','mystats'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -4070,23 +4187,37 @@ async function previewBroadcast() {
   el.innerHTML = `<strong style="color:var(--teal);font-size:18px;">${filtered.length}</strong> Subscriber werden angeschrieben`;
 }
 
+let _bcExcludeIds = [];
+
+async function excludeRecentChatted() {
+  const info = document.getElementById('bc-exclude-info');
+  try {
+    const data = await fetch('/api/analytics/recent-chatted?hours=5').then(r => r.json());
+    _bcExcludeIds = data.map(d => d.tg_id);
+    if (info) { info.style.display='block'; info.textContent = `✅ ${_bcExcludeIds.length} subscribers excluded (chatted in last 5h)`; }
+  } catch(e) { if(info){info.style.display='block';info.textContent='❌ Error loading recent chats';} }
+}
+
 async function startBroadcast() {
   const text = document.getElementById('bc-text').value.trim();
   const chatter = document.getElementById('bc-chatter').value.trim() || localStorage.getItem('crm_user') || 'Broadcast';
   const stage = document.getElementById('bc-filter-stage').value;
-  if (!text) { alert('Bitte Nachricht eingeben.'); return; }
+  const excludeStage = document.getElementById('bc-exclude-stage')?.value || '';
+  if (!text) { alert('Please enter a message.'); return; }
 
-  const confirmed = confirm(`Broadcast senden an ${stage ? '"' + stage + '"' : 'ALLE'} Subscriber?\n\nNachricht: "${text.slice(0,80)}..."`);
+  const confirmed = confirm(`Send to ${stage ? '"' + stage + '"' : 'ALL'} subscribers${_bcExcludeIds.length ? ` (${_bcExcludeIds.length} excluded)` : ''}?\n\n"${text.slice(0,80)}..."`);
   if (!confirmed) return;
 
   const status = document.getElementById('bc-status');
   status.style.display = 'block';
   status.style.color = 'var(--text2)';
-  status.textContent = '⏳ Broadcast läuft...';
+  status.textContent = '⏳ Broadcast running...';
 
   try {
     const body = { text, chatter };
     if (stage) body.filter_stage = stage;
+    if (_bcExcludeIds.length) body.exclude_ids = _bcExcludeIds;
+    if (excludeStage) body.exclude_stages = excludeStage.split(',');
     const r = await fetch('/api/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4401,6 +4532,69 @@ setInterval(() => {
     }).catch(() => {});
   }
 }, 30000);
+
+// ── MY STATS ──────────────────────────────────────────────────────────────────
+let _myStatsDonut = null;
+
+async function loadMyStats(period = 'heute') {
+  const user = localStorage.getItem('crm_user') || '';
+  if (!user) return;
+
+  // Update period buttons
+  ['heute','woche','monat'].forEach(p => {
+    const btn = document.getElementById('ms-btn-' + p);
+    if (btn) btn.classList.toggle('active', p === period);
+  });
+
+  // Greeting
+  const h = new Date().getHours();
+  const greeting = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+  const greetEl = document.getElementById('mystats-greeting');
+  if (greetEl) greetEl.textContent = `${greeting}, ${user} 👋`;
+
+  try {
+    const d = await fetch(`/api/analytics/my-stats?chatter=${encodeURIComponent(user)}&period=${period}`).then(r => r.json());
+
+    // KPIs
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    set('ms-revenue', (d.revenue || 0).toFixed(0) + '€');
+    set('ms-sales', (d.sales_count || 0) + ' sales');
+    set('ms-avg', (d.avg_sale || 0).toFixed(0) + '€');
+    set('ms-msgs', d.msgs_sent || 0);
+    set('ms-rpm', d.msgs_sent > 0 ? ((d.revenue||0) / d.msgs_sent).toFixed(2) + '€/msg' : '—');
+    set('ms-resp', d.avg_response_sec ? d.avg_response_sec + 's' : '—');
+
+    // Shift goal
+    const goal = parseInt(localStorage.getItem('crm_shift_goal') || '300');
+    const todayRev = period === 'heute' ? (d.revenue || 0) : 0;
+    const pct = Math.min(100, Math.round((todayRev / goal) * 100));
+    set('ms-goal-text', `${todayRev.toFixed(0)}€ / ${goal}€`);
+    set('ms-goal-pct', pct + '%');
+    const bar = document.getElementById('ms-goal-bar');
+    if (bar) { bar.style.width = pct + '%'; bar.style.background = pct >= 100 ? '#00d4aa' : pct >= 60 ? '#ffd166' : '#ff9f43'; }
+
+    // Product donut
+    const colors = ['#00d4aa','#4a9eff','#ffd166','#a78bfa','#ff5c7a'];
+    const donutEl = document.getElementById('myStatsDonut');
+    const legendEl = document.getElementById('ms-product-legend');
+    set('ms-donut-total', (d.revenue||0).toFixed(0) + '€');
+    if (donutEl && d.products?.length) {
+      if (_myStatsDonut) { _myStatsDonut.destroy(); _myStatsDonut = null; }
+      _myStatsDonut = new Chart(donutEl.getContext('2d'), {
+        type: 'doughnut',
+        data: { labels: d.products.map(p=>p.product), datasets: [{ data: d.products.map(p=>p.rev), backgroundColor: colors, borderWidth: 0, hoverOffset: 4 }] },
+        options: { cutout: '72%', responsive: false, plugins: { legend: { display: false } } }
+      });
+      if (legendEl) legendEl.innerHTML = d.products.map((p,i) => `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:${colors[i]};flex-shrink:0;"></div>
+          <span style="font-size:12px;flex:1;color:var(--text);">${p.product}</span>
+          <span style="font-size:12px;color:${colors[i]};font-weight:700;">${parseFloat(p.rev).toFixed(0)}€</span>
+        </div>`).join('');
+    } else if (legendEl) legendEl.innerHTML = '<div style="color:var(--text3);font-size:13px;">No sales yet</div>';
+
+  } catch(e) { console.error('My stats error:', e); }
+}
 
 // ── CHAT TIMER ────────────────────────────────────────────────────────────────
 const _chatTimers = {}; // tgId → { interval, endsAt, name }
@@ -4824,6 +5018,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (name === 'broadcast') loadAutoOnline();
       if (name === 'performance') loadPerformance('heute');
       if (name === 'members') loadMembers();
+      if (name === 'mystats') loadMyStats('heute');
       if (name === 'notifications') {
         loadNotifications();
         const nb = document.getElementById('notif-badge');
