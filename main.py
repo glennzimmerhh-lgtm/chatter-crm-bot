@@ -8,15 +8,20 @@ import asyncio
 import os
 import csv
 import io
+import shutil
 from datetime import datetime
 from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
 
+# Vault storage directory (Railway volume or local)
+VAULT_DIR = os.environ.get('VAULT_PATH', '/data/vault')
+os.makedirs(VAULT_DIR, exist_ok=True)
+
 import uvicorn
 import psycopg2
 import psycopg2.extras
-from fastapi import FastAPI, HTTPException, Form, BackgroundTasks, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Form, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
@@ -137,13 +142,15 @@ def init_db():
                 password_hash TEXT NOT NULL,
                 role          TEXT DEFAULT 'chatter'
             )''')
+            # Add display_name column if missing
+            c.execute("ALTER TABLE crm_users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT ''")
             # Seed default admin if no users exist
             c.execute('SELECT COUNT(*) as n FROM crm_users')
             if c.fetchone()['n'] == 0:
                 import hashlib
                 c.execute(
-                    "INSERT INTO crm_users (username,email,password_hash,role) VALUES (%s,%s,%s,%s)",
-                    ('Glenn', 'glennzimmerhh@gmail.com', hashlib.sha256('Smartviral1!'.encode()).hexdigest(), 'admin')
+                    "INSERT INTO crm_users (username,email,password_hash,role,display_name) VALUES (%s,%s,%s,%s,%s)",
+                    ('Glenn', 'glennzimmerhh@gmail.com', hashlib.sha256('Smartviral1!'.encode()).hexdigest(), 'admin', 'Glenn')
                 )
 
             # Settings table
@@ -782,23 +789,29 @@ class LoginIn(BaseModel):
 def auth_login(body: LoginIn):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT id,username,email,role FROM crm_users WHERE username=%s AND password_hash=%s',
+            c.execute('SELECT id,username,email,role,display_name FROM crm_users WHERE username=%s AND password_hash=%s',
                       (body.username, _hash_pw(body.password)))
             row = c.fetchone()
     if not row:
         raise HTTPException(401, 'Falscher Benutzername oder Passwort')
-    return dict(row)
+    d = dict(row)
+    d['display_name'] = d['display_name'] or d['username']
+    return d
 
 @app.get('/auth/users')
 def list_users():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT id,username,email,role FROM crm_users ORDER BY id')
+            c.execute('SELECT id,username,email,role,display_name FROM crm_users ORDER BY id')
             rows = c.fetchall()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    for r in result:
+        r['display_name'] = r['display_name'] or r['username']
+    return result
 
 class UserCreate(BaseModel):
     username: str
+    display_name: str = ''
     email: str = ''
     password: str
     role: str = 'chatter'
@@ -806,11 +819,12 @@ class UserCreate(BaseModel):
 @app.post('/auth/users')
 def create_user(body: UserCreate):
     try:
+        dn = body.display_name.strip() or body.username.strip()
         with db() as conn:
             with conn.cursor() as c:
                 c.execute(
-                    'INSERT INTO crm_users (username,email,password_hash,role) VALUES (%s,%s,%s,%s) RETURNING id',
-                    (body.username.strip(), body.email.strip(), _hash_pw(body.password), body.role)
+                    'INSERT INTO crm_users (username,email,password_hash,role,display_name) VALUES (%s,%s,%s,%s,%s) RETURNING id',
+                    (body.username.strip(), body.email.strip(), _hash_pw(body.password), body.role, dn)
                 )
                 new_id = c.fetchone()['id']
         return {'ok': True, 'id': new_id}
@@ -818,6 +832,7 @@ def create_user(body: UserCreate):
         raise HTTPException(400, f'Fehler: {e}')
 
 class UserUpdate(BaseModel):
+    display_name: Optional[str] = None
     email: Optional[str] = None
     password: Optional[str] = None
     role: Optional[str] = None
@@ -826,6 +841,8 @@ class UserUpdate(BaseModel):
 def update_user(user_id: int, body: UserUpdate):
     with db() as conn:
         with conn.cursor() as c:
+            if body.display_name is not None:
+                c.execute('UPDATE crm_users SET display_name=%s WHERE id=%s', (body.display_name, user_id))
             if body.email is not None:
                 c.execute('UPDATE crm_users SET email=%s WHERE id=%s', (body.email, user_id))
             if body.password:
@@ -1110,6 +1127,97 @@ def get_notifications(limit: int = 80):
     # Sort all events by timestamp desc, return top N
     events.sort(key=lambda x: x['ts'], reverse=True)
     return events[:limit]
+
+# ── VAULT ────────────────────────────────────────────────────────────────────
+ALLOWED_TYPES = {'image/jpeg','image/png','image/gif','image/webp','video/mp4','video/quicktime','video/x-matroska'}
+
+@app.get('/vault')
+def vault_list():
+    """List all files in the vault."""
+    files = []
+    try:
+        for fname in sorted(os.listdir(VAULT_DIR)):
+            fpath = os.path.join(VAULT_DIR, fname)
+            if os.path.isfile(fpath):
+                stat = os.stat(fpath)
+                ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+                ftype = 'video' if ext in ('mp4','mov','mkv','avi') else 'image'
+                files.append({
+                    'name': fname,
+                    'size': stat.st_size,
+                    'type': ftype,
+                    'url': f'/vault/file/{fname}',
+                    'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                })
+    except Exception as e:
+        print(f'Vault list error: {e}')
+    return files
+
+@app.post('/vault/upload')
+async def vault_upload(file: UploadFile = File(...)):
+    """Upload a file to the vault."""
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(400, f'File type not allowed: {file.content_type}')
+    # Sanitize filename
+    safe_name = ''.join(c for c in file.filename if c.isalnum() or c in '._- ')
+    safe_name = safe_name or 'file'
+    # Avoid overwrite: add timestamp if exists
+    fpath = os.path.join(VAULT_DIR, safe_name)
+    if os.path.exists(fpath):
+        base, ext = os.path.splitext(safe_name)
+        safe_name = f'{base}_{int(datetime.now().timestamp())}{ext}'
+        fpath = os.path.join(VAULT_DIR, safe_name)
+    with open(fpath, 'wb') as f:
+        shutil.copyfileobj(file.file, f)
+    return {'ok': True, 'name': safe_name, 'url': f'/vault/file/{safe_name}'}
+
+@app.get('/vault/file/{filename}')
+def vault_serve(filename: str):
+    """Serve a vault file."""
+    fpath = os.path.join(VAULT_DIR, filename)
+    if not os.path.isfile(fpath) or '..' in filename:
+        raise HTTPException(404, 'Not found')
+    return FileResponse(fpath)
+
+@app.delete('/vault/file/{filename}')
+def vault_delete(filename: str):
+    """Delete a vault file."""
+    fpath = os.path.join(VAULT_DIR, filename)
+    if not os.path.isfile(fpath) or '..' in filename:
+        raise HTTPException(404, 'Not found')
+    os.remove(fpath)
+    return {'ok': True}
+
+class VaultSendIn(BaseModel):
+    tg_id: str
+    filename: str
+    caption: str = ''
+
+@app.post('/vault/send')
+async def vault_send(body: VaultSendIn):
+    """Send a vault file to a subscriber via Telegram."""
+    if not tg_client or not tg_client.is_connected():
+        raise HTTPException(503, 'Userbot nicht verbunden')
+    fpath = os.path.join(VAULT_DIR, body.filename)
+    if not os.path.isfile(fpath) or '..' in body.filename:
+        raise HTTPException(404, 'File not found in vault')
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
+                row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+        await tg_client.send_file(peer, fpath, caption=body.caption or None)
+        save_msg(body.tg_id, f'[📎 {body.filename}]', 'out', 'Vault')
+        asyncio.create_task(ws_manager.broadcast({
+            'type': 'new_message', 'tg_id': body.tg_id,
+            'text': f'[📎 {body.filename}]', 'direction': 'out',
+            'timestamp': datetime.now().isoformat()
+        }))
+        return {'ok': True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 # ── FAKECHECK ────────────────────────────────────────────────────────────────
 FAKECHECK_BOT = '@FakecheckAudioBot'
