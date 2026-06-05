@@ -3443,7 +3443,10 @@ if (checkAuth()) {
   // ══════════════════════════════════════════════════════════
   // NOTE PRESETS FEATURE
   // ══════════════════════════════════════════════════════════
-  const DEFAULT_PRESETS = ['📍 Location', '🔞 Adult', '👷🏼‍♂️ Worker', '⚽️ Sport', '🐶 Animals', '😈 Kinky', '🍔 Food', '🎥 Video', '🎧 Music', '❤️ Romantic', '📝 Note'];
+  const DEFAULT_PRESETS = ['📍', '🔞', '👷🏼‍♂️', '⚽️', '🐶', '😈', '🍔', '🎥', '🎧', '❤️', '📝'];
+  // Reset presets if old version (had text labels)
+  const _savedP = localStorage.getItem('crm_note_presets');
+  if (_savedP && _savedP.includes('Location')) localStorage.removeItem('crm_note_presets');
 
   function getNotePresets() {
     try {
