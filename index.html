@@ -1751,6 +1751,7 @@
           <button class="tier-filter-btn" onclick="filterByTier('new')">🆕 Neu</button>
           <button class="tier-filter-btn" onclick="filterByTier('tw')">🗑️ Time Waster</button>
           <button class="tier-filter-btn" id="online-filter-btn" onclick="filterByTier('online')" style="color:#22c55e;border-color:rgba(34,197,94,0.3);">🟢 Online</button>
+          <button class="tier-filter-btn" id="unread-filter-btn" onclick="filterByTier('unread')" style="color:#ff5c7a;border-color:rgba(255,92,122,0.3);">🔴 Unread</button>
         </div>
         <div id="conv-list-body">
           <div class="chat-empty" style="height:200px;">Keine Gespräche</div>
@@ -3024,6 +3025,12 @@ if (checkAuth()) {
     // Update unread badge in nav
     const totalUnread = data.reduce((s, c) => s + (c.unread || 0), 0);
     const badge = document.getElementById('chat-unread-badge');
+    // Also update Unread filter button count
+    const unreadBtn = document.getElementById('unread-filter-btn');
+    if (unreadBtn) {
+      const unreadConvs = data.filter(c => (c.unread||0) > 0).length;
+      unreadBtn.textContent = unreadConvs > 0 ? `🔴 Unread (${unreadConvs})` : '🔴 Unread';
+    }
     if (totalUnread > 0) {
       badge.textContent = totalUnread;
       badge.style.display = 'inline';
@@ -3091,6 +3098,7 @@ if (checkAuth()) {
         const spending = getSubscriberSpending(c.tg_id);
         if (tier === 'tw') return !!c.time_waster;
         if (tier === 'online') return !!c.is_online;
+        if (tier === 'unread') return (c.unread || 0) > 0;
         return getSpendingTier(spending).key === tier;
       });
     }
