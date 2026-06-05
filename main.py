@@ -9,7 +9,7 @@ import os
 import csv
 import io
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
 
@@ -616,7 +616,6 @@ def get_my_stats(chatter: str, period: str = 'heute'):
     if period == 'heute':
         since = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     elif period == 'woche':
-        from datetime import timedelta
         since = (now - timedelta(days=7)).isoformat()
     elif period == 'monat':
         since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
@@ -664,7 +663,7 @@ def get_my_stats(chatter: str, period: str = 'heute'):
 @app.get('/analytics/recent-chatted')
 def get_recent_chatted(hours: int = 5):
     """Subscribers the userbot messaged in the last N hours."""
-    since = (datetime.now() - __import__('datetime').timedelta(hours=hours)).isoformat()
+    since = (datetime.now() - timedelta(hours=hours)).isoformat()
     with db() as conn:
         with conn.cursor() as c:
             c.execute('''SELECT DISTINCT m.tg_id, c.anon_id, c.internal_name
