@@ -4117,17 +4117,28 @@ setInterval(refreshOnlinePanel, 15000);
 refreshOnlinePanel();
 
 // ── SCRIPT QUICK-BUTTONS ──────────────────────────────────────────────────────
+// Store scripts for quick access without JSON in onclick
+let _quickBarScripts = [];
+
 function buildScriptQuickBar() {
   const bar = document.getElementById('script-quick-bar');
   if (!bar) return;
   const scripts = JSON.parse(localStorage.getItem('crm_scripts') || '[]');
+  _quickBarScripts = scripts;
   if (!scripts.length) { bar.innerHTML = ''; return; }
-  bar.innerHTML = scripts.map(s => {
-    const firstMsg = s.messages && s.messages[0] ? s.messages[0] : (s.text || '');
+  bar.innerHTML = scripts.map((s, i) => {
     const label = s.shortkey ? `${s.shortkey} ${s.name}` : s.name;
-    return `<button onclick="useScriptQuick(${JSON.stringify(firstMsg)})" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:4px 10px;font-size:11px;white-space:nowrap;cursor:pointer;flex-shrink:0;">${label}</button>`;
+    return `<button onclick="useScriptQuickIdx(${i})" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:4px 10px;font-size:11px;white-space:nowrap;cursor:pointer;flex-shrink:0;">${label}</button>`;
   }).join('');
 }
+
+window.useScriptQuickIdx = function(i) {
+  const s = _quickBarScripts[i];
+  if (!s) return;
+  const firstMsg = s.messages && s.messages[0] ? s.messages[0] : (s.text || '');
+  const inp = document.getElementById('chat-input');
+  if (inp) { inp.value = firstMsg; inp.focus(); }
+};
 
 window.useScriptQuick = function(text) {
   const input = document.getElementById('chat-input');
