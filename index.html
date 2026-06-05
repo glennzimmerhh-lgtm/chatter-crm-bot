@@ -2834,7 +2834,6 @@ if (checkAuth()) {
         body: JSON.stringify(body)
       });
       const data = await r.json();
-      if (!r.ok) alert('⚠️ HTTP ' + r.status + ': ' + JSON.stringify(data));
       return data;
     } catch(e) {
       alert('❌ Netzwerkfehler bei ' + url + ': ' + e.message);
@@ -3631,7 +3630,6 @@ if (checkAuth()) {
   window.saveProfile = async function saveProfile(tgId, silent = false) {
     const iname = document.getElementById('prof-iname')?.value || '';
     const notes = document.getElementById('prof-notes')?.value || '';
-    await chatApiPost('/profile/' + tgId, null); // placeholder, use PATCH below
     const base = getChatBackendUrl();
     if (!base) return;
     try {
