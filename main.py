@@ -563,7 +563,7 @@ def get_conversations():
 def get_online():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('''SELECT tg_id,anon_id,internal_name,last_seen,
+            c.execute('''SELECT c.tg_id,c.anon_id,c.internal_name,c.last_seen,
                          COALESCE(SUM(s.amount),0) as total_spent
                          FROM conversations c
                          LEFT JOIN sales s USING(tg_id)
