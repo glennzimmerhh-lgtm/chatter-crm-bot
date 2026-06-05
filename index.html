@@ -3799,7 +3799,8 @@ if (checkAuth()) {
         if (msg.tg_id === currentChatTgId) loadMsgs();
         break;
       case 'notification': {
-        // Update badge on notification bell
+        // Only badge for new_sub and sale — NOT messages
+        if (msg.notif_type === 'message') break;
         const nb = document.getElementById('notif-badge');
         if (nb) {
           const cur = parseInt(nb.textContent) || 0;
