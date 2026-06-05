@@ -2965,11 +2965,17 @@ if (checkAuth()) {
       const onlineDot = c.is_online
         ? `<span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border:2px solid var(--bg2);border-radius:50%;"></span>`
         : '';
-      // Tab border color based on tier
-      const tierColors = { whale: '#a78bfa', big: '#00d4aa', mid: '#4a9eff', low: '#ffd166', new: 'var(--border)', tw4: '#ff5c7a' };
-      const tabBorder = tierColors[tier.key] || 'var(--border)';
-      const tabBg = spending > 0 ? `rgba(${tier.key==='whale'?'167,139,250':tier.key==='big'?'0,212,170':tier.key==='mid'?'74,158,255':tier.key==='low'?'255,209,102':'255,92,122'},.04)` : '';
-      return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;border-left:3px solid ${tabBorder};${tabBg?`background:${tabBg};`:''}">
+      // Tab color based on tier — stronger background
+      const tierColorMap = {
+        whale: { border: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
+        big:   { border: '#00d4aa', bg: 'rgba(0,212,170,0.10)' },
+        mid:   { border: '#4a9eff', bg: 'rgba(74,158,255,0.10)' },
+        low:   { border: '#ffd166', bg: 'rgba(255,209,102,0.10)' },
+        new:   { border: 'var(--border)', bg: '' },
+        tw4:   { border: '#ff5c7a', bg: 'rgba(255,92,122,0.10)' },
+      };
+      const tc = tierColorMap[tier.key] || tierColorMap.new;
+      return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;border-left:4px solid ${tc.border};${tc.bg?`background:${tc.bg};`:''}">
         <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;margin-right:10px;">
           <div class="conv-avatar" style="margin:0;position:relative;">${letter}${onlineDot}</div>
           <div class="spend-pill ${pillCls}">${pillAmt}</div>
