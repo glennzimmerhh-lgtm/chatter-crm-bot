@@ -1948,6 +1948,11 @@ function showApp(user) {
     });
     showPage('chat');
     applyEnglishUI(); // Chatters see English UI
+    // Force load conversations after all scripts initialize
+    setTimeout(() => {
+      if (window._refreshConvs) window._refreshConvs();
+      if (window._refreshChatStatus) window._refreshChatStatus();
+    }, 1500);
   } else {
     document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
   }
@@ -2772,8 +2777,14 @@ function showPage(name) {
   if (name === 'scripts') { renderScriptsPage(); }
   if (name === 'subscribers') { loadSubscribersPage(); }
   if (name === 'chat') {
-    if (window._refreshChatStatus) window._refreshChatStatus();
-    if (window._refreshConvs) window._refreshConvs();
+    // Immediate load + retry after 500ms to handle timing issues
+    const _doLoad = () => {
+      if (window._refreshChatStatus) window._refreshChatStatus();
+      if (window._refreshConvs) window._refreshConvs();
+    };
+    _doLoad();
+    setTimeout(_doLoad, 500);
+    setTimeout(_doLoad, 2000); // extra safety net
   }
   closeSidebar();
   window.scrollTo(0, 0);
