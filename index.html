@@ -989,7 +989,7 @@
       Mitglieder
     </div>
     <div class="nav-section">System</div>
-    <div class="nav-item" onclick="openSettings()">
+    <div class="nav-item admin-only" onclick="openSettings()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
       Einstellungen
     </div>
@@ -1501,7 +1501,6 @@
       <div style="display:flex;gap:8px;">
         <button id="notif-filter-all" class="period-btn active" onclick="filterNotifs('all')">All</button>
         <button id="notif-filter-new_sub" class="period-btn" onclick="filterNotifs('new_sub')">🆕 New Subs</button>
-        <button id="notif-filter-message" class="period-btn" onclick="filterNotifs('message')">💬 Messages</button>
         <button id="notif-filter-sale" class="period-btn" onclick="filterNotifs('sale')">💰 Sales</button>
         <button class="period-btn" onclick="loadNotifications()">↻</button>
       </div>
@@ -1522,8 +1521,12 @@
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
         <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;">+ Neues Mitglied</div>
         <div style="margin-bottom:12px;">
-          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Benutzername</label>
-          <input id="mu-name" type="text" placeholder="z.B. Maria" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Anzeigename <span style="color:var(--teal);">(sichtbar im CRM)</span></label>
+          <input id="mu-display" type="text" placeholder="z.B. Maria" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Login-Name <span style="color:var(--text3);">(zum Einloggen)</span></label>
+          <input id="mu-name" type="text" placeholder="z.B. maria123" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
         </div>
         <div style="margin-bottom:12px;">
           <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Passwort</label>
@@ -1650,18 +1653,21 @@
         <div id="script-quick-bar" style="display:flex;gap:5px;padding:6px 12px;border-top:1px solid rgba(255,255,255,.05);overflow-x:auto;flex-shrink:0;scrollbar-width:none;"></div>
         <div class="emoji-bar" style="display:flex;align-items:center;justify-content:space-between;">
           <div style="display:flex;gap:2px;">
-          <button class="emoji-btn" onclick="addEmoji('🔥')">🔥</button>
-          <button class="emoji-btn" onclick="addEmoji('💰')">💰</button>
-          <button class="emoji-btn" onclick="addEmoji('😍')">😍</button>
-          <button class="emoji-btn" onclick="addEmoji('👀')">👀</button>
-          <button class="emoji-btn" onclick="addEmoji('💪')">💪</button>
-          <button class="emoji-btn" onclick="addEmoji('✅')">✅</button>
-          <button class="emoji-btn" onclick="addEmoji('🎯')">🎯</button>
-          <button class="emoji-btn" onclick="addEmoji('😏')">😏</button>
-          <button class="emoji-btn" onclick="addEmoji('🤝')">🤝</button>
-          <button class="emoji-btn" onclick="addEmoji('💎')">💎</button>
-          <button class="emoji-btn" onclick="addEmoji('⚡')">⚡</button>
-          <button class="emoji-btn" onclick="addEmoji('🙏')">🙏</button>
+          <button class="emoji-btn" onclick="addEmoji('❤️')">❤️</button>
+          <button class="emoji-btn" onclick="addEmoji('❣️')">❣️</button>
+          <button class="emoji-btn" onclick="addEmoji('🫶')">🫶</button>
+          <button class="emoji-btn" onclick="addEmoji('🙈')">🙈</button>
+          <button class="emoji-btn" onclick="addEmoji('💦')">💦</button>
+          <button class="emoji-btn" onclick="addEmoji('🥵')">🥵</button>
+          <button class="emoji-btn" onclick="addEmoji('🤤')">🤤</button>
+          <button class="emoji-btn" onclick="addEmoji('😫')">😫</button>
+          <button class="emoji-btn" onclick="addEmoji('🥰')">🥰</button>
+          <button class="emoji-btn" onclick="addEmoji('🤭')">🤭</button>
+          <button class="emoji-btn" onclick="addEmoji('😋')">😋</button>
+          <button class="emoji-btn" onclick="addEmoji('😇')">😇</button>
+          <button class="emoji-btn" onclick="addEmoji('🥹')">🥹</button>
+          <button class="emoji-btn" onclick="addEmoji('🥺')">🥺</button>
+          <button class="emoji-btn" onclick="addEmoji('🙄')">🙄</button>
         </div>
         <!-- Scripts panel (hidden by default) -->
         <div id="scripts-panel" class="scripts-panel" style="display:none;position:relative;">
@@ -1772,7 +1778,9 @@ async function doLogin() {
     });
     if (r.ok) {
       const data = await r.json();
-      localStorage.setItem('crm_user', data.username);
+      const displayName = data.display_name || data.username;
+      localStorage.setItem('crm_user', displayName);
+      localStorage.setItem('crm_login', data.username); // keep login name separate
       localStorage.setItem('crm_role', data.role);
       localStorage.setItem('crm_auth', btoa(data.username + ':' + data.role));
       err.style.display = 'none';
@@ -1888,11 +1896,12 @@ async function submitSale() {
     if (r.ok) {
       fb.textContent = '✅ Sale erfolgreich gespeichert!';
       fb.style.display = 'block';
-      await loadData(); // refresh sales log + dashboard immediately
+      // Close immediately for chatters, refresh data in background
+      document.getElementById('sale-modal-overlay').style.display = 'none';
+      loadData().catch(() => {});
       if (typeof updateShiftGoal === 'function') updateShiftGoal();
-      setTimeout(() => { document.getElementById('sale-modal-overlay').style.display = 'none'; }, 1500);
-    } else { fb.textContent = '❌ Fehler beim Speichern.'; fb.style.display = 'block'; }
-  } catch(e) { fb.textContent = '❌ Backend nicht erreichbar.'; fb.style.display = 'block'; }
+    } else { fb.textContent = '❌ Error saving. Try again.'; fb.style.display = 'block'; }
+  } catch(e) { fb.textContent = '❌ ' + e.message; fb.style.display = 'block'; }
 }
 
 function toggleTheme() {
@@ -2957,7 +2966,11 @@ if (checkAuth()) {
       const onlineDot = c.is_online
         ? `<span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border:2px solid var(--bg2);border-radius:50%;"></span>`
         : '';
-      return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;">
+      // Tab border color based on tier
+      const tierColors = { whale: '#a78bfa', big: '#00d4aa', mid: '#4a9eff', low: '#ffd166', new: 'var(--border)', tw4: '#ff5c7a' };
+      const tabBorder = tierColors[tier.key] || 'var(--border)';
+      const tabBg = spending > 0 ? `rgba(${tier.key==='whale'?'167,139,250':tier.key==='big'?'0,212,170':tier.key==='mid'?'74,158,255':tier.key==='low'?'255,209,102':'255,92,122'},.04)` : '';
+      return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;border-left:3px solid ${tabBorder};${tabBg?`background:${tabBg};`:''}">
         <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;margin-right:10px;">
           <div class="conv-avatar" style="margin:0;position:relative;">${letter}${onlineDot}</div>
           <div class="spend-pill ${pillCls}">${pillAmt}</div>
@@ -3431,7 +3444,7 @@ if (checkAuth()) {
   // ══════════════════════════════════════════════════════════
   // NOTE PRESETS FEATURE
   // ══════════════════════════════════════════════════════════
-  const DEFAULT_PRESETS = ['Mag Sport 🏋️', 'Zahlt schnell 💸', 'Immer fragen ❓', 'Kein Interesse ❌', 'Hot Lead 🔥', 'VIP 👑', 'Deutsch 🇩🇪'];
+  const DEFAULT_PRESETS = ['📍 Location', '🔞 Adult', '👷🏼‍♂️ Worker', '⚽️ Sport', '🐶 Animals', '😈 Kinky', '🍔 Food', '🎥 Video', '🎧 Music', '❤️ Romantic', '📝 Note'];
 
   function getNotePresets() {
     try {
@@ -4045,7 +4058,7 @@ async function startBroadcast() {
     <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:8px;">Kategorie</label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:22px;" id="sale-category-grid">
       <button type="button" onclick="selectSaleCategory(this,'Call')" class="sale-cat-btn" style="padding:12px;border-radius:10px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">📞 Call</button>
-      <button type="button" onclick="selectSaleCategory(this,'Script Message')" class="sale-cat-btn" style="padding:12px;border-radius:10px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">💬 Script Message</button>
+      <button type="button" onclick="selectSaleCategory(this,'PPV')" class="sale-cat-btn" style="padding:12px;border-radius:10px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">🎬 PPV</button>
       <button type="button" onclick="selectSaleCategory(this,'Underwear')" class="sale-cat-btn" style="padding:12px;border-radius:10px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">👙 Underwear</button>
       <button type="button" onclick="selectSaleCategory(this,'Custom')" class="sale-cat-btn" style="padding:12px;border-radius:10px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">✨ Custom</button>
     </div>
@@ -4098,16 +4111,16 @@ async function startBroadcast() {
     if (rb) {
       const btn = document.createElement('button');
       btn.id = 'translate-out-btn';
-      btn.title = 'In Maries Stil umschreiben';
-      btn.textContent = '✨';
-      btn.style.cssText = 'background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.35);color:#a78bfa;border-radius:12px;padding:11px 13px;font-size:16px;cursor:pointer;flex-shrink:0;';
+      btn.title = 'Translate & style as Marie';
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/></svg>';
+      btn.style.cssText = 'background:rgba(74,158,255,.15);border:1px solid rgba(74,158,255,.35);color:#4a9eff;border-radius:12px;padding:10px 12px;font-size:16px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;';
       const sendBtn = rb.querySelector('button');
       rb.insertBefore(btn, sendBtn);
       btn.onclick = () => window.translateInput();
       // Add AI suggest button
       const suggestBtn = document.createElement('button');
       suggestBtn.id = 'ai-suggest-btn';
-      suggestBtn.title = 'AI Antwortvorschläge';
+      suggestBtn.title = 'AI Reply Suggestions';
       suggestBtn.textContent = '💡';
       suggestBtn.style.cssText = 'background:rgba(255,209,102,.1);border:1px solid rgba(255,209,102,.3);color:#ffd166;border-radius:12px;padding:11px 13px;font-size:16px;cursor:pointer;flex-shrink:0;';
       rb.insertBefore(suggestBtn, sendBtn);
@@ -4279,7 +4292,9 @@ function filterNotifs(type) {
 function renderNotifications() {
   const feed = document.getElementById('notif-feed');
   if (!feed) return;
-  const items = _notifFilter === 'all' ? _allNotifs : _allNotifs.filter(n => n.type === _notifFilter);
+  // Never show messages in notifications feed - only new_sub and sale
+  const baseItems = _allNotifs.filter(n => n.type !== 'message');
+  const items = _notifFilter === 'all' ? baseItems : baseItems.filter(n => n.type === _notifFilter);
   if (!items.length) { feed.innerHTML = '<div class="empty">No notifications</div>'; return; }
 
   const typeConfig = {
@@ -4452,10 +4467,10 @@ async function loadMembers() {
     const currentUser = localStorage.getItem('crm_user');
     list.innerHTML = users.map(u => `
       <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">
-        <div style="width:36px;height:36px;border-radius:50%;background:${u.role==='admin'?'rgba(0,212,170,0.2)':'rgba(74,158,255,0.15)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:${u.role==='admin'?'var(--teal)':'var(--blue)'};">${u.username[0].toUpperCase()}</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:${u.role==='admin'?'rgba(0,212,170,0.2)':'rgba(74,158,255,0.15)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:${u.role==='admin'?'var(--teal)':'var(--blue)'};">${(u.display_name||u.username)[0].toUpperCase()}</div>
         <div style="flex:1;">
-          <div style="font-size:13px;font-weight:600;color:var(--text);">${u.username}</div>
-          <div style="font-size:11px;color:var(--text3);">${u.role === 'admin' ? '👑 Admin' : '💬 Chatter'}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);">${u.display_name || u.username}</div>
+          <div style="font-size:11px;color:var(--text3);">${u.role === 'admin' ? '👑 Admin' : '💬 Chatter'} · ${u.username}</div>
         </div>
         <select onchange="changeMemberRole(${u.id},this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:4px 6px;outline:none;">
           <option value="chatter" ${u.role==='chatter'?'selected':''}>Chatter</option>
@@ -4468,18 +4483,20 @@ async function loadMembers() {
 
 async function createMember() {
   const name = document.getElementById('mu-name')?.value.trim();
+  const displayName = document.getElementById('mu-display')?.value.trim();
   const pw = document.getElementById('mu-pw')?.value;
   const role = document.getElementById('mu-role')?.value;
   const status = document.getElementById('mu-status');
-  if (!name || !pw) { status.textContent = '⚠️ Name und Passwort erforderlich'; status.style.color='var(--red)'; status.style.display='block'; return; }
+  if (!name || !pw) { status.textContent = '⚠️ Login-Name und Passwort erforderlich'; status.style.color='var(--red)'; status.style.display='block'; return; }
   try {
     const r = await fetch('/api/auth/users', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: name, password: pw, role })
+      body: JSON.stringify({ username: name, display_name: displayName || name, password: pw, role })
     });
     if (r.ok) {
       status.textContent = `✅ ${name} wurde hinzugefügt`; status.style.color='var(--teal)'; status.style.display='block';
       document.getElementById('mu-name').value = '';
+      document.getElementById('mu-display').value = '';
       document.getElementById('mu-pw').value = '';
       loadMembers();
     } else { const d = await r.json(); status.textContent = '❌ ' + (d.detail||'Fehler'); status.style.color='var(--red)'; status.style.display='block'; }
