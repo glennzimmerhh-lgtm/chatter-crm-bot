@@ -1678,6 +1678,14 @@
             <span id="msg-conv-status" style="font-size:11px;color:var(--text3);"></span>
           </div>
         </div>
+        <!-- Timer Alert Banner -->
+        <div id="timer-alert-bar" style="display:none;padding:10px 16px;background:rgba(255,92,122,0.15);border-bottom:2px solid #ff5c7a;animation:pulse 1s infinite;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:18px;animation:pulse 1s infinite;">🔴</span>
+            <span id="timer-alert-text" style="font-weight:700;color:#ff5c7a;font-size:14px;flex:1;">Timer abgelaufen!</span>
+            <button onclick="dismissTimerAlert()" style="background:rgba(255,92,122,.2);border:1px solid #ff5c7a;border-radius:6px;color:#ff5c7a;padding:4px 10px;cursor:pointer;font-size:12px;">Dismiss</button>
+          </div>
+        </div>
         <div class="msg-list" id="msg-list">
           <div class="chat-empty">← Gespräch auswählen</div>
         </div>
@@ -3119,6 +3127,21 @@ if (checkAuth()) {
         <div id="fakecheck-status-${tgId}" style="font-size:11px;color:var(--text3);margin-top:6px;display:none;text-align:center;"></div>
       </div>
 
+      <!-- REMINDER TIMER -->
+      <div class="profile-section">
+        <div class="profile-label" style="display:flex;align-items:center;gap:6px;">⏰ Reminder Timer <span id="timer-display-${tgId}" style="font-size:11px;color:#ff5c7a;font-weight:700;"></span></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input id="timer-input-${tgId}" type="number" min="1" max="120" placeholder="Min." value="10"
+            style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px;outline:none;text-align:center;">
+          <button onclick="startChatTimer('${tgId}',this)" id="timer-btn-${tgId}"
+            style="flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,209,102,.4);background:rgba(255,209,102,.1);color:#ffd166;font-size:12px;font-weight:700;cursor:pointer;">
+            ▶ Start
+          </button>
+          <button onclick="stopChatTimer('${tgId}')" title="Cancel"
+            style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);font-size:12px;cursor:pointer;">✕</button>
+        </div>
+      </div>
+
       <div class="profile-section">
         <button id="tw-toggle-btn"
           onclick="toggleTimeWaster('${tgId}', ${!!p.time_waster})"
@@ -4378,6 +4401,91 @@ setInterval(() => {
     }).catch(() => {});
   }
 }, 30000);
+
+// ── CHAT TIMER ────────────────────────────────────────────────────────────────
+const _chatTimers = {}; // tgId → { interval, endsAt, name }
+
+function startChatTimer(tgId, btn) {
+  const input = document.getElementById('timer-input-' + tgId);
+  const minutes = parseInt(input?.value) || 10;
+  if (minutes < 1 || minutes > 120) return;
+
+  // Stop existing timer for this conv
+  stopChatTimer(tgId);
+
+  const endsAt = Date.now() + minutes * 60 * 1000;
+  const dispEl = document.getElementById('timer-display-' + tgId);
+  const subName = document.getElementById('msg-conv-name')?.textContent || tgId;
+
+  if (btn) { btn.textContent = '⏸ Running'; btn.style.color = '#22c55e'; btn.style.borderColor = 'rgba(34,197,94,.4)'; btn.style.background = 'rgba(34,197,94,.1)'; }
+
+  const iv = setInterval(() => {
+    const remaining = endsAt - Date.now();
+    if (remaining <= 0) {
+      clearInterval(iv);
+      delete _chatTimers[tgId];
+      // Reset button
+      const b = document.getElementById('timer-btn-' + tgId);
+      if (b) { b.textContent = '▶ Start'; b.style.color = '#ffd166'; b.style.borderColor = 'rgba(255,209,102,.4)'; b.style.background = 'rgba(255,209,102,.1)'; }
+      if (dispEl) dispEl.textContent = '';
+      // Show alert
+      showTimerAlert(subName, tgId);
+      return;
+    }
+    const m = Math.floor(remaining / 60000);
+    const s = Math.floor((remaining % 60000) / 1000);
+    if (dispEl) dispEl.textContent = `${m}:${String(s).padStart(2,'0')}`;
+  }, 1000);
+
+  _chatTimers[tgId] = { interval: iv, endsAt, name: subName };
+}
+
+function stopChatTimer(tgId) {
+  if (_chatTimers[tgId]) {
+    clearInterval(_chatTimers[tgId].interval);
+    delete _chatTimers[tgId];
+  }
+  const dispEl = document.getElementById('timer-display-' + tgId);
+  if (dispEl) dispEl.textContent = '';
+  const btn = document.getElementById('timer-btn-' + tgId);
+  if (btn) { btn.textContent = '▶ Start'; btn.style.color = '#ffd166'; btn.style.borderColor = 'rgba(255,209,102,.4)'; btn.style.background = 'rgba(255,209,102,.1)'; }
+  // Hide alert if it was for this conv
+  const alertBar = document.getElementById('timer-alert-bar');
+  if (alertBar) alertBar.style.display = 'none';
+}
+
+function showTimerAlert(subName, tgId) {
+  const bar = document.getElementById('timer-alert-bar');
+  const txt = document.getElementById('timer-alert-text');
+  if (!bar || !txt) return;
+  txt.textContent = `⏰ Reminder: Zeit für ${subName}!`;
+  bar.style.display = 'block';
+  bar._tgId = tgId;
+  // Also vibrate if supported
+  if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+}
+
+function dismissTimerAlert() {
+  const bar = document.getElementById('timer-alert-bar');
+  if (bar) bar.style.display = 'none';
+}
+
+// Update timer display when switching conversations
+const _origOpenConvForTimer = window.openConv;
+if (_origOpenConvForTimer) {
+  window.openConv = async function(...args) {
+    await _origOpenConvForTimer(...args);
+    // Restore timer display if active for this conv
+    const tgId = args[0];
+    if (_chatTimers[tgId]) {
+      const remaining = _chatTimers[tgId].endsAt - Date.now();
+      const m = Math.floor(remaining / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      const dispEl = document.getElementById('timer-display-' + tgId);
+      if (dispEl && remaining > 0) dispEl.textContent = `${m}:${String(s).padStart(2,'0')}`;
+    }
+  };
+}
 
 // ── VAULT ─────────────────────────────────────────────────────────────────────
 let _vaultFiles = [];
