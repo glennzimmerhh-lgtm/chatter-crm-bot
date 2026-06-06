@@ -902,7 +902,7 @@
 <div class="login-screen" id="login-screen">
   <div class="login-box">
     <div class="login-logo">Chatter CRM</div>
-    <div class="login-sub">Bitte anmelden um fortzufahren</div>
+    <div class="login-sub">Please log in to continue</div>
     <div class="login-field">
       <label>Benutzername</label>
       <input type="text" id="login-user" placeholder="Dein Name" onkeydown="if(event.key==='Enter')document.getElementById('login-pw').focus()" autocomplete="username">
@@ -911,8 +911,8 @@
       <label>Passwort</label>
       <input type="password" id="login-pw" placeholder="••••••••••" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
-    <button class="login-btn" onclick="doLogin()">Anmelden</button>
-    <div class="login-error" id="login-error">Falsches Passwort. Bitte nochmal versuchen.</div>
+    <button class="login-btn" onclick="doLogin()">Log in</button>
+    <div class="login-error" id="login-error">Wrong password. Please try again.</div>
   </div>
 </div>
 
@@ -1462,36 +1462,36 @@
   <div id="page-broadcast" style="display:none;">
     <div class="page-header">
       <h1 class="page-title">📣 Broadcast</h1>
-      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Nachricht an mehrere Subscriber gleichzeitig senden.</p>
+      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Send a message to multiple subscribers at once.</p>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;max-width:900px;">
-      <!-- Nachricht -->
+      <!-- Message -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">Nachricht</div>
-        <textarea id="bc-text" rows="7" placeholder="Deine Nachricht..." style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;padding:12px;resize:vertical;outline:none;font-family:inherit;"></textarea>
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">Message</div>
+        <textarea id="bc-text" rows="7" placeholder="Your message..." style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;padding:12px;resize:vertical;outline:none;font-family:inherit;"></textarea>
         <div style="display:flex;align-items:center;gap:10px;margin-top:14px;">
-          <input id="bc-chatter" type="text" placeholder="Absender (dein Name)" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
-          <button onclick="startBroadcast()" style="background:var(--teal);color:#000;border:none;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;">📣 Senden</button>
+          <input id="bc-chatter" type="text" placeholder="Sender (your name)" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
+          <button onclick="startBroadcast()" style="background:var(--teal);color:#000;border:none;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;">📣 Send</button>
         </div>
         <div id="bc-status" style="margin-top:12px;font-size:13px;display:none;"></div>
       </div>
       <!-- Filter -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">Empfänger</div>
-        <label style="font-size:12px;color:var(--text2);margin-bottom:6px;display:block;">Nach Funnel-Stage filtern</label>
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">Recipients</div>
+        <label style="font-size:12px;color:var(--text2);margin-bottom:6px;display:block;">Filter by funnel stage</label>
         <select id="bc-filter-stage" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;margin-bottom:14px;outline:none;">
-          <option value="">Alle Subscriber</option>
-          <option value="kalt">❄️ Kalt</option>
+          <option value="">All subscribers</option>
+          <option value="kalt">❄️ Cold</option>
           <option value="warm">🌱 Warm</option>
           <option value="hot">🔥 Hot</option>
-          <option value="angebot">💬 Angebot gemacht</option>
-          <option value="gebucht">📅 Gebucht</option>
+          <option value="angebot">💬 Offer made</option>
+          <option value="gebucht">📅 Booked</option>
           <option value="done">✅ Done</option>
         </select>
         <div id="bc-recipient-count" style="font-size:13px;color:var(--text2);padding:10px;background:var(--bg3);border-radius:8px;text-align:center;">
-          Wähle einen Filter um Empfänger zu sehen
+          Select a filter to see recipients
         </div>
-        <button onclick="previewBroadcast()" style="width:100%;margin-top:12px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;">🔍 Empfänger prüfen</button>
+        <button onclick="previewBroadcast()" style="width:100%;margin-top:12px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;">🔍 Check recipients</button>
         <div style="margin-top:12px;">
           <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Exclude Stage</label>
           <select id="bc-exclude-stage" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;margin-bottom:8px;">
@@ -1516,21 +1516,21 @@
     <div style="margin-top:24px;max-width:900px;">
       <div style="background:var(--bg2);border:1px solid rgba(255,209,102,0.2);border-radius:14px;padding:24px;">
         <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;">🔄 Re-Engagement</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">Subscriber die lange nicht geantwortet haben wieder anschreiben.</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">Re-engage subscribers who haven't responded in a while.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
           <div>
-            <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Nachricht</label>
-            <textarea id="reeng-text" rows="4" placeholder="z.B. hey du.. lange nichts gehört 👀" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
+            <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Message</label>
+            <textarea id="reeng-text" rows="4" placeholder="e.g. hey.. haven't heard from you in a while 👀" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
             <div style="display:flex;gap:8px;margin-top:10px;">
-              <button onclick="loadReengagement(3)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">3 Tage</button>
-              <button onclick="loadReengagement(7)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">7 Tage</button>
-              <button onclick="loadReengagement(14)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">14 Tage</button>
+              <button onclick="loadReengagement(3)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">3 Days</button>
+              <button onclick="loadReengagement(7)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">7 Days</button>
+              <button onclick="loadReengagement(14)" style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;cursor:pointer;">14 Days</button>
             </div>
-            <button onclick="sendReengagement()" style="width:100%;margin-top:8px;background:var(--yellow);color:#000;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:13px;cursor:pointer;">🔄 Alle anschreiben</button>
+            <button onclick="sendReengagement()" style="width:100%;margin-top:8px;background:var(--yellow);color:#000;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:13px;cursor:pointer;">🔄 Send to all</button>
             <div id="reeng-status" style="margin-top:8px;font-size:12px;display:none;"></div>
           </div>
           <div>
-            <div id="reeng-count" style="font-size:12px;color:var(--text2);margin-bottom:8px;">Klick einen Filter-Button</div>
+            <div id="reeng-count" style="font-size:12px;color:var(--text2);margin-bottom:8px;">Click a filter button</div>
             <div id="reeng-list" style="max-height:180px;overflow-y:auto;"></div>
           </div>
         </div>
@@ -1543,41 +1543,41 @@
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
           <div>
             <div style="font-size:14px;font-weight:700;color:var(--text);">🟢 Auto-Message bei Online</div>
-            <div style="font-size:12px;color:var(--text2);margin-top:2px;">Wenn ein Subscriber Telegram öffnet, schreibt Marie automatisch.</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px;">When a subscriber opens Telegram, Marie sends automatically.</div>
           </div>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
             <input type="checkbox" id="ao-enabled" onchange="saveAutoOnline()" style="width:16px;height:16px;accent-color:#22c55e;">
-            <span style="font-size:13px;font-weight:600;" id="ao-enabled-label">Aus</span>
+            <span style="font-size:13px;font-weight:600;" id="ao-enabled-label">Off</span>
           </label>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
           <div>
-            <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Nachricht</label>
-            <textarea id="ao-text" rows="4" placeholder="z.B. hey du.. bin grad online, was machst du so?" onchange="saveAutoOnline()" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
+            <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Message</label>
+            <textarea id="ao-text" rows="4" placeholder="e.g. hey.. I'm online now, what are you up to?" onchange="saveAutoOnline()" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
           </div>
           <div style="display:flex;flex-direction:column;gap:12px;">
             <div>
-              <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Cooldown (Stunden zwischen Nachrichten)</label>
+              <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Cooldown (hours between messages)</label>
               <select id="ao-cooldown" onchange="saveAutoOnline()" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;">
-                <option value="6">6 Stunden</option>
-                <option value="12">12 Stunden</option>
-                <option value="24" selected>24 Stunden</option>
-                <option value="48">48 Stunden</option>
-                <option value="72">72 Stunden</option>
+                <option value="6">6 Hours</option>
+                <option value="12">12 Hours</option>
+                <option value="24" selected>24 Hours</option>
+                <option value="48">48 Hours</option>
+                <option value="72">72 Hours</option>
               </select>
             </div>
             <div>
-              <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Nur für Stage</label>
+              <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Only for stage</label>
               <select id="ao-stages" onchange="saveAutoOnline()" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;">
-                <option value="">Alle Subscriber</option>
-                <option value="kalt">❄️ Kalt</option>
+                <option value="">All subscribers</option>
+                <option value="kalt">❄️ Cold</option>
                 <option value="warm">🌱 Warm</option>
                 <option value="hot">🔥 Hot</option>
                 <option value="warm,hot">🌱 Warm + 🔥 Hot</option>
-                <option value="kalt,warm,hot">Alle außer Gebucht/Done</option>
+                <option value="kalt,warm,hot">All except Booked/Done</option>
               </select>
             </div>
-            <div id="ao-save-status" style="font-size:12px;color:#22c55e;display:none;">✅ Gespeichert</div>
+            <div id="ao-save-status" style="font-size:12px;color:#22c55e;display:none;">✅ Saved</div>
           </div>
         </div>
       </div>
@@ -1608,7 +1608,7 @@
     <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;">
       <div>
         <h1 class="page-title">🔒 Vault</h1>
-        <p style="color:var(--text2);font-size:13px;margin-top:4px;">Dateien hochladen — Chatter können sie direkt im Chat versenden.</p>
+        <p style="color:var(--text2);font-size:13px;margin-top:4px;">Upload files — chatters can send them directly in chat.</p>
       </div>
       <label style="background:var(--teal);color:#000;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;">
         ⬆️ Upload
@@ -1623,7 +1623,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:600px;max-width:94vw;max-height:80vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Datei senden</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <div id="vault-picker-status" style="font-size:12px;color:var(--text3);margin-bottom:8px;"></div>
@@ -1722,7 +1722,7 @@
         </div>
         <div class="chat-status">
           <div class="chat-status-dot" id="chat-status-dot"></div>
-          <span id="chat-status-text">Verbinde...</span>
+          <span id="chat-status-text">Connecting...</span>
         </div>
       </div>
     </div>
@@ -1744,17 +1744,17 @@
         </div>
         <div class="tier-filter-bar" id="tier-filter-bar">
           <button class="tier-filter-btn active" onclick="filterByTier('all')">Alle</button>
+          <button class="tier-filter-btn" id="unread-filter-btn" onclick="filterByTier('unread')" style="color:#ff5c7a;border-color:rgba(255,92,122,0.3);">🔴 Unread</button>
           <button class="tier-filter-btn" onclick="filterByTier('whale')">🐋 Whale</button>
           <button class="tier-filter-btn" onclick="filterByTier('big')">💰 Big</button>
           <button class="tier-filter-btn" onclick="filterByTier('mid')">⚡ Mid</button>
           <button class="tier-filter-btn" onclick="filterByTier('low')">🌱 Low</button>
-          <button class="tier-filter-btn" onclick="filterByTier('new')">🆕 Neu</button>
+          <button class="tier-filter-btn" onclick="filterByTier('new')">🆕 New</button>
           <button class="tier-filter-btn" onclick="filterByTier('tw')">🗑️ Time Waster</button>
           <button class="tier-filter-btn" id="online-filter-btn" onclick="filterByTier('online')" style="color:#22c55e;border-color:rgba(34,197,94,0.3);">🟢 Online</button>
-          <button class="tier-filter-btn" id="unread-filter-btn" onclick="filterByTier('unread')" style="color:#ff5c7a;border-color:rgba(255,92,122,0.3);">🔴 Unread</button>
         </div>
         <div id="conv-list-body">
-          <div class="chat-empty" style="height:200px;">Keine Gespräche</div>
+          <div class="chat-empty" style="height:200px;">No conversations</div>
         </div>
       </div>
 
@@ -1764,7 +1764,7 @@
           <button id="mobile-back-btn" onclick="mobileShowConvList()" style="display:none;background:none;border:none;color:var(--text2);cursor:pointer;padding:4px 8px 4px 0;font-size:20px;line-height:1;">‹</button>
           <div class="msg-topbar-avatar" id="msg-avatar">?</div>
           <div style="display:flex;flex-direction:column;gap:1px;">
-            <span id="msg-conv-name" style="letter-spacing:.01em;">Gespräch auswählen</span>
+            <span id="msg-conv-name" style="letter-spacing:.01em;">Select conversation</span>
             <span id="msg-conv-status" style="font-size:11px;color:var(--text3);"></span>
           </div>
         </div>
@@ -1772,12 +1772,12 @@
         <div id="timer-alert-bar" style="display:none;padding:10px 16px;background:rgba(255,92,122,0.15);border-bottom:2px solid #ff5c7a;animation:pulse 1s infinite;">
           <div style="display:flex;align-items:center;gap:10px;">
             <span style="font-size:18px;animation:pulse 1s infinite;">🔴</span>
-            <span id="timer-alert-text" style="font-weight:700;color:#ff5c7a;font-size:14px;flex:1;">Timer abgelaufen!</span>
+            <span id="timer-alert-text" style="font-weight:700;color:#ff5c7a;font-size:14px;flex:1;">Timer expired!</span>
             <button onclick="dismissTimerAlert()" style="background:rgba(255,92,122,.2);border:1px solid #ff5c7a;border-radius:6px;color:#ff5c7a;padding:4px 10px;cursor:pointer;font-size:12px;">Dismiss</button>
           </div>
         </div>
         <div class="msg-list" id="msg-list">
-          <div class="chat-empty">← Gespräch auswählen</div>
+          <div class="chat-empty">← Select conversation</div>
         </div>
         <!-- Script Quick-Buttons -->
         <div id="script-quick-bar" style="display:flex;gap:5px;padding:6px 12px;border-top:1px solid rgba(255,255,255,.05);overflow-x:auto;flex-shrink:0;scrollbar-width:none;"></div>
@@ -1805,20 +1805,20 @@
         </div>
         <!-- AI Suggestions Panel -->
         <div id="ai-suggest-panel" style="display:none;padding:8px 12px;border-top:1px solid rgba(167,139,250,0.2);background:rgba(167,139,250,0.04);flex-shrink:0;">
-          <div style="font-size:10px;color:#a78bfa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">💡 AI Vorschläge</div>
+          <div style="font-size:10px;color:#a78bfa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">💡 AI Suggestions</div>
           <div id="ai-suggest-chips" style="display:flex;flex-direction:column;gap:5px;"></div>
         </div>
         <div class="reply-bar">
-          <input type="text" id="chat-input" placeholder="Nachricht schreiben..." onkeydown="if(event.key==='Enter')sendChatReply()" oninput="onChatInput()">
-          <button onclick="openVaultPicker()" title="Datei aus Vault senden" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:var(--text2);border-radius:10px;padding:11px 12px;font-size:15px;cursor:pointer;flex-shrink:0;">📁</button>
-          <button onclick="sendChatReply()">Senden ↑</button>
+          <input type="text" id="chat-input" placeholder="Write a message..." onkeydown="if(event.key==='Enter')sendChatReply()" oninput="onChatInput()">
+          <button onclick="openVaultPicker()" title="Send file from Vault" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:var(--text2);border-radius:10px;padding:11px 12px;font-size:15px;cursor:pointer;flex-shrink:0;">📁</button>
+          <button onclick="sendChatReply()">Send ↑</button>
         </div>
       </div>
 
       <!-- Profil-Panel -->
       <div class="profile-panel" id="profile-panel">
         <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:13px;padding:20px;text-align:center;">
-          ← Gespräch auswählen<br>um Profil zu sehen
+          ← Select conversation<br>to view profile
         </div>
       </div>
     </div>
@@ -3004,16 +3004,16 @@ if (checkAuth()) {
     const txt = document.getElementById('chat-status-text');
     if (!getChatBackendUrl()) {
       dot.className = 'chat-status-dot offline';
-      txt.textContent = 'Keine Backend-URL';
+      txt.textContent = 'No backend URL';
       return;
     }
     const s = await chatApiGet('/status');
     if (s && s.userbot === 'connected') {
       dot.className = 'chat-status-dot';
-      txt.textContent = 'Userbot verbunden';
+      txt.textContent = 'Userbot connected';
     } else {
       dot.className = 'chat-status-dot offline';
-      txt.textContent = s ? 'Userbot getrennt' : 'Backend nicht erreichbar';
+      txt.textContent = s ? 'Userbot disconnected' : 'Backend unreachable';
     }
   }
 
@@ -3214,40 +3214,40 @@ if (checkAuth()) {
       </div>
 
       <div class="profile-section">
-        <div class="profile-label">Interner Name</div>
-        <input class="profile-input" id="prof-iname" type="text" placeholder="z.B. Bernd – mag Sport" value="${(p.internal_name||'').replace(/"/g,'&quot;')}">
+        <div class="profile-label">Internal Name</div>
+        <input class="profile-input" id="prof-iname" type="text" placeholder="e.g. John – likes sports" value="${(p.internal_name||'').replace(/"/g,'&quot;')}">
       </div>
 
       <div class="profile-section">
         <div class="profile-label">🎯 Funnel Stage</div>
         <select id="prof-funnel" onchange="saveFunnelStage('${tgId}',this.value)"
           style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;">
-          <option value="kalt" ${(p.funnel_stage||'kalt')==='kalt'?'selected':''}>❄️ Kalt</option>
+          <option value="kalt" ${(p.funnel_stage||'kalt')==='kalt'?'selected':''}>❄️ Cold</option>
           <option value="warm" ${p.funnel_stage==='warm'?'selected':''}>🌱 Warm</option>
           <option value="hot" ${p.funnel_stage==='hot'?'selected':''}>🔥 Hot</option>
-          <option value="angebot" ${p.funnel_stage==='angebot'?'selected':''}>💬 Angebot gemacht</option>
-          <option value="gebucht" ${p.funnel_stage==='gebucht'?'selected':''}>📅 Gebucht</option>
+          <option value="angebot" ${p.funnel_stage==='angebot'?'selected':''}>💬 Offer made</option>
+          <option value="gebucht" ${p.funnel_stage==='gebucht'?'selected':''}>📅 Booked</option>
           <option value="done" ${p.funnel_stage==='done'?'selected':''}>✅ Done</option>
         </select>
       </div>
 
       <div class="profile-section">
         <div class="profile-label">
-          Notizen
-          <span class="profile-saved-tag" id="notes-saved">✓ Gespeichert</span>
+          Notes
+          <span class="profile-saved-tag" id="notes-saved">✓ Saved</span>
         </div>
         <div class="note-presets" id="note-presets-bar"></div>
-        <textarea class="profile-textarea" id="prof-notes" placeholder="Interessen, Kaufverhalten, Vorlieben...">${p.notes||''}</textarea>
-        <button class="profile-save-btn" onclick="saveProfile('${tgId}')">💾 Speichern</button>
+        <textarea class="profile-textarea" id="prof-notes" placeholder="Interests, behavior, preferences...">${p.notes||''}</textarea>
+        <button class="profile-save-btn" onclick="saveProfile('${tgId}')">💾 Save</button>
       </div>
 
       <div class="profile-section">
-        <button class="sale-btn" onclick="openSaleModal('${tgId}','${p.internal_name||p.anon_id}')">💰 Sale melden</button>
+        <button class="sale-btn" onclick="openSaleModal('${tgId}','${p.internal_name||p.anon_id}')">💰 Report Sale</button>
       </div>
       <div class="profile-section">
         <button id="fakecheck-btn-${tgId}" onclick="sendFakecheck('${tgId}','${(p.internal_name||p.anon_id).replace(/'/g,"\\'")}',this)"
           style="width:100%;padding:10px;border-radius:10px;border:1px solid rgba(167,139,250,.4);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">
-          🎙️ Fakecheck senden
+          🎙️ Send Fakecheck
         </button>
         <div id="fakecheck-status-${tgId}" style="font-size:11px;color:var(--text3);margin-top:6px;display:none;text-align:center;"></div>
       </div>
@@ -3274,12 +3274,12 @@ if (checkAuth()) {
             background:${p.time_waster ? 'rgba(150,0,0,.2)' : 'rgba(255,255,255,.04)'};
             color:${p.time_waster ? '#ff4040' : '#666'};font-size:12px;font-weight:700;
             cursor:pointer;transition:all .2s;letter-spacing:.03em;">
-          ${p.time_waster ? '🗑️ Als Time Waster markiert — Klick zum Entfernen' : '🗑️ Als Time Waster markieren'}
+          ${p.time_waster ? '🗑️ Marked as Time Waster — Click to remove' : '🗑️ Mark as Time Waster'}
         </button>
       </div>
 
       <div class="profile-section" id="prof-lists-section">
-        <div class="profile-label">📋 Listen</div>
+        <div class="profile-label">📋 Lists</div>
         <div id="prof-lists-tags" class="list-section-tags"></div>
         <div id="prof-lists-select"></div>
       </div>
@@ -3294,10 +3294,10 @@ if (checkAuth()) {
 
       <div class="profile-section">
         <div class="profile-label">Stats</div>
-        <div class="profile-stat-row"><span>Erste Nachricht</span><span class="profile-stat-val">${firstDate}</span></div>
-        <div class="profile-stat-row"><span>Letzte Nachricht</span><span class="profile-stat-val">${lastDate}</span></div>
-        <div class="profile-stat-row"><span>Nachrichten</span><span class="profile-stat-val">${p.msg_count||0}</span></div>
-        ${!isChatter() ? `<div class="profile-stat-row"><span>Kontakt</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ Kein Kontakt'}</span></div>` : ''}
+        <div class="profile-stat-row"><span>First message</span><span class="profile-stat-val">${firstDate}</span></div>
+        <div class="profile-stat-row"><span>Last message</span><span class="profile-stat-val">${lastDate}</span></div>
+        <div class="profile-stat-row"><span>Messages</span><span class="profile-stat-val">${p.msg_count||0}</span></div>
+        ${!isChatter() ? `<div class="profile-stat-row"><span>Contact</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ No contact'}</span></div>` : ''}
 
       </div>
     `;
@@ -3343,7 +3343,7 @@ if (checkAuth()) {
     const el = document.getElementById('sp-msgs-list');
     if (!el) return;
     if (!editorMsgs.length) {
-      el.innerHTML = '<div style="font-size:11px;color:#444;padding:6px 0;">Noch keine Nachrichten — oben eingeben und + klicken.</div>';
+      el.innerHTML = '<div style="font-size:11px;color:#444;padding:6px 0;">No messages yet — type above and click +.</div>';
       return;
     }
     el.innerHTML = editorMsgs.map((m, i) => `
@@ -5000,7 +5000,7 @@ async function loadAutoOnline() {
     const txt = document.getElementById('ao-text');
     const cd = document.getElementById('ao-cooldown');
     const st = document.getElementById('ao-stages');
-    if (cb) { cb.checked = d.auto_online_enabled === '1'; lbl.textContent = cb.checked ? 'An' : 'Aus'; }
+    if (cb) { cb.checked = d.auto_online_enabled === '1'; lbl.textContent = cb.checked ? 'On' : 'Off'; }
     if (txt && d.auto_online_text) txt.value = d.auto_online_text;
     if (cd && d.auto_online_cooldown_h) cd.value = d.auto_online_cooldown_h;
     if (st && d.auto_online_stages !== undefined) st.value = d.auto_online_stages;
