@@ -1605,27 +1605,54 @@
 
   <!-- VAULT PAGE -->
   <div id="page-vault" style="display:none;">
-    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;">
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <div>
         <h1 class="page-title">🔒 Vault</h1>
         <p style="color:var(--text2);font-size:13px;margin-top:4px;">Upload files — chatters can send them directly in chat.</p>
       </div>
-      <label style="background:var(--teal);color:#000;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;">
-        ⬆️ Upload
-        <input type="file" accept="image/*,video/*" multiple onchange="vaultUpload(this)" style="display:none;">
-      </label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div id="vault-upload-status" style="font-size:13px;display:none;"></div>
+        <label id="vault-upload-label" style="background:var(--teal);color:#000;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;">
+          ⬆️ Upload
+          <input type="file" accept="image/*,video/*" multiple onchange="vaultUpload(this)" style="display:none;">
+        </label>
+      </div>
     </div>
-    <div id="vault-upload-status" style="margin-bottom:12px;font-size:13px;display:none;"></div>
-    <div id="vault-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;"></div>
+    <!-- 2-column vault layout -->
+    <div style="display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:start;">
+      <!-- Folder sidebar -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;display:flex;justify-content:space-between;align-items:center;">
+          Folders
+          <button onclick="vaultCreateFolder()" style="background:rgba(0,212,170,.15);border:1px solid rgba(0,212,170,.3);color:var(--teal);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;">+ New</button>
+        </div>
+        <div id="vault-folder-list" style="padding:6px 0;">
+          <div onclick="vaultSelectFolder('')" id="vault-folder-all" class="vault-folder-item vault-folder-active"
+            style="padding:8px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;">
+            📁 All Files
+          </div>
+        </div>
+      </div>
+      <!-- File grid -->
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div id="vault-folder-title" style="font-size:14px;font-weight:700;color:var(--text);">All Files</div>
+          <div id="vault-file-count" style="font-size:12px;color:var(--text3);"></div>
+        </div>
+        <div id="vault-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;"></div>
+      </div>
+    </div>
   </div>
 
   <!-- VAULT PICKER MODAL (used in chat) -->
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
-    <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:600px;max-width:94vw;max-height:80vh;display:flex;flex-direction:column;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
+      <!-- Folder tabs in picker -->
+      <div id="vault-picker-folders" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
       <div id="vault-picker-status" style="font-size:12px;color:var(--text3);margin-bottom:8px;"></div>
       <div id="vault-picker-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;overflow-y:auto;flex:1;padding-right:4px;"></div>
     </div>
@@ -2029,10 +2056,16 @@ async function submitSale() {
     if (r.ok) {
       fb.textContent = '✅ Sale erfolgreich gespeichert!';
       fb.style.display = 'block';
-      // Close immediately for chatters, refresh data in background
+      // Close modal immediately
       document.getElementById('sale-modal-overlay').style.display = 'none';
+      // Fetch fresh backend sales → update shift goal widget immediately
+      fetch('/api/sales').then(r => r.json()).then(data => {
+        if (window._setCrmSalesData) window._setCrmSalesData(data);
+        if (typeof updateShiftGoal === 'function') updateShiftGoal();
+        if (typeof loadMyStats === 'function') loadMyStats(window._myStatsPeriod || 'heute');
+      }).catch(() => {});
+      // Full refresh in background for dashboard
       loadData().catch(() => {});
-      if (typeof updateShiftGoal === 'function') updateShiftGoal();
     } else { fb.textContent = '❌ Error saving. Try again.'; fb.style.display = 'block'; }
   } catch(e) { fb.textContent = '❌ ' + e.message; fb.style.display = 'block'; }
 }
@@ -3219,19 +3252,6 @@ if (checkAuth()) {
       <div class="profile-section">
         <div class="profile-label">Internal Name</div>
         <input class="profile-input" id="prof-iname" type="text" placeholder="e.g. John – likes sports" value="${(p.internal_name||'').replace(/"/g,'&quot;')}">
-      </div>
-
-      <div class="profile-section">
-        <div class="profile-label">🎯 Funnel Stage</div>
-        <select id="prof-funnel" onchange="saveFunnelStage('${tgId}',this.value)"
-          style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;">
-          <option value="kalt" ${(p.funnel_stage||'kalt')==='kalt'?'selected':''}>❄️ Cold</option>
-          <option value="warm" ${p.funnel_stage==='warm'?'selected':''}>🌱 Warm</option>
-          <option value="hot" ${p.funnel_stage==='hot'?'selected':''}>🔥 Hot</option>
-          <option value="angebot" ${p.funnel_stage==='angebot'?'selected':''}>💬 Offer made</option>
-          <option value="gebucht" ${p.funnel_stage==='gebucht'?'selected':''}>📅 Booked</option>
-          <option value="done" ${p.funnel_stage==='done'?'selected':''}>✅ Done</option>
-        </select>
       </div>
 
       <div class="profile-section">
@@ -4705,43 +4725,125 @@ if (_origOpenConvForTimer) {
 
 // ── VAULT ─────────────────────────────────────────────────────────────────────
 let _vaultFiles = [];
+let _vaultCurrentFolder = ''; // '' = All Files
+let _vaultFolders = [];
+let _pickerCurrentFolder = '';
+
+// ── CSS for vault folder items (injected once) ────────────────────────────
+(function(){
+  const s = document.createElement('style');
+  s.textContent = `
+    .vault-folder-item { padding:8px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:6px;transition:background .12s; }
+    .vault-folder-item:hover { background:rgba(255,255,255,.04); }
+    .vault-folder-active { background:rgba(0,212,170,.1)!important;color:var(--teal)!important; }
+    .vault-folder-item .vault-folder-del { display:none;background:none;border:none;color:#ff5c7a;cursor:pointer;font-size:12px;padding:0 2px; }
+    .vault-folder-item:hover .vault-folder-del { display:inline; }
+  `;
+  document.head.appendChild(s);
+})();
 
 async function loadVaultPage() {
   const grid = document.getElementById('vault-grid');
   if (!grid) return;
   grid.innerHTML = '<div style="color:var(--text3);font-size:13px;">Loading...</div>';
-  _vaultFiles = await fetch('/api/vault').then(r => r.json()).catch(() => []);
+  // Load folders and files in parallel
+  [_vaultFolders, _vaultFiles] = await Promise.all([
+    fetch('/api/vault/folders').then(r => r.json()).catch(() => []),
+    fetch('/api/vault').then(r => r.json()).catch(() => [])
+  ]);
+  renderVaultFolderList();
   renderVaultGrid(grid, _vaultFiles, false);
+  const cnt = document.getElementById('vault-file-count');
+  if (cnt) cnt.textContent = _vaultFiles.length + ' files';
+}
+
+function renderVaultFolderList() {
+  const list = document.getElementById('vault-folder-list');
+  if (!list) return;
+  const allActive = _vaultCurrentFolder === '';
+  list.innerHTML = `
+    <div onclick="vaultSelectFolder('')" class="vault-folder-item ${allActive ? 'vault-folder-active' : ''}" style="color:${allActive?'var(--teal)':'var(--text)'};">
+      📁 All Files <span style="font-size:10px;color:var(--text3);">(${_vaultFiles.length})</span>
+    </div>
+    ${_vaultFolders.map(f => {
+      const count = _vaultFiles.filter(file => file.folder === f).length;
+      const active = _vaultCurrentFolder === f;
+      return `<div onclick="vaultSelectFolder('${f}')" class="vault-folder-item ${active ? 'vault-folder-active' : ''}" style="color:${active?'var(--teal)':'var(--text)'};">
+        <span>📂 ${f} <span style="font-size:10px;color:var(--text3);">(${count})</span></span>
+        <button class="vault-folder-del" onclick="event.stopPropagation();vaultDeleteFolder('${f}')" title="Delete folder">✕</button>
+      </div>`;
+    }).join('')}
+  `;
+}
+
+function vaultSelectFolder(folder) {
+  _vaultCurrentFolder = folder;
+  const files = folder ? _vaultFiles.filter(f => f.folder === folder) : _vaultFiles;
+  const grid = document.getElementById('vault-grid');
+  const title = document.getElementById('vault-folder-title');
+  const cnt = document.getElementById('vault-file-count');
+  if (title) title.textContent = folder ? `📂 ${folder}` : 'All Files';
+  if (cnt) cnt.textContent = files.length + ' files';
+  if (grid) renderVaultGrid(grid, files, false);
+  renderVaultFolderList();
+  // Update upload input to pass folder
+  const lbl = document.getElementById('vault-upload-label');
+  if (lbl) lbl.dataset.folder = folder;
 }
 
 function renderVaultGrid(grid, files, isPicker) {
   if (!files.length) {
-    grid.innerHTML = '<div style="color:var(--text3);font-size:13px;grid-column:1/-1;">Noch keine Dateien. Upload starten.</div>';
+    grid.innerHTML = '<div style="color:var(--text3);font-size:13px;grid-column:1/-1;padding:20px 0;">No files here yet. Upload to get started.</div>';
     return;
   }
-  grid.innerHTML = files.map(f => `
-    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s;"
+  grid.innerHTML = files.map(f => {
+    const thumb = f.type === 'image'
+      ? `<img src="/api/vault/file/${f.name.split('/').map(encodeURIComponent).join('/')}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`
+      : `<div style="font-size:36px;display:flex;align-items:center;justify-content:center;height:100%;">🎬</div>`;
+    const label = f.name.split('/').pop(); // filename without folder
+    const folderTag = (!isPicker && f.folder) ? `<div style="font-size:9px;color:var(--teal);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📂 ${f.folder}</div>` : '';
+    return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s;"
       onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'"
       onclick="${isPicker ? `sendVaultFile('${f.name}')` : ''}">
-      <div style="height:100px;background:var(--bg2);display:flex;align-items:center;justify-content:center;position:relative;">
-        ${f.type === 'image'
-          ? `<img src="/api/vault/file/${encodeURIComponent(f.name)}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`
-          : `<div style="font-size:36px;">🎬</div>`}
+      <div style="height:100px;background:var(--bg2);overflow:hidden;">${thumb}</div>
+      <div style="padding:6px 8px;">
+        <div style="font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;justify-content:space-between;">
+          <span style="overflow:hidden;text-overflow:ellipsis;">${label}</span>
+          ${!isPicker ? `<button onclick="event.stopPropagation();deleteVaultFile('${f.name}',this)" style="background:none;border:none;color:#ff5c7a;cursor:pointer;font-size:13px;padding:0 0 0 4px;flex-shrink:0;">✕</button>` : ''}
+        </div>
+        ${folderTag}
       </div>
-      <div style="padding:8px;display:flex;align-items:center;justify-content:space-between;">
-        <div style="font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${f.name}</div>
-        ${!isPicker ? `<button onclick="event.stopPropagation();deleteVaultFile('${f.name}',this)" style="background:none;border:none;color:#ff5c7a;cursor:pointer;font-size:13px;padding:0 0 0 6px;">✕</button>` : ''}
-      </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+}
+
+async function vaultCreateFolder() {
+  const name = prompt('Folder name:');
+  if (!name?.trim()) return;
+  const r = await fetch('/api/vault/folder', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name: name.trim() })
+  });
+  const d = await r.json();
+  if (d.ok) { _vaultFolders.push(d.name); renderVaultFolderList(); }
+}
+
+async function vaultDeleteFolder(name) {
+  if (!confirm(`Delete folder "${name}" and all its files?`)) return;
+  await fetch('/api/vault/folder/' + encodeURIComponent(name), { method: 'DELETE' });
+  if (_vaultCurrentFolder === name) _vaultCurrentFolder = '';
+  await loadVaultPage();
 }
 
 async function vaultUpload(input) {
   const status = document.getElementById('vault-upload-status');
+  const folder = document.getElementById('vault-upload-label')?.dataset?.folder || _vaultCurrentFolder || '';
   if (status) { status.style.display='block'; status.style.color='var(--text2)'; status.textContent='⏳ Uploading...'; }
   for (const file of input.files) {
     const fd = new FormData(); fd.append('file', file);
+    const url = '/api/vault/upload' + (folder ? `?folder=${encodeURIComponent(folder)}` : '');
     try {
-      const r = await fetch('/api/vault/upload', { method: 'POST', body: fd });
+      const r = await fetch(url, { method: 'POST', body: fd });
       const d = await r.json();
       if (!d.ok) throw new Error(d.detail || 'Error');
     } catch(e) {
@@ -4749,31 +4851,60 @@ async function vaultUpload(input) {
       return;
     }
   }
-  if (status) { status.style.color='var(--teal)'; status.textContent=`✅ ${input.files.length} file(s) uploaded`; }
+  if (status) { status.style.color='var(--teal)'; status.textContent=`✅ ${input.files.length} uploaded`; setTimeout(() => { status.style.display='none'; }, 3000); }
   input.value = '';
-  loadVaultPage();
+  await loadVaultPage();
+  vaultSelectFolder(_vaultCurrentFolder); // stay in current folder
 }
 
 async function deleteVaultFile(name, btn) {
-  if (!confirm(`Delete "${name}"?`)) return;
+  if (!confirm(`Delete "${name.split('/').pop()}"?`)) return;
   btn.textContent = '⏳';
-  await fetch('/api/vault/file/' + encodeURIComponent(name), { method: 'DELETE' });
-  loadVaultPage();
+  await fetch('/api/vault/file/' + name.split('/').map(encodeURIComponent).join('/'), { method: 'DELETE' });
+  await loadVaultPage();
+  vaultSelectFolder(_vaultCurrentFolder);
 }
 
+// ── VAULT PICKER (in chat) ─────────────────────────────────────────────────
 function openVaultPicker() {
   const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
   if (!tgId) { alert('Select a conversation first'); return; }
   const overlay = document.getElementById('vault-picker-overlay');
   overlay.style.display = 'flex';
-  const grid = document.getElementById('vault-picker-grid');
+  _pickerCurrentFolder = '';
   const status = document.getElementById('vault-picker-status');
   if (status) status.textContent = 'Loading vault...';
-  fetch('/api/vault').then(r => r.json()).then(files => {
+  // Load folders + all files
+  Promise.all([
+    fetch('/api/vault/folders').then(r => r.json()).catch(() => []),
+    fetch('/api/vault').then(r => r.json()).catch(() => [])
+  ]).then(([folders, files]) => {
     _vaultFiles = files;
-    if (status) status.textContent = files.length + ' file(s) in vault — click to send';
-    renderVaultGrid(grid, files, true);
+    _vaultFolders = folders;
+    if (status) status.textContent = files.length + ' files — click to send';
+    _renderPickerFolderTabs(folders, files);
+    renderVaultGrid(document.getElementById('vault-picker-grid'), files, true);
   }).catch(() => { if (status) status.textContent = 'Error loading vault'; });
+}
+
+function _renderPickerFolderTabs(folders, allFiles) {
+  const bar = document.getElementById('vault-picker-folders');
+  if (!bar) return;
+  const tabs = [{ label: '📁 All', folder: '' }, ...folders.map(f => ({ label: `📂 ${f}`, folder: f }))];
+  bar.innerHTML = tabs.map(t => `
+    <button onclick="pickerSelectFolder('${t.folder}')"
+      style="padding:4px 10px;border-radius:16px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${_pickerCurrentFolder===t.folder?'rgba(0,212,170,.5)':'var(--border)'};background:${_pickerCurrentFolder===t.folder?'rgba(0,212,170,.12)':'var(--bg3)'};color:${_pickerCurrentFolder===t.folder?'var(--teal)':'var(--text2)'};">
+      ${t.label}
+    </button>`).join('');
+}
+
+function pickerSelectFolder(folder) {
+  _pickerCurrentFolder = folder;
+  const files = folder ? _vaultFiles.filter(f => f.folder === folder) : _vaultFiles;
+  renderVaultGrid(document.getElementById('vault-picker-grid'), files, true);
+  _renderPickerFolderTabs(_vaultFolders, _vaultFiles);
+  const status = document.getElementById('vault-picker-status');
+  if (status) status.textContent = files.length + ' files — click to send';
 }
 
 function closeVaultPicker(e) {
@@ -4785,16 +4916,14 @@ async function sendVaultFile(filename) {
   const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
   if (!tgId) return;
   document.getElementById('vault-picker-overlay').style.display = 'none';
-  const status = document.getElementById('vault-picker-status');
   try {
     const r = await fetch('/api/vault/send', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tg_id: tgId, filename })
     });
     const d = await r.json();
-    if (d.ok) {
-      if (window.loadMsgs) loadMsgs();
-    } else { alert('Send failed: ' + (d.detail||'error')); }
+    if (d.ok) { if (window.loadMsgs) loadMsgs(); }
+    else { alert('Send failed: ' + (d.detail||'error')); }
   } catch(e) { alert('Error: ' + e.message); }
 }
 

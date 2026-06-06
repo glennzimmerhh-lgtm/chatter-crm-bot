@@ -1168,66 +1168,136 @@ def get_notifications(limit: int = 80):
 # ── VAULT ────────────────────────────────────────────────────────────────────
 ALLOWED_TYPES = {'image/jpeg','image/png','image/gif','image/webp','video/mp4','video/quicktime','video/x-matroska'}
 
+def _vault_safe(name: str) -> str:
+    return ''.join(c for c in name if c.isalnum() or c in '._- ')
+
+def _vault_file_info(fpath: str, relpath: str, folder: str) -> dict:
+    stat = os.stat(fpath)
+    ext = relpath.rsplit('.', 1)[-1].lower() if '.' in relpath else ''
+    ftype = 'video' if ext in ('mp4','mov','mkv','avi') else 'image'
+    return {
+        'name': relpath,      # e.g. "Folder/file.jpg" or "file.jpg"
+        'folder': folder,
+        'size': stat.st_size,
+        'type': ftype,
+        'url': f'/vault/file/{relpath}',
+        'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+    }
+
+@app.get('/vault/folders')
+def vault_folders():
+    """List all vault folders (subdirectories)."""
+    folders = []
+    try:
+        for name in sorted(os.listdir(VAULT_DIR)):
+            if os.path.isdir(os.path.join(VAULT_DIR, name)) and not name.startswith('.'):
+                folders.append(name)
+    except Exception as e:
+        print(f'Vault folders error: {e}')
+    return folders
+
+class VaultFolderIn(BaseModel):
+    name: str
+
+@app.post('/vault/folder')
+def vault_create_folder(body: VaultFolderIn):
+    """Create a new vault folder."""
+    safe = _vault_safe(body.name).strip()
+    if not safe:
+        raise HTTPException(400, 'Invalid folder name')
+    fpath = os.path.join(VAULT_DIR, safe)
+    os.makedirs(fpath, exist_ok=True)
+    return {'ok': True, 'name': safe}
+
+@app.delete('/vault/folder/{folder}')
+def vault_delete_folder(folder: str):
+    """Delete a vault folder and all its files."""
+    if '..' in folder:
+        raise HTTPException(400, 'Invalid folder name')
+    fpath = os.path.join(VAULT_DIR, folder)
+    if not os.path.isdir(fpath):
+        raise HTTPException(404, 'Folder not found')
+    shutil.rmtree(fpath)
+    return {'ok': True}
+
 @app.get('/vault')
-def vault_list():
-    """List all files in the vault."""
+def vault_list(folder: Optional[str] = None):
+    """List vault files. Optional ?folder=X to filter by folder."""
     files = []
     try:
-        for fname in sorted(os.listdir(VAULT_DIR)):
-            fpath = os.path.join(VAULT_DIR, fname)
-            if os.path.isfile(fpath):
-                stat = os.stat(fpath)
-                ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
-                ftype = 'video' if ext in ('mp4','mov','mkv','avi') else 'image'
-                files.append({
-                    'name': fname,
-                    'size': stat.st_size,
-                    'type': ftype,
-                    'url': f'/vault/file/{fname}',
-                    'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                })
+        if folder:
+            # List files in specific folder
+            safe_folder = _vault_safe(folder)
+            dir_path = os.path.join(VAULT_DIR, safe_folder)
+            if os.path.isdir(dir_path):
+                for fname in sorted(os.listdir(dir_path)):
+                    fpath = os.path.join(dir_path, fname)
+                    if os.path.isfile(fpath):
+                        relpath = f'{safe_folder}/{fname}'
+                        files.append(_vault_file_info(fpath, relpath, safe_folder))
+        else:
+            # List ALL files (root + all subfolders)
+            for item in sorted(os.listdir(VAULT_DIR)):
+                ipath = os.path.join(VAULT_DIR, item)
+                if os.path.isfile(ipath):
+                    files.append(_vault_file_info(ipath, item, ''))
+                elif os.path.isdir(ipath) and not item.startswith('.'):
+                    for fname in sorted(os.listdir(ipath)):
+                        fpath = os.path.join(ipath, fname)
+                        if os.path.isfile(fpath):
+                            relpath = f'{item}/{fname}'
+                            files.append(_vault_file_info(fpath, relpath, item))
     except Exception as e:
         print(f'Vault list error: {e}')
     return files
 
 @app.post('/vault/upload')
-async def vault_upload(file: UploadFile = File(...)):
-    """Upload a file to the vault."""
+async def vault_upload(file: UploadFile = File(...), folder: str = ''):
+    """Upload a file to the vault, optionally into a folder."""
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(400, f'File type not allowed: {file.content_type}')
-    # Sanitize filename
-    safe_name = ''.join(c for c in file.filename if c.isalnum() or c in '._- ')
-    safe_name = safe_name or 'file'
-    # Avoid overwrite: add timestamp if exists
-    fpath = os.path.join(VAULT_DIR, safe_name)
+    safe_name = _vault_safe(file.filename or 'file') or 'file'
+    if folder:
+        safe_folder = _vault_safe(folder)
+        target_dir = os.path.join(VAULT_DIR, safe_folder)
+        os.makedirs(target_dir, exist_ok=True)
+    else:
+        target_dir = VAULT_DIR
+        safe_folder = ''
+    fpath = os.path.join(target_dir, safe_name)
     if os.path.exists(fpath):
         base, ext = os.path.splitext(safe_name)
         safe_name = f'{base}_{int(datetime.now().timestamp())}{ext}'
-        fpath = os.path.join(VAULT_DIR, safe_name)
+        fpath = os.path.join(target_dir, safe_name)
     with open(fpath, 'wb') as f:
         shutil.copyfileobj(file.file, f)
-    return {'ok': True, 'name': safe_name, 'url': f'/vault/file/{safe_name}'}
+    relpath = f'{safe_folder}/{safe_name}' if safe_folder else safe_name
+    return {'ok': True, 'name': relpath, 'url': f'/vault/file/{relpath}'}
 
-@app.get('/vault/file/{filename}')
-def vault_serve(filename: str):
-    """Serve a vault file."""
-    fpath = os.path.join(VAULT_DIR, filename)
-    if not os.path.isfile(fpath) or '..' in filename:
+@app.get('/vault/file/{filepath:path}')
+def vault_serve(filepath: str):
+    """Serve a vault file (supports folder/filename paths)."""
+    if '..' in filepath:
+        raise HTTPException(400, 'Invalid path')
+    fpath = os.path.join(VAULT_DIR, filepath)
+    if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
     return FileResponse(fpath)
 
-@app.delete('/vault/file/{filename}')
-def vault_delete(filename: str):
+@app.delete('/vault/file/{filepath:path}')
+def vault_delete(filepath: str):
     """Delete a vault file."""
-    fpath = os.path.join(VAULT_DIR, filename)
-    if not os.path.isfile(fpath) or '..' in filename:
+    if '..' in filepath:
+        raise HTTPException(400, 'Invalid path')
+    fpath = os.path.join(VAULT_DIR, filepath)
+    if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
     os.remove(fpath)
     return {'ok': True}
 
 class VaultSendIn(BaseModel):
     tg_id: str
-    filename: str
+    filename: str   # can be "folder/file.jpg" or "file.jpg"
     caption: str = ''
 
 @app.post('/vault/send')
@@ -1235,8 +1305,10 @@ async def vault_send(body: VaultSendIn):
     """Send a vault file to a subscriber via Telegram."""
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
+    if '..' in body.filename:
+        raise HTTPException(400, 'Invalid path')
     fpath = os.path.join(VAULT_DIR, body.filename)
-    if not os.path.isfile(fpath) or '..' in body.filename:
+    if not os.path.isfile(fpath):
         raise HTTPException(404, 'File not found in vault')
     try:
         with db() as conn:
@@ -1246,10 +1318,11 @@ async def vault_send(body: VaultSendIn):
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
         peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
         await tg_client.send_file(peer, fpath, caption=body.caption or None)
-        save_msg(body.tg_id, f'[📎 {body.filename}]', 'out', 'Vault')
+        display_name = body.filename.split('/')[-1]
+        save_msg(body.tg_id, f'[📎 {display_name}]', 'out', 'Vault')
         asyncio.create_task(ws_manager.broadcast({
             'type': 'new_message', 'tg_id': body.tg_id,
-            'text': f'[📎 {body.filename}]', 'direction': 'out',
+            'text': f'[📎 {display_name}]', 'direction': 'out',
             'timestamp': datetime.now().isoformat()
         }))
         return {'ok': True}
