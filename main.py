@@ -17,6 +17,10 @@ from typing import Optional
 VAULT_DIR = os.environ.get('VAULT_PATH', '/data/vault')
 os.makedirs(VAULT_DIR, exist_ok=True)
 
+# Sale proof screenshots directory
+PROOFS_DIR = os.path.join(VAULT_DIR, '_proofs')
+os.makedirs(PROOFS_DIR, exist_ok=True)
+
 import uvicorn
 import psycopg2
 import psycopg2.extras
@@ -175,6 +179,12 @@ def init_db():
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TEXT DEFAULT ''",
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS translation TEXT DEFAULT ''",
+                # Sale proof system
+                "ALTER TABLE sales ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'approved'",
+                "ALTER TABLE sales ADD COLUMN IF NOT EXISTS screenshot TEXT DEFAULT ''",
+                "ALTER TABLE sales ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT ''",
+                "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reviewed_by TEXT DEFAULT ''",
+                "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reviewed_at TEXT DEFAULT ''",
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_last_time ON conversations(last_time DESC)",
@@ -1436,50 +1446,189 @@ async def post_broadcast(body: BroadcastIn):
     return {'ok': True, 'sent': sent_ok, 'failed': sent_fail, 'total': len(recipients)}
 
 # ── SALES ─────────────────────────────────────────────────────────────────────
-class SaleIn(BaseModel):
+
+class SaleSubmitIn(BaseModel):
     tg_id: str
     anon_id: str
     amount: float
     product: str = ''
     notes: str = ''
     chatter: str = 'Chatter'
+    is_admin: bool = False  # if True, auto-approve without screenshot
 
 @app.post('/sale')
-async def post_sale(body: SaleIn):
+async def post_sale(body: SaleSubmitIn):
+    ts = datetime.now().isoformat()
+    # Admins self-approve; chatters start as pending
+    status = 'approved' if body.is_admin else 'pending'
+    sale_id = None
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                'INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                (body.tg_id, body.anon_id, body.amount, body.product, body.notes, body.chatter, ts, status)
+            )
+            sale_id = c.fetchone()['id']
+    if status == 'approved':
+        make_url = os.environ.get('MAKE_SALE_WEBHOOK', '')
+        if make_url:
+            _fire_webhook_sync(make_url, {
+                'tg_id': body.tg_id, 'anon_id': body.anon_id,
+                'amount': body.amount, 'product': body.product,
+                'notes': body.notes, 'chatter': body.chatter, 'timestamp': ts
+            })
+        asyncio.create_task(ws_manager.broadcast({
+            'type': 'notification', 'notif_type': 'sale',
+            'tg_id': body.tg_id, 'anon_id': body.anon_id,
+            'amount': body.amount, 'product': body.product,
+            'chatter': body.chatter, 'timestamp': ts,
+        }))
+    else:
+        # Notify admin of new pending sale
+        asyncio.create_task(ws_manager.broadcast({
+            'type': 'pending_sale',
+            'sale_id': sale_id, 'tg_id': body.tg_id, 'anon_id': body.anon_id,
+            'amount': body.amount, 'product': body.product,
+            'chatter': body.chatter, 'timestamp': ts,
+        }))
+    return {'ok': True, 'id': sale_id, 'status': status, 'timestamp': ts}
+
+@app.post('/sale/{sale_id}/screenshot')
+async def upload_sale_screenshot(sale_id: int, file: UploadFile = File(...)):
+    """Attach a proof screenshot to a sale."""
+    ext = (file.filename or 'proof.jpg').rsplit('.', 1)[-1].lower()
+    if ext not in ('jpg','jpeg','png','gif','webp','mp4'):
+        raise HTTPException(400, 'Invalid file type')
+    fname = f'sale_{sale_id}_{int(datetime.now().timestamp())}.{ext}'
+    fpath = os.path.join(PROOFS_DIR, fname)
+    with open(fpath, 'wb') as f:
+        shutil.copyfileobj(file.file, f)
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('UPDATE sales SET screenshot=%s WHERE id=%s', (fname, sale_id))
+    return {'ok': True, 'screenshot': fname}
+
+@app.get('/sale/{sale_id}/screenshot')
+def serve_sale_screenshot(sale_id: int):
+    """Serve the proof screenshot for a sale."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT screenshot FROM sales WHERE id=%s', (sale_id,))
+            row = c.fetchone()
+    if not row or not row['screenshot']:
+        raise HTTPException(404, 'No screenshot')
+    fpath = os.path.join(PROOFS_DIR, row['screenshot'])
+    if not os.path.isfile(fpath):
+        raise HTTPException(404, 'File not found')
+    return FileResponse(fpath)
+
+class ReviewIn(BaseModel):
+    reviewed_by: str = 'Admin'
+    reason: str = ''
+
+@app.post('/sale/{sale_id}/approve')
+async def approve_sale(sale_id: int, body: ReviewIn):
+    """Admin approves a pending sale."""
     ts = datetime.now().isoformat()
     with db() as conn:
         with conn.cursor() as c:
             c.execute(
-                'INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-                (body.tg_id, body.anon_id, body.amount, body.product, body.notes, body.chatter, ts)
+                'UPDATE sales SET status=%s, reviewed_by=%s, reviewed_at=%s WHERE id=%s RETURNING tg_id,anon_id,amount,product,chatter,timestamp',
+                ('approved', body.reviewed_by, ts, sale_id)
             )
+            row = c.fetchone()
+    if not row:
+        raise HTTPException(404, 'Sale not found')
     make_url = os.environ.get('MAKE_SALE_WEBHOOK', '')
     if make_url:
         _fire_webhook_sync(make_url, {
-            'tg_id': body.tg_id, 'anon_id': body.anon_id,
-            'amount': body.amount, 'product': body.product,
-            'notes': body.notes, 'chatter': body.chatter, 'timestamp': ts
+            'tg_id': row['tg_id'], 'anon_id': row['anon_id'],
+            'amount': row['amount'], 'product': row['product'],
+            'notes': '', 'chatter': row['chatter'], 'timestamp': row['timestamp']
         })
-    # Broadcast sale notification to all connected CRM clients
     asyncio.create_task(ws_manager.broadcast({
-        'type': 'notification',
-        'notif_type': 'sale',
-        'tg_id': body.tg_id,
-        'anon_id': body.anon_id,
-        'amount': body.amount,
-        'product': body.product,
-        'chatter': body.chatter,
-        'timestamp': ts,
+        'type': 'notification', 'notif_type': 'sale',
+        'tg_id': row['tg_id'], 'anon_id': row['anon_id'],
+        'amount': row['amount'], 'product': row['product'],
+        'chatter': row['chatter'], 'timestamp': row['timestamp'],
     }))
-    return {'ok': True, 'timestamp': ts}
+    asyncio.create_task(ws_manager.broadcast({
+        'type': 'sale_reviewed', 'sale_id': sale_id, 'status': 'approved'
+    }))
+    return {'ok': True}
+
+@app.post('/sale/{sale_id}/reject')
+async def reject_sale(sale_id: int, body: ReviewIn):
+    """Admin rejects a pending sale with a reason."""
+    ts = datetime.now().isoformat()
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                'UPDATE sales SET status=%s, reviewed_by=%s, reviewed_at=%s, rejection_reason=%s WHERE id=%s',
+                ('rejected', body.reviewed_by, ts, body.reason, sale_id)
+            )
+    asyncio.create_task(ws_manager.broadcast({
+        'type': 'sale_reviewed', 'sale_id': sale_id, 'status': 'rejected', 'reason': body.reason
+    }))
+    return {'ok': True}
+
+@app.get('/sales/pending')
+def get_pending_sales():
+    """List all pending sales for admin review."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                "SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp,screenshot FROM sales WHERE status='pending' ORDER BY timestamp DESC",
+            )
+            rows = c.fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['screenshot_url'] = f'/sale/{r["id"]}/screenshot' if r['screenshot'] else ''
+        result.append(d)
+    return result
 
 @app.get('/sales')
 def get_sales(limit: int = 200):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp FROM sales ORDER BY timestamp DESC LIMIT %s', (limit,))
+            c.execute(
+                'SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp,status,screenshot,rejection_reason FROM sales ORDER BY timestamp DESC LIMIT %s',
+                (limit,)
+            )
             rows = c.fetchall()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['screenshot_url'] = f'/sale/{r["id"]}/screenshot' if r['screenshot'] else ''
+        result.append(d)
+    return result
+
+@app.get('/messages/{tg_id}/{msg_id}/media')
+async def download_message_media(tg_id: str, msg_id: int):
+    """Download media from a specific Telegram message and return it."""
+    if not tg_client or not tg_client.is_connected():
+        raise HTTPException(503, 'Userbot not connected')
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+                row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        msgs = await tg_client.get_messages(peer, ids=msg_id)
+        if not msgs or not msgs.media:
+            raise HTTPException(404, 'No media in this message')
+        # Download to temp file in proofs dir
+        tmp_path = os.path.join(PROOFS_DIR, f'tmp_{tg_id}_{msg_id}')
+        path = await tg_client.download_media(msgs, file=tmp_path)
+        if not path or not os.path.isfile(path):
+            raise HTTPException(500, 'Download failed')
+        return FileResponse(path, filename=os.path.basename(path))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 # ── LISTS ─────────────────────────────────────────────────────────────────────
 class ListCreate(BaseModel):
