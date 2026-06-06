@@ -185,6 +185,9 @@ def init_db():
                 "ALTER TABLE sales ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT ''",
                 "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reviewed_by TEXT DEFAULT ''",
                 "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reviewed_at TEXT DEFAULT ''",
+                "ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT ''",
+                # YouSafe reference codes
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS payment_ref TEXT DEFAULT ''",
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_last_time ON conversations(last_time DESC)",
@@ -194,6 +197,10 @@ def init_db():
                 except Exception as e:
                     print(f'Migration skip: {e}')
                     conn.rollback()
+    # Backfill payment_ref for existing subscribers
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("UPDATE conversations SET payment_ref='ZF-'||SUBSTRING(anon_id FROM 7) WHERE (payment_ref IS NULL OR payment_ref='') AND anon_id LIKE 'User #%'")
     print('✅ DB initialized')
 
 def _fire_webhook_sync(url: str, payload: dict):
@@ -224,11 +231,14 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: st
             c.execute('SELECT COUNT(*) as n FROM conversations')
             n = c.fetchone()['n']
             anon_id = f'User #{1001 + n}'
+            payment_ref = f'ZF-{1001 + n}'
             now = datetime.now().isoformat()
             c.execute(
-                'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count,tg_username,tg_phone) VALUES (%s,%s,%s,%s,%s,1,0,%s,%s)',
-                (tg_id, anon_id, '', now, now, username, phone)
+                'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count,tg_username,tg_phone,payment_ref) VALUES (%s,%s,%s,%s,%s,1,0,%s,%s,%s)',
+                (tg_id, anon_id, '', now, now, username, phone, payment_ref)
             )
+            # Backfill payment_ref for any existing subscribers that don't have one
+            c.execute("UPDATE conversations SET payment_ref='ZF-'||SUBSTRING(anon_id FROM 7) WHERE payment_ref='' AND anon_id LIKE 'User #%'")
             is_new = True
     if is_new and SUBSCRIBER_BACKUP_WEBHOOK:
         _fire_webhook_sync(SUBSCRIBER_BACKUP_WEBHOOK, {
@@ -587,7 +597,7 @@ def get_online():
 def get_profile(tg_id: str):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,funnel_stage,call_followup_at,call_followup_note FROM conversations WHERE tg_id=%s', (tg_id,))
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,funnel_stage,call_followup_at,call_followup_note,payment_ref FROM conversations WHERE tg_id=%s', (tg_id,))
             row = c.fetchone()
     if not row:
         raise HTTPException(404, 'Not found')
@@ -1339,6 +1349,106 @@ async def vault_send(body: VaultSendIn):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+# ── PAYMENTS / YOUSAFE CSV IMPORT ────────────────────────────────────────────
+
+@app.post('/payments/import-csv')
+async def import_payments_csv(file: UploadFile = File(...)):
+    """Parse a bank statement CSV and auto-match transactions to subscribers by payment_ref."""
+    import csv as _csv, io as _io
+    content = (await file.read()).decode('utf-8-sig', errors='replace')
+    reader = _csv.DictReader(_io.StringIO(content))
+    rows = list(reader)
+
+    # Normalise header names (YouSafe / generic SEPA formats differ)
+    def _find_col(headers, *candidates):
+        for h in headers:
+            for c in candidates:
+                if c.lower() in h.lower():
+                    return h
+        return None
+
+    headers = reader.fieldnames or []
+    col_date   = _find_col(headers, 'date','datum','buchungstag','value date')
+    col_amount = _find_col(headers, 'amount','betrag','credit','debit','value')
+    col_ref    = _find_col(headers, 'reference','verwendungszweck','purpose','description','remark','memo','details')
+    col_sender = _find_col(headers, 'name','sender','auftraggeber','originator','from','debtor')
+
+    # Load all subscribers with their payment_ref
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT tg_id, anon_id, internal_name, payment_ref FROM conversations WHERE payment_ref != '' AND payment_ref IS NOT NULL")
+            subs = {r['payment_ref'].upper(): dict(r) for r in c.fetchall()}
+
+    matched = []
+    unmatched = []
+    ts_now = datetime.now().isoformat()
+
+    for row in rows:
+        raw_amount = row.get(col_amount, '0').replace(',', '.').replace('€','').strip() if col_amount else '0'
+        try:
+            amount = abs(float(raw_amount))
+        except ValueError:
+            continue
+        if amount <= 0:
+            continue
+
+        ref_text  = row.get(col_ref, '').upper() if col_ref else ''
+        date_text = row.get(col_date, '') if col_date else ''
+        sender    = row.get(col_sender, '') if col_sender else ''
+
+        # Try to find ZF-XXXX pattern in reference
+        import re as _re
+        match = _re.search(r'ZF[-\s]?(\d{4,})', ref_text)
+        matched_sub = None
+        if match:
+            code = f'ZF-{match.group(1)}'
+            matched_sub = subs.get(code)
+
+        if matched_sub:
+            # Create approved sale immediately
+            with db() as conn:
+                with conn.cursor() as c:
+                    c.execute(
+                        "INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status,payment_method) VALUES (%s,%s,%s,%s,%s,%s,%s,'approved','YouSafe') RETURNING id",
+                        (matched_sub['tg_id'], matched_sub['anon_id'], amount,
+                         'YouSafe Transfer', f'CSV import · {date_text} · {sender}',
+                         'CSV Import', ts_now)
+                    )
+                    sale_id = c.fetchone()['id']
+            matched.append({
+                'date': date_text, 'amount': amount, 'sender': sender,
+                'ref': ref_text[:80], 'subscriber': matched_sub['internal_name'] or matched_sub['anon_id'],
+                'tg_id': matched_sub['tg_id'], 'sale_id': sale_id
+            })
+        else:
+            unmatched.append({
+                'date': date_text, 'amount': amount,
+                'sender': sender, 'ref': ref_text[:80]
+            })
+
+    return {'ok': True, 'matched': matched, 'unmatched': unmatched,
+            'total': len(rows), 'matched_count': len(matched), 'unmatched_count': len(unmatched)}
+
+@app.post('/payments/match-manual')
+async def match_manual_payment(tg_id: str, amount: float, date: str = '', sender: str = '', notes: str = ''):
+    """Manually match an unmatched transaction to a subscriber."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT anon_id, internal_name FROM conversations WHERE tg_id=%s', (tg_id,))
+            row = c.fetchone()
+    if not row:
+        raise HTTPException(404, 'Subscriber not found')
+    ts = datetime.now().isoformat()
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                "INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status,payment_method) VALUES (%s,%s,%s,%s,%s,%s,%s,'approved','YouSafe') RETURNING id",
+                (tg_id, row['anon_id'], amount,
+                 'YouSafe Transfer', f'{notes} · {date} · {sender}'.strip(' ·'),
+                 'Manual Match', ts)
+            )
+    return {'ok': True}
+
 # ── FAKECHECK ────────────────────────────────────────────────────────────────
 FAKECHECK_BOT = '@FakecheckAudioBot'
 
@@ -1454,7 +1564,8 @@ class SaleSubmitIn(BaseModel):
     product: str = ''
     notes: str = ''
     chatter: str = 'Chatter'
-    is_admin: bool = False  # if True, auto-approve without screenshot
+    is_admin: bool = False
+    payment_method: str = ''  # YouSafe, Bank Transfer, Airwallex, Crypto, Other
 
 @app.post('/sale')
 async def post_sale(body: SaleSubmitIn):
@@ -1465,8 +1576,8 @@ async def post_sale(body: SaleSubmitIn):
     with db() as conn:
         with conn.cursor() as c:
             c.execute(
-                'INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
-                (body.tg_id, body.anon_id, body.amount, body.product, body.notes, body.chatter, ts, status)
+                'INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status,payment_method) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                (body.tg_id, body.anon_id, body.amount, body.product, body.notes, body.chatter, ts, status, body.payment_method)
             )
             sale_id = c.fetchone()['id']
     if status == 'approved':
