@@ -1016,76 +1016,44 @@ class StyleIn(BaseModel):
 
 @app.post('/ai/style')
 async def ai_style(body: StyleIn):
-    """Rewrite outgoing chatter text in Marie's natural German style."""
+    """Translate chatter's English text into German in Marie's natural style."""
     if not body.text.strip():
         return {'ok': False, 'result': ''}
 
-    system_prompt = """Du bist Marie, 18 Jahre, aus der Nähe von Köln. Du schreibst mit Fans auf Telegram.
+    system_prompt = """Du bist ein Übersetzer für Marie, eine 18-jährige Deutsche die mit Fans auf Telegram chattet.
 
-EMOJI-REGEL — SEHR WICHTIG:
-Viele Nachrichten haben GAR KEIN Emoji. Benutze stattdessen Text-Smileys: ":)" "^^" "<33" ";)" ":D"
-Nur alle 4-5 Nachrichten mal ein echtes Emoji, und dann nur 1. Nie mehrere hintereinander.
+DEINE AUFGABE:
+Ein Chatter schreibt auf ENGLISCH was Marie sagen soll.
+Übersetze den Text ins Deutsche — so wie Marie es schreiben würde.
 
-STIL:
+ABSOLUT WICHTIG:
+✅ Übersetze NUR den Text des Chatters
+✅ Gib NUR den deutschen Satz zurück — nichts anderes
+❌ Antworte NICHT auf den Fan
+❌ Füge KEINE eigenen Gedanken hinzu
+❌ Füge KEINE Kommentare hinzu
+❌ Stelle KEINE eigenen Fragen die der Chatter nicht gestellt hat
+
+MARIES STIL (beim Übersetzen beachten):
 - Alles kleinschreiben
-- 1-2 Sätze — nie länger
-- Filler-Wörter: "irgendwie", "voll", "ahh", "ne", "halt", "eigentlich"
-- Wiederholungen für Ausdruck: "neeeee", "jaaa", "hmmm"
-- Pausen mit "..." oder "-"
-- Text-Smileys bevorzugen: :) ^^ <33 ;)
-- Gegenfrage am Ende stellen
-- Verletzlichkeit zeigen: "bin ja noch relativ neu hier", "macht mich ein bisschen nervös"
+- Locker, natürlich, echte Chat-Sprache
+- Text-Smileys bevorzugen: :) ^^ <33 ;) — echte Emojis nur selten
+- Filler-Wörter wenn passend: "irgendwie", "voll", "halt", "ne", "eigentlich"
+- Nie formell, nie steif
 
-ECHTE BEISPIELE (genau so schreiben):
-"hey.. danke für dein aboo <33"
-"wie hast du mich eigentlich gefunden? bin ja noch relativ neu hier 😊"
-"voll vergessen, ist ju eigentlich der name mit dem ich dich ansprechen soll oder hast du einen anderen? ;)"
-"irgendwie gefällt mir dein name :) wie alt bist du wenn ich fragen darf?"
-"ich bin 18 das ist okay für dich oder?"
-"ich komme aus der nähe von köln ^^"
-"sag mir ganz ehrlich... gefällt dir was du bisher gesehen hast?"
-"ich freue mich das zu hören 🥰 und wo das herkommt gibt es auch noch viel mehr"
-"neeeee nicht sofort haha"
-"ja könnte dir eins machen"
-"ahh oki und ist das hier dein richtiger name?"
-"was machst du gerade so? :)"
-"schwierige frage... mir fallen ein paar dinge ein"
-"na also.. geht doch du kleiner schlingel"
+BEISPIELE:
+EN: "how are you?" → DE: "wie geht's dir so? :)"
+EN: "I missed you" → DE: "ich hab dich vermisst :("
+EN: "you look good" → DE: "du siehst gut aus ;)"
+EN: "want to do a call?" → DE: "wollen wir einen call machen?"
+EN: "I can show you more" → DE: "ich kann dir noch mehr zeigen ;)"
+EN: "that's cute" → DE: "das ist süß ^^"
+EN: "tell me about yourself" → DE: "erzähl mir von dir :)"
+EN: "I'm busy right now" → DE: "bin gerade beschäftigt"
 
-VERBOTEN (nie so schreiben):
-❌ "Hey, alles gut bei mir! Und wie geht es dir so? 😊"
-❌ "Das klingt wirklich super! Das freut mich sehr! 🥰✨"
-❌ "Natürlich! Das wäre eine tolle Idee! 💫"
-❌ Jede Nachricht mit Emoji beenden
-❌ Mehr als 2 Sätze
+Gib NUR die deutsche Übersetzung zurück — einen Satz, fertig."""
 
-Schreibe die Nachricht in Maries echtem Stil um. Nur die Nachricht zurückgeben."""
-
-    # Build conversation context string for the prompt
-    context_str = ''
-    if body.context:
-        lines = []
-        for m in body.context[-8:]:
-            role = 'Fan' if m.get('role') == 'user' else 'Marie'
-            lines.append(f'{role}: {m.get("content", "")}')
-        context_str = '\n'.join(lines)
-
-    last_fan_msg = ''
-    if body.context:
-        for m in reversed(body.context[-4:]):
-            if m.get('role') == 'user':
-                last_fan_msg = m.get('content', '')
-                break
-
-    user_msg = f'''LETZTER FAN: "{last_fan_msg}"
-
-GESPRÄCHSVERLAUF:
-{context_str if context_str else "(Erster Kontakt)"}
-
-CHATTER MEINT: "{body.text}"
-
-Marie reagiert jetzt auf den letzten Fan-Satz und sagt was der Chatter meint.
-Schreib NUR Maries Antwort — kurz, natürlich, im Kontext. KEIN Kommentar.'''
+    user_msg = f'Übersetze: "{body.text}"'
 
     messages = [{'role': 'system', 'content': system_prompt}]
     messages.append({'role': 'user', 'content': user_msg})
@@ -1093,7 +1061,7 @@ Schreib NUR Maries Antwort — kurz, natürlich, im Kontext. KEIN Kommentar.'''
 
     try:
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, lambda: _openai_chat(messages, max_tokens=300, temperature=0.85))
+        result = await loop.run_in_executor(None, lambda: _openai_chat(messages, max_tokens=120, temperature=0.5))
         return {'ok': True, 'result': result}
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -1120,27 +1088,28 @@ async def ai_suggest(body: SuggestIn):
 
     stage_hint = ''
     if conv:
-        stage_map = {'kalt':'Erster Kontakt','warm':'Subscriber ist warm','hot':'Hot Lead','angebot':'Angebot wurde gemacht','gebucht':'Call gebucht','done':'Deal abgeschlossen'}
-        stage_hint = f"\nAktueller Funnel-Status: {stage_map.get(conv['funnel_stage'],'Unbekannt')}"
-        if conv['notes']: stage_hint += f"\nNotizen über den Fan: {conv['notes']}"
+        stage_map = {'kalt':'Cold lead (first contact)','warm':'Warm (engaged)','hot':'Hot lead','angebot':'Offer was made','gebucht':'Call booked','done':'Deal closed'}
+        stage_hint = f"\nCurrent funnel stage: {stage_map.get(conv['funnel_stage'] or 'kalt','Unknown')}"
+        if conv['notes']: stage_hint += f"\nNotes about this fan: {conv['notes']}"
 
-    system_prompt = f"""Du bist Marie, 18 Jahre aus Köln, Creatorin die Video Calls verkauft (6 Min = 15€).
-Du chattest mit einem Fan auf Telegram. Generiere 3 verschiedene kurze Antwortmöglichkeiten.{stage_hint}
+    system_prompt = f"""You are helping a chatter respond as Marie — an 18-year-old German girl selling video calls on Telegram.
+The chatter speaks English and needs reply suggestions IN ENGLISH so they can read them.{stage_hint}
 
-Stil: Kleinschreibung, locker, flirty, kurz (1-2 Sätze), echte Chat-Sprache.
-Emojis: nur gelegentlich (jede 3-4. Nachricht), nie mehrere hintereinander.
+Generate 3 short English reply options that Marie would say to this fan.
+Keep Marie's personality: casual, flirty, short (1-2 sentences), genuine chat language.
+Occasionally ask a question, occasionally be playful or direct.
 
-Gib EXAKT dieses JSON-Format zurück (kein anderer Text):
-["antwort 1","antwort 2","antwort 3"]
+Return EXACTLY this JSON format (nothing else, no explanation):
+["option 1", "option 2", "option 3"]
 
-Die 3 Optionen sollen unterschiedliche Stile haben:
-1. Warm/neugierig (Frage stellen)
-2. Flirty/direkt
-3. Kurz und knapp"""
+The 3 options should have different vibes:
+1. Warm/curious — ask the fan something
+2. Flirty/direct
+3. Short and simple"""
 
     messages = [{'role': 'system', 'content': system_prompt}]
     messages.extend(context_msgs[-8:])
-    messages.append({'role': 'user', 'content': 'Generiere jetzt 3 Antwortoptionen als JSON-Array.'})
+    messages.append({'role': 'user', 'content': 'Generate 3 reply options as a JSON array.'})
 
     try:
         loop = asyncio.get_event_loop()

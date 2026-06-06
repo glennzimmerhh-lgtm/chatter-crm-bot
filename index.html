@@ -1805,7 +1805,10 @@
         </div>
         <!-- AI Suggestions Panel -->
         <div id="ai-suggest-panel" style="display:none;padding:8px 12px;border-top:1px solid rgba(167,139,250,0.2);background:rgba(167,139,250,0.04);flex-shrink:0;">
-          <div style="font-size:10px;color:#a78bfa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">💡 AI Suggestions</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div style="font-size:10px;color:#a78bfa;text-transform:uppercase;letter-spacing:.06em;">💡 AI Suggestions</div>
+            <div style="font-size:10px;color:var(--text3);">Pick one → click ✨ to translate → Send</div>
+          </div>
           <div id="ai-suggest-chips" style="display:flex;flex-direction:column;gap:5px;"></div>
         </div>
         <div class="reply-bar">
@@ -4321,9 +4324,9 @@ async function startBroadcast() {
     if (rb) {
       const btn = document.createElement('button');
       btn.id = 'translate-out-btn';
-      btn.title = 'Translate & style as Marie';
-      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/></svg>';
-      btn.style.cssText = 'background:rgba(74,158,255,.15);border:1px solid rgba(74,158,255,.35);color:#4a9eff;border-radius:12px;padding:10px 12px;font-size:16px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;';
+      btn.title = 'Translate to German (Marie style)';
+      btn.textContent = '✨ DE';
+      btn.style.cssText = 'background:rgba(74,158,255,.15);border:1px solid rgba(74,158,255,.35);color:#4a9eff;border-radius:12px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap;';
       const sendBtn = rb.querySelector('button');
       rb.insertBefore(btn, sendBtn);
       btn.onclick = () => window.translateInput();
@@ -4420,7 +4423,7 @@ async function startBroadcast() {
     const original = inp.value.trim();
     if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
     const result = await _marieStyle(original);
-    if (btn) { btn.textContent = '✨'; btn.disabled = false; }
+    if (btn) { btn.textContent = '✨ DE'; btn.disabled = false; }
     if (result) inp.value = result;
   };
 })();
