@@ -2025,9 +2025,9 @@ let _saleProofFilename = '';     // Original filename
 function _checkSaleSubmitReady() {
   const amount = parseFloat(document.getElementById('sale-amount')?.value || '0');
   const hasProof = !!_saleProofBlob;
-  const isAdmin = isAdmin ? isAdmin() : false;
+  const admin = typeof isAdmin === 'function' && isAdmin();
   const btn = document.getElementById('sale-confirm-btn');
-  const ready = amount > 0 && (hasProof || isAdmin);
+  const ready = amount > 0 && (hasProof || admin);
   if (btn) { btn.disabled = !ready; btn.style.opacity = ready ? '1' : '.5'; }
 }
 
@@ -2119,9 +2119,9 @@ function openSaleModal(tgId, displayName) {
   document.getElementById('sale-proof-img').src = '';
   document.getElementById('sale-proof-file').value = '';
   // Admin can submit without proof; chatter must provide proof
-  const admin = typeof isAdmin === 'function' && isAdmin();
+  const _admin = typeof isAdmin === 'function' && isAdmin();
   const badge = document.getElementById('sale-proof-required-badge');
-  if (badge) badge.style.display = admin ? 'none' : 'inline';
+  if (badge) badge.style.display = _admin ? 'none' : 'inline';
   _checkSaleSubmitReady();
   // Reset category buttons
   document.querySelectorAll('.sale-cat-btn').forEach(b => {
@@ -2143,8 +2143,8 @@ async function submitSale() {
   if (!amount || amount <= 0) { alert('Please enter a valid amount.'); return; }
   const product = document.getElementById('sale-product').value.trim();
   if (!product) { alert('Please select a category.'); return; }
-  const admin = typeof isAdmin === 'function' && isAdmin();
-  if (!admin && !_saleProofBlob) { alert('Please attach proof (payment screenshot) before submitting.'); return; }
+  const _isAdm = typeof isAdmin === 'function' && isAdmin();
+  if (!_isAdm && !_saleProofBlob) { alert('Please attach proof (payment screenshot) before submitting.'); return; }
 
   const notes = document.getElementById('sale-notes').value.trim();
   const user  = localStorage.getItem('crm_user') || 'Chatter';
@@ -2159,7 +2159,7 @@ async function submitSale() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         tg_id: _saleTarget.tg_id, anon_id: _saleTarget.anon_id,
-        amount, product, notes, chatter: user, is_admin: admin
+        amount, product, notes, chatter: user, is_admin: _isAdm
       })
     });
     const d = await r.json();
@@ -2178,7 +2178,7 @@ async function submitSale() {
     if (btn) { btn.disabled = false; btn.textContent = '✅ Submit'; }
 
     // Show status message via notification
-    const statusMsg = admin ? '✅ Sale saved!' : '⏳ Sale submitted — waiting for admin approval';
+    const statusMsg = _isAdm ? '✅ Sale saved!' : '⏳ Sale submitted — waiting for admin approval';
     if (fb) { fb.textContent = statusMsg; fb.style.display = 'block'; }
 
     // Refresh sales data
@@ -4087,23 +4087,23 @@ if (checkAuth()) {
       const meta = dir === 'out'
         ? `<div class="msg-meta" style="display:flex;align-items:center;justify-content:flex-end;gap:2px;">${m.chatter||'Chatter'} · ${time}${ticks}</div>`
         : `<div class="msg-meta">${time}</div>`;
-      // 📎 Attach-to-sale button on incoming messages that have media (tg_msg_id > 0)
-      const hasMedia = dir === 'in' && m.tg_msg_id && m.tg_msg_id > 0 &&
-        (m.text.startsWith('[') || /\[(photo|video|image|file|document)\]/i.test(m.text));
+      const msgBubbleId = `msg-${m.id || i}`;
+      // 🇬🇧 translate button — tiny, inside bubble, only on incoming
+      const transBtn = dir === 'in'
+        ? `<button onclick="translateIncoming('${msgBubbleId}',this)" style="display:inline-block;margin-top:3px;background:none;border:none;color:rgba(255,255,255,.25);font-size:10px;cursor:pointer;padding:0;line-height:1;" title="Translate">🇬🇧</button>`
+        : '';
+      // 📎 Attach-to-sale — only on incoming messages with a photo/image (tg_msg_id set + text is a file reference)
+      const hasMedia = dir === 'in' && m.tg_msg_id > 0 &&
+        /\[(photo|video|image|jpeg|png|gif|mp4)\]/i.test(m.text);
       const attachBtn = hasMedia
-        ? `<button onclick="attachMsgAsProof('${currentChatTgId}',${m.tg_msg_id})" title="Attach as sale proof"
-            style="display:block;margin-top:4px;width:100%;padding:3px 8px;border:1px solid rgba(255,209,102,.4);background:rgba(255,209,102,.08);color:#ffd166;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;text-align:left;">
+        ? `<button onclick="attachMsgAsProof('${currentChatTgId}',${m.tg_msg_id})"
+            style="display:block;margin-top:3px;padding:2px 8px;border:1px solid rgba(255,209,102,.35);background:rgba(255,209,102,.07);color:#ffd166;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;width:fit-content;">
             📎 Attach as sale proof
           </button>`
         : '';
-      // 🇬🇧 translate button on incoming messages
-      const msgBubbleId = `msg-${m.id || i}`;
-      const transBtn = dir === 'in'
-        ? `<button onclick="translateIncoming('${msgBubbleId}',this)" style="margin-top:4px;background:none;border:1px solid rgba(255,255,255,.1);color:#555;border-radius:4px;padding:1px 5px;font-size:10px;cursor:pointer;">🇬🇧</button>`
-        : '';
       return `<div class="msg-row">
-        <div class="msg-bubble msg-${dir}" id="${msgBubbleId}">${displayText}${meta}</div>
-        ${attachBtn}${transBtn}
+        <div class="msg-bubble msg-${dir}" id="${msgBubbleId}">${displayText}${transBtn}${meta}</div>
+        ${attachBtn}
       </div>`;
     }).join('');
     if (wasAtBottom) el.scrollTop = el.scrollHeight;
