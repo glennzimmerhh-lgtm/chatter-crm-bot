@@ -1297,13 +1297,22 @@ def vault_list(folder: Optional[str] = None):
 @app.post('/vault/upload')
 async def vault_upload(file: UploadFile = File(...), folder: str = ''):
     """Upload a file to the vault, optionally into a folder."""
-    if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(400, f'File type not allowed: {file.content_type}')
+    # Accept common types; also allow empty content-type (some clients omit it)
+    ct = (file.content_type or '').split(';')[0].strip().lower()
+    if ct and ct not in ALLOWED_TYPES and ct != 'application/octet-stream':
+        raise HTTPException(400, f'File type not allowed: {ct}')
+    # Sanitize filename only (keep the original folder name to avoid breaking existing folders)
     safe_name = _vault_safe(file.filename or 'file') or 'file'
     if folder:
-        safe_folder = _vault_safe(folder)
-        target_dir = os.path.join(VAULT_DIR, safe_folder)
-        os.makedirs(target_dir, exist_ok=True)
+        # Use folder name as-is if it already exists, otherwise sanitize for new folders
+        existing = os.path.join(VAULT_DIR, folder)
+        if os.path.isdir(existing):
+            target_dir = existing
+            safe_folder = folder          # preserve original name (may have spaces)
+        else:
+            safe_folder = _vault_safe(folder)
+            target_dir = os.path.join(VAULT_DIR, safe_folder)
+            os.makedirs(target_dir, exist_ok=True)
     else:
         target_dir = VAULT_DIR
         safe_folder = ''

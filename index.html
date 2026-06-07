@@ -5549,11 +5549,18 @@ async function vaultDeleteFolder(name) {
 
 async function vaultUpload(input) {
   const status = document.getElementById('vault-upload-status');
-  const folder = document.getElementById('vault-upload-label')?.dataset?.folder || _vaultCurrentFolder || '';
+  const folder = _vaultCurrentFolder || '';
   if (status) { status.style.display='block'; status.style.color='var(--text2)'; status.textContent='⏳ Uploading...'; }
+
+  // Upload directly to Railway — bypasses Vercel's 4.5 MB proxy limit
+  const railwayBase = 'https://worker-production-806f.up.railway.app';
+  let uploaded = 0;
+
   for (const file of input.files) {
-    const fd = new FormData(); fd.append('file', file);
-    const url = '/api/vault/upload' + (folder ? `?folder=${encodeURIComponent(folder)}` : '');
+    const fd = new FormData();
+    fd.append('file', file);
+    const url = railwayBase + '/vault/upload' + (folder ? `?folder=${encodeURIComponent(folder)}` : '');
+    if (status) status.textContent = `⏳ Uploading ${uploaded + 1} / ${input.files.length}…`;
     try {
       const r = await fetch(url, { method: 'POST', body: fd });
       if (!r.ok) {
@@ -5563,15 +5570,16 @@ async function vaultUpload(input) {
       }
       const d = await r.json();
       if (!d.ok) throw new Error(d.detail || 'Server error');
+      uploaded++;
     } catch(e) {
       if (status) { status.style.color='var(--red)'; status.textContent='❌ ' + e.message; }
       return;
     }
   }
-  if (status) { status.style.color='var(--teal)'; status.textContent=`✅ ${input.files.length} uploaded`; setTimeout(() => { status.style.display='none'; }, 3000); }
+  if (status) { status.style.color='var(--teal)'; status.textContent=`✅ ${uploaded} file(s) uploaded`; setTimeout(() => { status.style.display='none'; }, 3000); }
   input.value = '';
   await loadVaultPage();
-  vaultSelectFolder(_vaultCurrentFolder); // stay in current folder
+  vaultSelectFolder(_vaultCurrentFolder);
 }
 
 async function deleteVaultFile(name, btn) {
