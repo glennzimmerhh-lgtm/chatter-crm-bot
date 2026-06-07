@@ -1202,7 +1202,9 @@ def get_notifications(limit: int = 80):
 # ── VAULT ────────────────────────────────────────────────────────────────────
 ALLOWED_TYPES = {
     'image/jpeg','image/jpg','image/png','image/gif','image/webp',
-    'image/heic','image/heif',  # iOS formats
+    'image/heic','image/heif',                          # iOS formats
+    'image/x-adobe-dng','image/dng','image/x-raw',      # RAW / DNG
+    'image/tiff','image/x-tiff',                        # TIFF
     'video/mp4','video/quicktime','video/x-matroska','video/avi','video/x-msvideo',
 }
 
@@ -1269,9 +1271,11 @@ def vault_list(folder: Optional[str] = None):
     files = []
     try:
         if folder:
-            # List files in specific folder
-            safe_folder = _vault_safe(folder)
-            dir_path = os.path.join(VAULT_DIR, safe_folder)
+            # List files in specific folder — use raw name, check both original and safe version
+            dir_path = os.path.join(VAULT_DIR, folder)
+            if not os.path.isdir(dir_path):
+                dir_path = os.path.join(VAULT_DIR, _vault_safe(folder))
+            safe_folder = os.path.basename(dir_path)
             if os.path.isdir(dir_path):
                 for fname in sorted(os.listdir(dir_path)):
                     fpath = os.path.join(dir_path, fname)
@@ -1321,8 +1325,14 @@ async def vault_upload(file: UploadFile = File(...), folder: str = ''):
         base, ext = os.path.splitext(safe_name)
         safe_name = f'{base}_{int(datetime.now().timestamp())}{ext}'
         fpath = os.path.join(target_dir, safe_name)
-    with open(fpath, 'wb') as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        with open(fpath, 'wb') as f:
+            shutil.copyfileobj(file.file, f)
+    except OSError as e:
+        print(f'Vault write error: {e}')
+        if 'No space left' in str(e):
+            raise HTTPException(507, 'Disk full — Railway volume is out of space. Delete old files or expand volume.')
+        raise HTTPException(500, f'Write error: {e}')
     relpath = f'{safe_folder}/{safe_name}' if safe_folder else safe_name
     return {'ok': True, 'name': relpath, 'url': f'/vault/file/{relpath}'}
 

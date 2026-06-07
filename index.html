@@ -1684,7 +1684,7 @@
         <div id="vault-upload-status" style="font-size:13px;display:none;"></div>
         <label id="vault-upload-label" style="background:var(--teal);color:#000;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;">
           ⬆️ Upload
-          <input type="file" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,image/heic,image/heif,video/mp4,video/quicktime" multiple onchange="vaultUpload(this)" style="display:none;">
+          <input type="file" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,image/heic,image/heif,image/x-adobe-dng,image/dng,image/tiff,video/mp4,video/quicktime,.dng,.heic,.heif,.tiff,.jpg,.jpeg,.png" multiple onchange="vaultUpload(this)" style="display:none;">
         </label>
       </div>
     </div>
@@ -5618,20 +5618,34 @@ async function _vaultDoUpload(fd, folder) {
 async function vaultUpload(input) {
   const status = document.getElementById('vault-upload-status');
   const folder = _vaultCurrentFolder || '';
-  if (status) { status.style.display='block'; status.style.color='var(--text2)'; status.textContent='⏳ Uploading...'; }
-  let uploaded = 0;
-  for (const file of input.files) {
-    if (status) status.textContent = `⏳ Uploading ${uploaded + 1} / ${input.files.length}: ${file.name}`;
-    const fd = new FormData();
-    fd.append('file', file);
-    const result = await _vaultDoUpload(fd, folder);
-    if (!result.ok) {
-      if (status) { status.style.color='var(--red)'; status.textContent='❌ ' + result.error; }
-      return;
+  const files = Array.from(input.files);
+  if (!files.length) return;
+  if (status) { status.style.display='block'; status.style.color='var(--text2)'; status.textContent=`⏳ Uploading 0 / ${files.length}…`; }
+
+  // Upload in parallel batches of 5
+  const BATCH = 5;
+  let uploaded = 0, failed = 0;
+  const errors = [];
+
+  for (let i = 0; i < files.length; i += BATCH) {
+    const batch = files.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map(file => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return _vaultDoUpload(fd, folder);
+    }));
+    for (const r of results) {
+      if (r.ok) uploaded++;
+      else { failed++; errors.push(r.error); }
     }
-    uploaded++;
+    if (status) status.textContent = `⏳ ${uploaded} / ${files.length} uploaded…`;
   }
-  if (status) { status.style.color='var(--teal)'; status.textContent=`✅ ${uploaded} file(s) uploaded`; setTimeout(() => { status.style.display='none'; }, 3000); }
+
+  if (failed === 0) {
+    if (status) { status.style.color='var(--teal)'; status.textContent=`✅ ${uploaded} file(s) uploaded`; setTimeout(() => { status.style.display='none'; }, 3000); }
+  } else {
+    if (status) { status.style.color='var(--red)'; status.textContent=`⚠️ ${uploaded} uploaded, ${failed} failed: ${[...new Set(errors)].join(' · ')}`; }
+  }
   input.value = '';
   await loadVaultPage();
   vaultSelectFolder(_vaultCurrentFolder);
