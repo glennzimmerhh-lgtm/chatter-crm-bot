@@ -128,6 +128,19 @@ def init_db():
                 chatter   TEXT DEFAULT '',
                 timestamp TEXT NOT NULL
             )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS pledges (
+                id              SERIAL PRIMARY KEY,
+                tg_id           TEXT NOT NULL,
+                anon_id         TEXT NOT NULL,
+                amount          REAL NOT NULL,
+                payment_method  TEXT DEFAULT '',
+                notes           TEXT DEFAULT '',
+                chatter         TEXT DEFAULT '',
+                deadline        TEXT NOT NULL,
+                status          TEXT DEFAULT 'open',
+                created_at      TEXT NOT NULL,
+                paid_at         TEXT DEFAULT ''
+            )''')
             c.execute('''CREATE TABLE IF NOT EXISTS lists (
                 id    SERIAL PRIMARY KEY,
                 name  TEXT NOT NULL,
@@ -186,6 +199,7 @@ def init_db():
                 "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reviewed_by TEXT DEFAULT ''",
                 "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reviewed_at TEXT DEFAULT ''",
                 "ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT ''",
+                "ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_code TEXT DEFAULT ''",
                 # YouSafe reference codes
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS payment_ref TEXT DEFAULT ''",
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
@@ -1186,10 +1200,19 @@ def get_notifications(limit: int = 80):
     return events[:limit]
 
 # ── VAULT ────────────────────────────────────────────────────────────────────
-ALLOWED_TYPES = {'image/jpeg','image/png','image/gif','image/webp','video/mp4','video/quicktime','video/x-matroska'}
+ALLOWED_TYPES = {
+    'image/jpeg','image/jpg','image/png','image/gif','image/webp',
+    'image/heic','image/heif',  # iOS formats
+    'video/mp4','video/quicktime','video/x-matroska','video/avi','video/x-msvideo',
+}
 
 def _vault_safe(name: str) -> str:
-    return ''.join(c for c in name if c.isalnum() or c in '._- ')
+    """Sanitize filename: only alphanumeric, dots, dashes, underscores. Spaces → underscore."""
+    import re as _re
+    name = _re.sub(r'[^a-zA-Z0-9._-]', '_', name)
+    name = _re.sub(r'_+', '_', name)   # collapse multiple underscores
+    name = name.strip('_')              # remove leading/trailing underscores
+    return name or 'file'
 
 def _vault_file_info(fpath: str, relpath: str, folder: str) -> dict:
     stat = os.stat(fpath)
@@ -1348,6 +1371,113 @@ async def vault_send(body: VaultSendIn):
         return {'ok': True}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+# ── PLEDGES ──────────────────────────────────────────────────────────────────
+
+class PledgeIn(BaseModel):
+    tg_id: str
+    anon_id: str
+    amount: float
+    payment_method: str = ''
+    notes: str = ''
+    chatter: str = ''
+    deadline: str  # ISO date string e.g. "2026-06-10"
+
+@app.post('/pledges')
+def create_pledge(body: PledgeIn):
+    ts = datetime.now().isoformat()
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                'INSERT INTO pledges (tg_id,anon_id,amount,payment_method,notes,chatter,deadline,status,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                (body.tg_id, body.anon_id, body.amount, body.payment_method,
+                 body.notes, body.chatter, body.deadline, 'open', ts)
+            )
+            pid = c.fetchone()['id']
+    return {'ok': True, 'id': pid}
+
+@app.get('/pledges')
+def get_pledges(status: str = ''):
+    with db() as conn:
+        with conn.cursor() as c:
+            if status:
+                c.execute('SELECT * FROM pledges WHERE status=%s ORDER BY deadline ASC', (status,))
+            else:
+                c.execute("SELECT * FROM pledges WHERE status != 'cancelled' ORDER BY deadline ASC")
+            rows = c.fetchall()
+    now = datetime.now().isoformat()[:10]
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['overdue'] = d['status'] == 'open' and d['deadline'] < now
+        result.append(d)
+    return result
+
+@app.get('/pledges/summary')
+def get_pledges_summary():
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT status, SUM(amount) as total, COUNT(*) as count FROM pledges GROUP BY status")
+            rows = c.fetchall()
+    now = datetime.now().isoformat()[:10]
+    summary = {r['status']: {'total': float(r['total'] or 0), 'count': r['count']} for r in rows}
+    # Also get overdue count
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT COUNT(*) as n, SUM(amount) as t FROM pledges WHERE status='open' AND deadline < %s", (now,))
+            row = c.fetchone()
+    summary['overdue'] = {'count': row['n'], 'total': float(row['t'] or 0)}
+    return summary
+
+@app.get('/pledges/{tg_id}')
+def get_subscriber_pledges(tg_id: str):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT * FROM pledges WHERE tg_id=%s AND status != 'cancelled' ORDER BY deadline DESC", (tg_id,))
+            rows = c.fetchall()
+    now = datetime.now().isoformat()[:10]
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['overdue'] = d['status'] == 'open' and d['deadline'] < now
+        result.append(d)
+    return result
+
+@app.post('/pledges/{pledge_id}/pay')
+async def mark_pledge_paid(pledge_id: int):
+    """Mark pledge as paid and auto-create an approved sale."""
+    ts = datetime.now().isoformat()
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT * FROM pledges WHERE id=%s', (pledge_id,))
+            p = c.fetchone()
+    if not p:
+        raise HTTPException(404, 'Pledge not found')
+    # Create approved sale
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                "INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status,payment_method) VALUES (%s,%s,%s,%s,%s,%s,%s,'approved',%s) RETURNING id",
+                (p['tg_id'], p['anon_id'], p['amount'],
+                 p['payment_method'] or 'Pledge',
+                 f'Pledge #{pledge_id}: {p["notes"]}',
+                 p['chatter'], ts, p['payment_method'])
+            )
+            c.execute("UPDATE pledges SET status='paid', paid_at=%s WHERE id=%s", (ts, pledge_id))
+    asyncio.create_task(ws_manager.broadcast({
+        'type': 'notification', 'notif_type': 'sale',
+        'tg_id': p['tg_id'], 'anon_id': p['anon_id'],
+        'amount': p['amount'], 'product': 'Pledge paid',
+        'chatter': p['chatter'], 'timestamp': ts,
+    }))
+    return {'ok': True}
+
+@app.post('/pledges/{pledge_id}/cancel')
+def cancel_pledge(pledge_id: int):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("UPDATE pledges SET status='cancelled' WHERE id=%s", (pledge_id,))
+    return {'ok': True}
 
 # ── PAYMENTS / YOUSAFE CSV IMPORT ────────────────────────────────────────────
 
@@ -1565,7 +1695,8 @@ class SaleSubmitIn(BaseModel):
     notes: str = ''
     chatter: str = 'Chatter'
     is_admin: bool = False
-    payment_method: str = ''  # YouSafe, Bank Transfer, Airwallex, Crypto, Other
+    payment_method: str = ''
+    payment_code: str = ''  # Paysafe 16-digit or Amazon gift card code
 
 @app.post('/sale')
 async def post_sale(body: SaleSubmitIn):
@@ -1576,8 +1707,8 @@ async def post_sale(body: SaleSubmitIn):
     with db() as conn:
         with conn.cursor() as c:
             c.execute(
-                'INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status,payment_method) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
-                (body.tg_id, body.anon_id, body.amount, body.product, body.notes, body.chatter, ts, status, body.payment_method)
+                'INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status,payment_method,payment_code) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                (body.tg_id, body.anon_id, body.amount, body.product, body.notes, body.chatter, ts, status, body.payment_method, body.payment_code)
             )
             sale_id = c.fetchone()['id']
     if status == 'approved':
@@ -1699,12 +1830,23 @@ def get_pending_sales():
         result.append(d)
     return result
 
+@app.get('/sales/codes')
+def get_sale_codes():
+    """Return all Paysafe and Amazon codes with their sale status."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                "SELECT id,anon_id,amount,payment_method,payment_code,status,timestamp,chatter FROM sales WHERE payment_code != '' AND payment_code IS NOT NULL ORDER BY timestamp DESC"
+            )
+            rows = c.fetchall()
+    return [dict(r) for r in rows]
+
 @app.get('/sales')
 def get_sales(limit: int = 200):
     with db() as conn:
         with conn.cursor() as c:
             c.execute(
-                'SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp,status,screenshot,rejection_reason FROM sales ORDER BY timestamp DESC LIMIT %s',
+                'SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp,status,screenshot,rejection_reason,payment_method,payment_code FROM sales ORDER BY timestamp DESC LIMIT %s',
                 (limit,)
             )
             rows = c.fetchall()
