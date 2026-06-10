@@ -2120,7 +2120,7 @@ def get_call_files():
                 })
     except Exception as e:
         print(f'call files error: {e}')
-    return files
+    return {'files': files}
 
 @app.post('/call/upload')
 async def upload_call_file(file: UploadFile = File(...)):
