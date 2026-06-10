@@ -3771,7 +3771,7 @@ if (checkAuth()) {
     const sorted = [...convs].sort((a, b) => new Date(b.last_time || 0) - new Date(a.last_time || 0));
     el.innerHTML = sorted.map(c => {
       const active = c.tg_id === currentChatTgId ? 'active' : '';
-      const letter = c.anon_id.replace('User #', '#').slice(0,2);
+      const letter = anonLetter(c.internal_name, c.anon_id, c.tg_username);
       const time = c.last_time ? new Date(c.last_time).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
       const spending = getSubscriberSpending(c.tg_id);
       const tier = getSpendingTier(spending);
@@ -3840,7 +3840,8 @@ if (checkAuth()) {
   window.openConv = async function openConv(tgId, anonId) {
     currentChatTgId = tgId;
     document.getElementById('msg-conv-name').textContent = anonId;
-    const _topbarLetter = anonId.replace('User #','#').slice(0,2);
+    const _conv = allConvs.find(x => x.tg_id === tgId) || {};
+    const _topbarLetter = anonLetter(_conv.internal_name, anonId, _conv.tg_username);
     const _topbarEl = document.getElementById('msg-avatar');
     _topbarEl.innerHTML = avatarImg(tgId, _topbarLetter);
     updateConvStatus(tgId);
@@ -3865,6 +3866,19 @@ if (checkAuth()) {
   function tgColor(tgId) { return TG_COLORS[Math.abs(parseInt(tgId)||0) % TG_COLORS.length]; }
 
   const _photoFailed = new Set(); // tg_ids where photo load failed
+  function anonLetter(internalName, anonId, tgUsername) {
+    if (internalName) {
+      const parts = internalName.trim().split(/\s+/);
+      return parts.length >= 2
+        ? (parts[0][0] + parts[1][0]).toUpperCase()
+        : parts[0].slice(0,2).toUpperCase();
+    }
+    if (tgUsername) return tgUsername[0].toUpperCase();
+    // e.g. "User #1050" → last 2 digits "50"
+    const digits = (anonId || '').replace(/\D/g,'');
+    return digits.slice(-2) || '?';
+  }
+
   function tgLetterAvatar(tgId, letter) {
     const col = tgColor(tgId);
     return `<div style="width:100%;height:100%;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:inherit;font-weight:700;color:#fff;">${letter}</div>`;
@@ -3902,7 +3916,7 @@ if (checkAuth()) {
     if (convRef && p.tg_username && !convRef.tg_username) convRef.tg_username = p.tg_username;
     updateConvStatus(tgId);
     const panel = document.getElementById('profile-panel');
-    const letter = p.anon_id.replace('User #','#').slice(0,2);
+    const letter = anonLetter(p.internal_name, p.anon_id, p.tg_username);
     const profileSpending = getSubscriberSpending(tgId);
     const profileTier = getSpendingTier(profileSpending);
     const spendingEuros = profileSpending.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
