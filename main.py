@@ -21,6 +21,23 @@ os.makedirs(VAULT_DIR, exist_ok=True)
 PROOFS_DIR = os.path.join(VAULT_DIR, '_proofs')
 os.makedirs(PROOFS_DIR, exist_ok=True)
 
+# Fake call recordings directory
+CALLS_DIR = os.path.join(VAULT_DIR, '_calls')
+os.makedirs(CALLS_DIR, exist_ok=True)
+
+# ── pytgcalls (optional — fake call feature) ──────────────────────────────────
+try:
+    from pytgcalls import PyTgCalls
+    from pytgcalls.types import MediaStream, AudioQuality
+    _PYTGCALLS_OK = True
+    print('✅ pytgcalls available')
+except ImportError:
+    _PYTGCALLS_OK = False
+    print('⚠️  pytgcalls not installed — fake call feature disabled. Run: pip install py-tgcalls')
+
+calls_client: Optional[object] = None
+active_calls: dict = {}   # tg_id → {file, chatter, started_at}
+
 import uvicorn
 import psycopg2
 import psycopg2.extras
@@ -534,13 +551,44 @@ async def start_userbot():
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global calls_client
     init_db()
     asyncio.create_task(start_userbot())
+    # Give userbot 3s to connect, then init calls_client
+    async def _init_calls():
+        await asyncio.sleep(5)
+        global calls_client
+        if _PYTGCALLS_OK and tg_client:
+            try:
+                calls_client = PyTgCalls(tg_client)
+                await calls_client.start()
+
+                @calls_client.on_update()
+                async def _on_call_update(update):
+                    try:
+                        from pytgcalls.types import Update
+                        tg_id_str = str(getattr(update, 'chat_id', ''))
+                        if tg_id_str and tg_id_str in active_calls:
+                            # Call ended by subscriber
+                            active_calls.pop(tg_id_str, None)
+                            asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
+                    except Exception:
+                        pass
+
+                print('✅ PyTgCalls initialized and started')
+            except Exception as e:
+                print(f'⚠️  PyTgCalls init failed: {e}')
+    asyncio.create_task(_init_calls())
     yield
     global _userbot_running
     _userbot_running = False
     if tg_client:
         await tg_client.disconnect()
+    if calls_client:
+        try:
+            await calls_client.stop()
+        except Exception:
+            pass
 
 app = FastAPI(title='Chatter CRM', lifespan=lifespan)
 app.add_middleware(
@@ -2019,6 +2067,155 @@ def export_subscribers_csv():
         media_type='text/csv',
         headers={'Content-Disposition': 'attachment; filename="subscriber_backup.csv"'}
     )
+
+# ── FAKE CALLS ───────────────────────────────────────────────────────────────
+
+CALL_ALLOWED_EXTS = {'mp3','mp4','wav','ogg','aac','m4a','mov','mkv','flac'}
+
+@app.get('/call/status')
+def call_status():
+    """Check if pytgcalls is available and how many calls are active."""
+    return {
+        'available': _PYTGCALLS_OK,
+        'client_ready': calls_client is not None,
+        'active': len(active_calls),
+        'active_calls': active_calls,
+    }
+
+@app.get('/call/files')
+def get_call_files():
+    """List uploaded call recordings."""
+    files = []
+    try:
+        for fname in sorted(os.listdir(CALLS_DIR)):
+            fpath = os.path.join(CALLS_DIR, fname)
+            if os.path.isfile(fpath) and not fname.startswith('.'):
+                ext = fname.rsplit('.',1)[-1].lower() if '.' in fname else ''
+                ftype = 'video' if ext in ('mp4','mov','mkv') else 'audio'
+                files.append({
+                    'name': fname,
+                    'size': os.path.getsize(fpath),
+                    'type': ftype,
+                    'url': f'/call/file/{fname}',
+                })
+    except Exception as e:
+        print(f'call files error: {e}')
+    return files
+
+@app.post('/call/upload')
+async def upload_call_file(file: UploadFile = File(...)):
+    """Upload a call recording (audio or video)."""
+    ext = (file.filename or 'call.mp3').rsplit('.',1)[-1].lower()
+    if ext not in CALL_ALLOWED_EXTS:
+        raise HTTPException(400, f'File type .{ext} not allowed. Use: {", ".join(CALL_ALLOWED_EXTS)}')
+    safe_name = _vault_safe(file.filename or f'call.{ext}') or f'call.{ext}'
+    fpath = os.path.join(CALLS_DIR, safe_name)
+    if os.path.exists(fpath):
+        base, e = os.path.splitext(safe_name)
+        safe_name = f'{base}_{int(datetime.now().timestamp())}{e}'
+        fpath = os.path.join(CALLS_DIR, safe_name)
+    try:
+        with open(fpath, 'wb') as f:
+            shutil.copyfileobj(file.file, f)
+    except OSError as e:
+        if 'No space left' in str(e):
+            raise HTTPException(507, 'Disk full')
+        raise HTTPException(500, str(e))
+    return {'ok': True, 'name': safe_name}
+
+@app.delete('/call/file/{filename}')
+def delete_call_file(filename: str):
+    if '..' in filename:
+        raise HTTPException(400, 'Invalid')
+    fpath = os.path.join(CALLS_DIR, filename)
+    if not os.path.isfile(fpath):
+        raise HTTPException(404, 'Not found')
+    os.remove(fpath)
+    return {'ok': True}
+
+@app.get('/call/file/{filename}')
+def serve_call_file(filename: str):
+    if '..' in filename:
+        raise HTTPException(400, 'Invalid')
+    fpath = os.path.join(CALLS_DIR, filename)
+    if not os.path.isfile(fpath):
+        raise HTTPException(404, 'Not found')
+    return FileResponse(fpath)
+
+class CallStartIn(BaseModel):
+    tg_id: str
+    filename: str
+    chatter: str = 'Chatter'
+
+@app.post('/call/start')
+async def start_fake_call(body: CallStartIn):
+    """Initiate a pre-recorded call to a subscriber via Telegram."""
+    if not _PYTGCALLS_OK:
+        raise HTTPException(503, 'pytgcalls not installed on Railway. Add "py-tgcalls" to requirements.txt and redeploy.')
+    if not calls_client:
+        raise HTTPException(503, 'Calls client not ready yet (wait a few seconds after startup).')
+    if body.tg_id in active_calls:
+        raise HTTPException(409, 'A call is already active with this subscriber.')
+
+    fpath = os.path.join(CALLS_DIR, body.filename)
+    if '..' in body.filename or not os.path.isfile(fpath):
+        raise HTTPException(404, 'Recording file not found.')
+
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
+            row = c.fetchone()
+
+    ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+    peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+
+    ext = body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else ''
+    is_video = ext in ('mp4','mov','mkv')
+
+    try:
+        if is_video:
+            from pytgcalls.types import VideoQuality
+            stream = MediaStream(fpath, video_parameters=VideoQuality.HD_720p)
+        else:
+            stream = MediaStream(fpath, audio_parameters=AudioQuality.HIGH)
+        await calls_client.call(peer, stream)
+        now_ts = datetime.now().isoformat()
+        active_calls[body.tg_id] = {
+            'file': body.filename,
+            'chatter': body.chatter,
+            'started_at': now_ts,
+            'type': 'video' if is_video else 'audio',
+        }
+        save_msg(body.tg_id, f'[📞 Pre-recorded {"Video" if is_video else "Audio"} Call – {body.filename}]', 'out', body.chatter)
+        asyncio.create_task(ws_manager.broadcast({
+            'type': 'call_started',
+            'tg_id': body.tg_id,
+            'file': body.filename,
+            'call_type': 'video' if is_video else 'audio',
+            'chatter': body.chatter,
+        }))
+        return {'ok': True, 'type': 'video' if is_video else 'audio'}
+    except Exception as e:
+        raise HTTPException(500, f'Call failed: {e}')
+
+@app.post('/call/stop')
+async def stop_fake_call(tg_id: str):
+    """Hang up the active call with a subscriber."""
+    if not calls_client:
+        raise HTTPException(503, 'Calls client not ready.')
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+            row = c.fetchone()
+    ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+    peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+    try:
+        await calls_client.leave_call(peer)
+    except Exception as e:
+        print(f'leave_call error (may already be ended): {e}')
+    active_calls.pop(tg_id, None)
+    asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id}))
+    return {'ok': True}
 
 # ── START ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':

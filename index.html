@@ -1927,9 +1927,22 @@
         <div class="msg-topbar" id="msg-topbar">
           <button id="mobile-back-btn" onclick="mobileShowConvList()" style="display:none;background:none;border:none;color:var(--text2);cursor:pointer;padding:4px 8px 4px 0;font-size:20px;line-height:1;">‹</button>
           <div class="msg-topbar-avatar" id="msg-avatar">?</div>
-          <div style="display:flex;flex-direction:column;gap:1px;">
+          <div style="display:flex;flex-direction:column;gap:1px;flex:1;">
             <span id="msg-conv-name" style="letter-spacing:.01em;">Select conversation</span>
             <span id="msg-conv-status" style="font-size:11px;color:var(--text3);"></span>
+          </div>
+          <!-- Fake Call Button — shown when conversation is open -->
+          <button id="fake-call-btn" onclick="openFakeCallModal()" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:8px;color:#22c55e;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;gap:5px;align-items:center;white-space:nowrap;" title="Start pre-recorded call">
+            📞 Start Call
+          </button>
+        </div>
+        <!-- Active Call Banner -->
+        <div id="active-call-bar" style="display:none;padding:10px 16px;background:rgba(34,197,94,0.12);border-bottom:2px solid #22c55e;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:16px;animation:pulse 1.2s infinite;">📞</span>
+            <span id="active-call-text" style="font-weight:700;color:#22c55e;font-size:13px;flex:1;">Pre-recorded call active...</span>
+            <span id="active-call-timer" style="font-size:12px;color:#22c55e;opacity:.7;"></span>
+            <button onclick="hangUpCall()" style="background:rgba(255,92,122,.2);border:1px solid #ff5c7a;border-radius:6px;color:#ff5c7a;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;">📵 Hang Up</button>
           </div>
         </div>
         <!-- Timer Alert Banner -->
@@ -3573,6 +3586,11 @@ if (checkAuth()) {
     } catch { return null; }
   }
 
+  // Raw fetch wrapper (returns Response, not parsed JSON)
+  async function chatApiFetch(path, opts = {}) {
+    return fetch('/api' + path, opts);
+  }
+
   async function chatApiPost(path, body) {
     const url = '/api' + path;
     try {
@@ -3781,6 +3799,11 @@ if (checkAuth()) {
     chatMsgInterval = setInterval(() => {
       if (!window._wsAlive) { loadMsgs(); updateConvStatus(currentChatTgId); }
     }, 5000);
+    // Show fake call button
+    const callBtn = document.getElementById('fake-call-btn');
+    if (callBtn) callBtn.style.display = 'inline-flex';
+    // Sync call bar with current active call state
+    checkActiveCallForConv(tgId);
   }
 
   async function loadProfile(tgId) {
@@ -4629,8 +4652,184 @@ if (checkAuth()) {
           refreshOnlinePanel();
         }
         break;
+      case 'call_started':
+        if (msg.tg_id === currentChatTgId) showActiveCallBar(msg);
+        break;
+      case 'call_ended':
+        if (msg.tg_id === currentChatTgId) hideActiveCallBar();
+        break;
     }
   }
+
+  // ─── FAKE CALL FEATURE ───────────────────────────────────────────────────
+  let _callTimerInterval = null;
+  let _callStartTs = null;
+
+  function showActiveCallBar(msg) {
+    const bar = document.getElementById('active-call-bar');
+    const txt = document.getElementById('active-call-text');
+    if (!bar) return;
+    _callStartTs = Date.now();
+    txt.textContent = `📞 Pre-recorded ${msg.call_type === 'video' ? 'Video' : 'Audio'} Call — ${msg.filename || ''}`;
+    bar.style.display = 'block';
+    if (_callTimerInterval) clearInterval(_callTimerInterval);
+    _callTimerInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - _callStartTs) / 1000);
+      const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const s = String(elapsed % 60).padStart(2, '0');
+      const timerEl = document.getElementById('active-call-timer');
+      if (timerEl) timerEl.textContent = m + ':' + s;
+    }, 1000);
+  }
+
+  function hideActiveCallBar() {
+    const bar = document.getElementById('active-call-bar');
+    if (bar) bar.style.display = 'none';
+    if (_callTimerInterval) { clearInterval(_callTimerInterval); _callTimerInterval = null; }
+    _callStartTs = null;
+  }
+
+  async function checkActiveCallForConv(tgId) {
+    try {
+      const res = await chatApiGet('/call/status');
+      if (!res) return;
+      const ac = res.active_calls || {};
+      if (ac[tgId]) {
+        showActiveCallBar({ call_type: ac[tgId].type, filename: ac[tgId].file });
+      } else {
+        hideActiveCallBar();
+      }
+    } catch(e) {}
+  }
+
+  window.hangUpCall = async function() {
+    if (!currentChatTgId) return;
+    try {
+      await chatApiFetch('/call/stop?tg_id=' + currentChatTgId, { method: 'POST' });
+      hideActiveCallBar();
+    } catch(e) { alert('Fehler beim Auflegen: ' + e.message); }
+  };
+
+  window.openFakeCallModal = async function() {
+    if (!currentChatTgId) return;
+    const overlay = document.getElementById('fake-call-modal-overlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    document.getElementById('fc-files-list').innerHTML = '<p style="color:var(--dim);font-size:13px;">Laden…</p>';
+    document.getElementById('fc-status').textContent = '';
+    await loadCallFiles();
+    // Check pytgcalls status
+    try {
+      const st = await chatApiGet('/call/status');
+      const statusEl = document.getElementById('fc-backend-status');
+      if (!statusEl) return;
+      if (!st || !st.pytgcalls_available) {
+        statusEl.innerHTML = '⚠️ pytgcalls nicht installiert — <code>pip install py-tgcalls</code> auf Railway';
+        statusEl.style.color = '#fbbf24';
+      } else if (!st.calls_client_ready) {
+        statusEl.innerHTML = '⚠️ Calls-Client wird noch initialisiert…';
+        statusEl.style.color = '#fbbf24';
+      } else if (st.active_calls && st.active_calls[currentChatTgId]) {
+        statusEl.innerHTML = '📞 Call läuft gerade';
+        statusEl.style.color = '#22c55e';
+      } else {
+        statusEl.innerHTML = '✅ Bereit';
+        statusEl.style.color = '#22c55e';
+      }
+    } catch(e) {}
+  };
+
+  window.closeFakeCallModal = function() {
+    const overlay = document.getElementById('fake-call-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+  };
+
+  async function loadCallFiles() {
+    const list = document.getElementById('fc-files-list');
+    try {
+      const data = await chatApiGet('/call/files');
+      const files = data?.files || [];
+      if (!files.length) {
+        list.innerHTML = '<p style="color:var(--dim);font-size:13px;">Keine Recordings hochgeladen</p>';
+        return;
+      }
+      list.innerHTML = files.map(f => `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
+          <span style="font-size:18px;">${f.endsWith('.mp4')||f.endsWith('.mov')||f.endsWith('.mkv') ? '🎬' : '🎵'}</span>
+          <span style="flex:1;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${f}">${f}</span>
+          <button onclick="startFakeCall('${f}')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Anrufen</button>
+          <button onclick="deleteCallFile('${f}')" style="background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);border-radius:6px;color:#ff5c7a;padding:5px 8px;cursor:pointer;font-size:12px;">🗑</button>
+        </div>
+      `).join('');
+    } catch(e) {
+      list.innerHTML = '<p style="color:#ff5c7a;font-size:13px;">Fehler: ' + e.message + '</p>';
+    }
+  }
+
+  window.startFakeCall = async function(filename) {
+    if (!currentChatTgId) return;
+    const statusEl = document.getElementById('fc-status');
+    statusEl.textContent = '⏳ Call wird gestartet…';
+    statusEl.style.color = '#fbbf24';
+    try {
+      const me = localStorage.getItem('crm_username') || 'Chatter';
+      const res = await chatApiFetch('/call/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tg_id: currentChatTgId, filename, chatter: me }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        statusEl.textContent = '❌ ' + (err.detail || 'Fehler');
+        statusEl.style.color = '#ff5c7a';
+        return;
+      }
+      statusEl.textContent = '✅ Call gestartet!';
+      statusEl.style.color = '#22c55e';
+      closeFakeCallModal();
+      showActiveCallBar({ call_type: filename.match(/\.(mp4|mov|mkv)$/i) ? 'video' : 'audio', filename });
+    } catch(e) {
+      statusEl.textContent = '❌ ' + e.message;
+      statusEl.style.color = '#ff5c7a';
+    }
+  };
+
+  window.deleteCallFile = async function(filename) {
+    if (!confirm('Recording "' + filename + '" löschen?')) return;
+    try {
+      const res = await chatApiFetch('/call/file/' + encodeURIComponent(filename), { method: 'DELETE' });
+      if (res.ok) await loadCallFiles();
+      else alert('Fehler beim Löschen');
+    } catch(e) { alert('Fehler: ' + e.message); }
+  };
+
+  window.uploadCallRecording = async function() {
+    const inp = document.getElementById('fc-upload-input');
+    if (!inp || !inp.files.length) return;
+    const file = inp.files[0];
+    const statusEl = document.getElementById('fc-upload-status');
+    statusEl.textContent = '⏳ Hochladen…';
+    statusEl.style.color = '#fbbf24';
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await chatApiFetch('/call/upload', { method: 'POST', body: fd });
+      if (res.ok) {
+        statusEl.textContent = '✅ Hochgeladen!';
+        statusEl.style.color = '#22c55e';
+        inp.value = '';
+        await loadCallFiles();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        statusEl.textContent = '❌ ' + (err.detail || 'Fehler');
+        statusEl.style.color = '#ff5c7a';
+      }
+    } catch(e) {
+      statusEl.textContent = '❌ ' + e.message;
+      statusEl.style.color = '#ff5c7a';
+    }
+  };
+  // ─── END FAKE CALL ────────────────────────────────────────────────────────
 
   // Start WebSocket connection
   connectWS();
@@ -4926,6 +5125,40 @@ async function startBroadcast() {
   }
 }
 </script>
+
+<!-- FAKE CALL MODAL -->
+<div id="fake-call-modal-overlay" onclick="if(event.target===this)closeFakeCallModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:600;align-items:center;justify-content:center;flex-direction:column;">
+  <div style="background:var(--sidebar);border:1px solid rgba(255,255,255,.1);border-radius:14px;width:460px;max-width:94vw;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">
+    <!-- Header -->
+    <div style="padding:18px 20px 14px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:10px;">
+      <span style="font-size:22px;">📞</span>
+      <div style="flex:1;">
+        <div style="font-weight:800;font-size:15px;">Pre-recorded Call starten</div>
+        <div id="fc-backend-status" style="font-size:12px;color:var(--dim);margin-top:2px;">Prüfe Status…</div>
+      </div>
+      <button onclick="closeFakeCallModal()" style="background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer;padding:0 4px;">✕</button>
+    </div>
+    <!-- Upload section -->
+    <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.07);">
+      <div style="font-size:12px;color:var(--dim);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Recording hochladen</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="fc-upload-input" type="file" accept="audio/*,video/*,.mp3,.mp4,.wav,.ogg,.aac,.m4a,.mov,.mkv,.flac"
+          style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;cursor:pointer;">
+        <button onclick="uploadCallRecording()" style="background:var(--teal);border:none;border-radius:7px;color:#000;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">⬆ Upload</button>
+      </div>
+      <div id="fc-upload-status" style="font-size:12px;margin-top:6px;min-height:16px;"></div>
+    </div>
+    <!-- Files list -->
+    <div style="flex:1;overflow-y:auto;padding:14px 20px;">
+      <div style="font-size:12px;color:var(--dim);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Recordings</div>
+      <div id="fc-files-list"></div>
+    </div>
+    <!-- Status / footer -->
+    <div style="padding:10px 20px 14px;border-top:1px solid rgba(255,255,255,.07);">
+      <div id="fc-status" style="font-size:13px;min-height:18px;text-align:center;"></div>
+    </div>
+  </div>
+</div>
 
 <!-- SALE MODAL -->
 <div id="sale-modal-overlay" onclick="closeSaleModal(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:center;justify-content:center;">
