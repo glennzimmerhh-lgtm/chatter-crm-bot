@@ -2030,7 +2030,6 @@
           <button class="emoji-btn" onclick="addEmoji('🥺')">🥺</button>
           <button class="emoji-btn" onclick="addEmoji('🙄')">🙄</button>
           </div>
-          <button onclick="insertBankTransfer()" title="Banküberweisung einfügen" style="flex-shrink:0;background:rgba(0,212,170,.12);border:1px solid rgba(0,212,170,.35);border-radius:7px;color:var(--teal);padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">🏦 Bank</button>
           <button class="scripts-btn" onclick="toggleScriptsPanel()" title="Scripts">📋 Scripts</button>
         </div>
         <!-- AI Suggestions Panel -->
@@ -3911,6 +3910,7 @@ if (checkAuth()) {
           <button onclick="navigator.clipboard.writeText('${p.payment_ref}');this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)"
             style="padding:7px 12px;border-radius:8px;border:1px solid rgba(74,158,255,.3);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">Copy</button>
         </div>
+        <button onclick="insertBankTransfer()" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.1);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🏦 Banküberweisung einfügen</button>
         <div style="font-size:10px;color:var(--text3);margin-top:4px;">Subscriber uses this as transfer reference</div>
       </div>` : ''}
 
