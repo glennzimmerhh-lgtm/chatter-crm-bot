@@ -2133,7 +2133,11 @@
       Publish your Google Sheet via <strong>File → Share → Publish to web → CSV</strong> and paste the URLs here.
     </div>
     <label>Chat Backend URL (Railway)</label>
-    <input type="text" id="cfg-backend-url" placeholder="https://dein-service.railway.app">
+    <div style="display:flex;gap:6px;align-items:center;">
+      <input type="text" id="cfg-backend-url" placeholder="https://dein-service.railway.app" style="flex:1;">
+      <button onclick="testBackendConnection()" style="background:rgba(74,158,255,.2);border:1px solid rgba(74,158,255,.4);color:#4a9eff;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">🔌 Test</button>
+    </div>
+    <div id="backend-test-result" style="font-size:12px;margin-top:4px;display:none;"></div>
     <label>Subscriber Backup Webhook (Make.com → Google Sheets)</label>
     <input type="text" id="cfg-backup-webhook" placeholder="https://hook.eu1.make.com/...">
     <label>Sales Log CSV URL</label>
@@ -2803,7 +2807,7 @@ async function _checkBackend() {
   const dot = document.getElementById('backend-status-dot');
   const lbl = document.getElementById('backend-status-lbl');
   try {
-    const r = await _fetchT('/api/health', {}, 6000);
+    const r = await _fetchT('/api/healthz', {}, 6000);
     _backendOk = r.ok;
   } catch(_) {
     _backendOk = false;
@@ -2818,6 +2822,49 @@ async function _checkBackend() {
   }
 }
 setInterval(_checkBackend, 30000);
+
+async function testBackendConnection() {
+  const result = document.getElementById('backend-test-result');
+  const urlInput = document.getElementById('cfg-backend-url');
+  if (!result) return;
+  result.style.display = 'block';
+  result.style.color = '#f59e0b';
+  result.textContent = '⏳ Testing…';
+
+  const directUrl = (urlInput?.value || '').trim().replace(/\/$/, '');
+  const base = directUrl || '/api';
+
+  async function probe(url, label) {
+    try {
+      const r = await _fetchT(url, {}, 6000);
+      const txt = r.ok ? await r.json().then(d => JSON.stringify(d)).catch(() => 'ok') : `HTTP ${r.status}`;
+      return `${r.ok ? '✅' : '⚠️'} ${label}: ${txt}`;
+    } catch(e) {
+      return `❌ ${label}: ${e.name === 'AbortError' ? 'timeout (6s)' : e.message}`;
+    }
+  }
+
+  const [r1, r2, r3] = await Promise.all([
+    probe(base + '/status',  'Backend reachable'),
+    probe(base + '/healthz', 'Database connection'),
+    probe(base + '/conversations', 'Conversations API'),
+  ]);
+
+  const lines = [r1, r2, r3];
+  const dbOk   = r2.startsWith('✅');
+  const apiOk  = r1.startsWith('✅');
+
+  let hint = '';
+  if (!apiOk) {
+    hint = '<br><span style="color:#ffd166">→ Backend unreachable. Enter direct Railway URL and save.</span>';
+  } else if (!dbOk) {
+    hint = '<br><span style="color:#ffd166">→ Backend is UP but DATABASE is failing. Go to Railway dashboard → your service → check DATABASE_URL env variable and that the PostgreSQL addon is running.</span>';
+  }
+
+  result.style.color = (apiOk && dbOk) ? '#4ade80' : '#ff5c7a';
+  result.innerHTML = lines.join('<br>') + hint;
+  _checkBackend();
+}
 
 function checkAuth() {
   const storedUser = localStorage.getItem('crm_user');
@@ -3028,13 +3075,22 @@ let _loadDataRetries = 0;
 
 async function loadData() {
   const { salesUrl, shiftsUrl } = loadSettings();
-  const backendUrl = ('/api').replace(/\/$/, '');
+  const _storedBase = (localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+  // Primary: Vercel proxy. Fallback: direct Railway URL if configured
+  async function _loadApiJson(path) {
+    const urls = ['/api' + path];
+    if (_storedBase && _storedBase !== '/api') urls.push(_storedBase + path);
+    for (const u of urls) {
+      try { const r = await _fetchT(u, {}, 8000); if (r.ok) return await r.json(); } catch(_) {}
+    }
+    return [];
+  }
 
   const results = await Promise.allSettled([
     fetchCSV(salesUrl),
     fetchCSV(shiftsUrl),
-    fetchWithTimeout(fetch(backendUrl + '/sales').then(r => r.json()), 8000).catch(() => []),
-    fetchWithTimeout(fetch(backendUrl + '/conversations').then(r => r.json()), 8000).catch(() => [])
+    _loadApiJson('/sales'),
+    _loadApiJson('/conversations')
   ]);
   salesData    = results[0].status === 'fulfilled' ? results[0].value : salesData;
   shiftsData   = results[1].status === 'fulfilled' ? results[1].value : shiftsData;
