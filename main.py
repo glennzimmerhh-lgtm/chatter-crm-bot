@@ -735,6 +735,10 @@ async def setup_verify(code: str = Form(...)):
         return render_setup(FORM_STEP1, f'<div class="error">❌ {e}</div>')
 
 # ── HEALTH ─────────────────────────────────────────────────────────────────────
+@app.get('/health')
+def health():
+    return {'status': 'ok'}
+
 @app.get('/healthz')
 def healthz():
     try:

@@ -1043,7 +1043,10 @@
       <div style="width:28px;height:28px;border-radius:50%;background:var(--teal-dim);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--teal);" id="user-avatar">?</div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:600;color:var(--text);" id="user-name-display">—</div>
-        <div style="font-size:11px;color:var(--text3);">Logged in</div>
+        <div style="font-size:11px;display:flex;align-items:center;gap:5px;">
+          <span id="backend-status-dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#888;flex-shrink:0;" title="Checking..."></span>
+          <span id="backend-status-lbl" style="color:var(--text3);">Checking...</span>
+        </div>
       </div>
       <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Light/Dark">🌙</button>
       <span onclick="doLogout()" title="Log out" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;margin-left:4px;">⏻</span>
@@ -2616,6 +2619,8 @@ function showApp(user) {
   document.getElementById('user-name-display').textContent = user;
   document.getElementById('user-avatar').textContent = user[0].toUpperCase();
   document.title = 'Chatter CRM';
+  // Check backend status immediately on login
+  _checkBackend();
 
   const role = localStorage.getItem('crm_role') || 'chatter';
   if (role === 'chatter') {
@@ -2783,6 +2788,36 @@ function applyEnglishUI() {
     obs.observe(document.body, { childList: true, subtree: true });
   }, 500);
 }
+
+// ── FETCH WITH TIMEOUT ────────────────────────────────────────────────────────
+function _fetchT(url, opts = {}, ms = 8000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctrl.signal })
+    .finally(() => clearTimeout(timer));
+}
+
+// ── BACKEND STATUS INDICATOR ──────────────────────────────────────────────────
+let _backendOk = null;
+async function _checkBackend() {
+  const dot = document.getElementById('backend-status-dot');
+  const lbl = document.getElementById('backend-status-lbl');
+  try {
+    const r = await _fetchT('/api/health', {}, 6000);
+    _backendOk = r.ok;
+  } catch(_) {
+    _backendOk = false;
+  }
+  if (dot) {
+    dot.style.background = _backendOk ? '#22c55e' : '#ff5c7a';
+    dot.title = _backendOk ? 'Backend online' : 'Backend unreachable — check Railway';
+  }
+  if (lbl) {
+    lbl.textContent = _backendOk ? 'Backend online' : '⚠ Backend offline';
+    lbl.style.color = _backendOk ? 'var(--text3)' : '#ff5c7a';
+  }
+}
+setInterval(_checkBackend, 30000);
 
 function checkAuth() {
   const storedUser = localStorage.getItem('crm_user');
@@ -3778,7 +3813,7 @@ if (checkAuth()) {
 
   async function chatApiGet(path) {
     try {
-      const r = await fetch('/api' + path);
+      const r = await _fetchT('/api' + path, {}, 8000);
       if (!r.ok) return null;
       return await r.json();
     } catch { return null; }
@@ -3786,7 +3821,7 @@ if (checkAuth()) {
 
   // Raw fetch wrapper (returns Response, not parsed JSON)
   async function chatApiFetch(path, opts = {}) {
-    return fetch('/api' + path, opts);
+    return _fetchT('/api' + path, opts, 8000);
   }
 
   async function chatApiPost(path, body) {
@@ -6514,10 +6549,10 @@ async function _vaultApi(method, path, body) {
   if (base) urls.push(base + path);
   const opts = { method: method || 'GET', ...(body ? { headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) } : {}) };
   for (const url of urls) {
-    try { const r = await fetch(url, opts); if (r.ok) return r; } catch(_) {}
+    try { const r = await _fetchT(url, opts, 8000); if (r.ok) return r; } catch(_) {}
   }
   // Return last attempt for error handling
-  return fetch(urls[0], opts);
+  return _fetchT(urls[0], opts, 8000);
 }
 let _vaultFiles = [];
 let _vaultCurrentFolder = ''; // '' = All Files
@@ -6543,14 +6578,22 @@ async function loadVaultPage() {
   grid.innerHTML = '<div style="color:var(--text3);font-size:13px;">Loading...</div>';
   // Load folders and files in parallel
   const _vBase = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
-  const _vApi = p => ['/api' + p, _vBase + p].filter(Boolean);
   async function _vFetch(p) {
-    for (const url of _vApi(p)) {
-      try { const r = await fetch(url); if (r.ok) return await r.json(); } catch(_) {}
+    const urls = ['/api' + p];
+    if (_vBase) urls.push(_vBase + p);
+    for (const url of urls) {
+      try { const r = await _fetchT(url, {}, 8000); if (r.ok) return await r.json(); } catch(_) {}
     }
-    return [];
+    return null; // null = failed (not just empty)
   }
-  [_vaultFolders, _vaultFiles] = await Promise.all([_vFetch('/vault/folders'), _vFetch('/vault')]);
+  const [folders, files] = await Promise.all([_vFetch('/vault/folders'), _vFetch('/vault')]);
+  if (folders === null && files === null) {
+    grid.innerHTML = '<div style="color:#ff5c7a;font-size:13px;">⚠️ Backend unreachable — check Railway and redeploy main.py</div>';
+    _checkBackend();
+    return;
+  }
+  _vaultFolders = folders || [];
+  _vaultFiles   = files   || [];
   renderVaultFolderList();
   renderVaultGrid(grid, _vaultFiles, false);
   const cnt = document.getElementById('vault-file-count');
