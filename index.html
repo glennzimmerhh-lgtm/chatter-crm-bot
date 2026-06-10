@@ -357,11 +357,11 @@
 
   .conv-avatar {
     width: 38px; height: 38px; border-radius: 50%;
-    background: linear-gradient(135deg, rgba(0,212,170,.2), rgba(74,158,255,.2));
-    border: 1.5px solid rgba(0,212,170,.35);
+    background: transparent;
+    border: 1.5px solid rgba(255,255,255,.12);
     display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 700; color: var(--teal); flex-shrink: 0;
-    box-shadow: 0 0 10px rgba(0,212,170,.1);
+    font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
+    overflow: hidden;
   }
   .conv-item.active .conv-avatar { border-color: var(--teal); box-shadow: 0 0 14px rgba(0,212,170,.3); }
   .conv-avatar img, .msg-topbar-avatar img, .profile-big-avatar img {
@@ -418,11 +418,11 @@
   }
   .msg-topbar-avatar {
     width: 36px; height: 36px; border-radius: 50%;
-    background: linear-gradient(135deg, rgba(0,212,170,.25), rgba(74,158,255,.25));
-    border: 1.5px solid rgba(0,212,170,.4);
+    background: transparent;
+    border: 1.5px solid rgba(255,255,255,.12);
     display: flex; align-items: center; justify-content: center;
-    font-size: 12px; font-weight: 700; color: var(--teal);
-    box-shadow: 0 0 12px rgba(0,212,170,.2);
+    font-size: 12px; font-weight: 700; color: #fff;
+    overflow: hidden;
   }
 
   .msg-list {
@@ -529,13 +529,12 @@
   }
   .profile-big-avatar {
     width: 64px; height: 64px; border-radius: 50%;
-    background: linear-gradient(135deg, rgba(0,212,170,.2), rgba(74,158,255,.2));
-    border: 2px solid var(--teal);
+    background: transparent;
+    border: 2px solid rgba(255,255,255,.15);
     display: flex; align-items: center; justify-content: center;
-    font-size: 22px; font-weight: 700; color: var(--teal);
+    font-size: 22px; font-weight: 700; color: #fff;
     margin: 0 auto 12px;
-    box-shadow: 0 0 24px rgba(0,212,170,.3);
-    animation: glow-pulse 3s ease-in-out infinite;
+    overflow: hidden;
   }
   .profile-anon { font-size: 11px; color: #44445a; margin-top: 2px; }
   .profile-section { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.04); flex-shrink: 0; }
@@ -3872,13 +3871,21 @@ if (checkAuth()) {
   }
 
   // ── Profile photo avatar helper ───────────────────────────────────────────
+  const TG_COLORS = ['#e17076','#e5985a','#a695e7','#68d187','#6ec9cb','#40a7e3','#ee7aae'];
+  function tgColor(tgId) { return TG_COLORS[Math.abs(parseInt(tgId)||0) % TG_COLORS.length]; }
+
   const _photoFailed = new Set(); // tg_ids where photo load failed
+  function tgLetterAvatar(tgId, letter) {
+    const col = tgColor(tgId);
+    return `<div style="width:100%;height:100%;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:inherit;font-weight:700;color:#fff;">${letter}</div>`;
+  }
   function avatarImg(tgId, letter) {
-    if (_photoFailed.has(String(tgId))) return letter;
+    const fallback = tgLetterAvatar(tgId, letter).replace(/"/g, "'").replace(/\n/g, '');
+    if (_photoFailed.has(String(tgId))) return tgLetterAvatar(tgId, letter);
     const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
-    if (!base) return letter;
+    if (!base) return tgLetterAvatar(tgId, letter);
     return `<img src="${base}/profile-photo/${tgId}" alt="${letter}"
-      onerror="this.parentNode.innerHTML='${letter.replace(/'/g,"\\'")}';window._photoFailed&&window._photoFailed.add('${tgId}');"
+      onerror="this.parentNode.innerHTML=\`${fallback}\`;window._photoFailed&&window._photoFailed.add('${tgId}');"
       style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
   }
   window._photoFailed = _photoFailed;
