@@ -4724,7 +4724,8 @@ if (checkAuth()) {
       const statusEl = document.getElementById('fc-backend-status');
       if (!statusEl) return;
       if (!st || !st.pytgcalls_available) {
-        statusEl.innerHTML = '⚠️ pytgcalls nicht installiert — <code>pip install py-tgcalls</code> auf Railway';
+        const errDetail = st?.pytgcalls_error ? ` — <code style="font-size:10px;">${st.pytgcalls_error.slice(0,80)}</code>` : ' — <code>pip install py-tgcalls</code> auf Railway';
+        statusEl.innerHTML = '⚠️ pytgcalls nicht verfügbar' + errDetail;
         statusEl.style.color = '#fbbf24';
       } else if (!st.calls_client_ready) {
         statusEl.innerHTML = '⚠️ Calls-Client wird noch initialisiert…';

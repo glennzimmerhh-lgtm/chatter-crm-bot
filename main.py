@@ -26,14 +26,16 @@ CALLS_DIR = os.path.join(VAULT_DIR, '_calls')
 os.makedirs(CALLS_DIR, exist_ok=True)
 
 # ── pytgcalls (optional — fake call feature) ──────────────────────────────────
+_PYTGCALLS_ERR = None
 try:
     from pytgcalls import PyTgCalls
     from pytgcalls.types import MediaStream, AudioQuality
     _PYTGCALLS_OK = True
     print('✅ pytgcalls available')
-except ImportError:
+except Exception as _e:
     _PYTGCALLS_OK = False
-    print('⚠️  pytgcalls not installed — fake call feature disabled. Run: pip install py-tgcalls')
+    _PYTGCALLS_ERR = str(_e)
+    print(f'⚠️  pytgcalls not available: {_e}')
 
 calls_client: Optional[object] = None
 active_calls: dict = {}   # tg_id → {file, chatter, started_at}
@@ -2093,8 +2095,9 @@ CALL_ALLOWED_EXTS = {'mp3','mp4','wav','ogg','aac','m4a','mov','mkv','flac'}
 def call_status():
     """Check if pytgcalls is available and how many calls are active."""
     return {
-        'available': _PYTGCALLS_OK,
-        'client_ready': calls_client is not None,
+        'pytgcalls_available': _PYTGCALLS_OK,
+        'pytgcalls_error': _PYTGCALLS_ERR,
+        'calls_client_ready': calls_client is not None,
         'active': len(active_calls),
         'active_calls': active_calls,
     }
