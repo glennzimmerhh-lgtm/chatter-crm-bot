@@ -2189,8 +2189,20 @@ async def start_fake_call(body: CallStartIn):
             c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
             row = c.fetchone()
 
-    # py-tgcalls 2.x only accepts int/str chat_id, not InputPeerUser
     peer = int(body.tg_id)
+
+    # Pre-populate Telethon's entity cache so py-tgcalls can resolve the user.
+    # Use stored access_hash if available, otherwise let Telethon fetch it.
+    if tg_client:
+        ah = int(row['tg_access_hash']) if row and row.get('tg_access_hash') else 0
+        try:
+            from telethon.tl.types import InputPeerUser as _IPU
+            if ah:
+                await tg_client.get_input_entity(_IPU(peer, ah))
+            else:
+                await tg_client.get_input_entity(peer)
+        except Exception as _e:
+            print(f'Entity pre-resolve warning (non-fatal): {_e}')
 
     ext = body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else ''
     is_video = ext in ('mp4','mov','mkv')
@@ -2207,7 +2219,7 @@ async def start_fake_call(body: CallStartIn):
         elif hasattr(calls_client, 'call'):
             await calls_client.call(peer, stream)
         else:
-            raise RuntimeError(f'No play/call method on PyTgCalls. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
+            raise RuntimeError(f'No play/call method. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
         now_ts = datetime.now().isoformat()
         active_calls[body.tg_id] = {
             'file': body.filename,
