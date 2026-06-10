@@ -1,2 +1,2 @@
-[phases.setup]
-nixPkgs = ["ffmpeg"]
+# ffmpeg wird von Railway automatisch bereitgestellt
+# Diese Datei leer lassen damit Railway Python korrekt erkennt
