@@ -578,7 +578,10 @@ async def lifespan(app: FastAPI):
                         if update_type in ('StreamAudioEnded', 'StreamVideoEnded', 'MutedStream', 'StreamEnded'):
                             print(f'🔔 Stream ended for {tg_id_str} ({update_type}) — hanging up')
                             try:
-                                await calls_client.leave_call(int(tg_id_str))
+                                if hasattr(calls_client, 'leave_call'):
+                                    await calls_client.leave_call(int(tg_id_str))
+                                elif hasattr(calls_client, 'leave'):
+                                    await calls_client.leave(int(tg_id_str))
                             except Exception as e:
                                 print(f'⚠️  leave_call error: {e}')
                             active_calls.pop(tg_id_str, None)
@@ -2198,7 +2201,13 @@ async def start_fake_call(body: CallStartIn):
             stream = MediaStream(fpath, video_parameters=VideoQuality.HD_720p)
         else:
             stream = MediaStream(fpath, audio_parameters=AudioQuality.HIGH)
-        await calls_client.call(peer, stream)
+        # py-tgcalls 2.x uses play(), older versions used call()
+        if hasattr(calls_client, 'play'):
+            await calls_client.play(peer, stream)
+        elif hasattr(calls_client, 'call'):
+            await calls_client.call(peer, stream)
+        else:
+            raise RuntimeError(f'No play/call method on PyTgCalls. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
         now_ts = datetime.now().isoformat()
         active_calls[body.tg_id] = {
             'file': body.filename,
@@ -2230,7 +2239,10 @@ async def stop_fake_call(tg_id: str):
     ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
     peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
     try:
-        await calls_client.leave_call(peer)
+        if hasattr(calls_client, 'leave_call'):
+            await calls_client.leave_call(peer)
+        elif hasattr(calls_client, 'leave'):
+            await calls_client.leave(peer)
     except Exception as e:
         print(f'leave_call error (may already be ended): {e}')
     active_calls.pop(tg_id, None)
