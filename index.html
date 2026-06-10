@@ -364,6 +364,9 @@
     box-shadow: 0 0 10px rgba(0,212,170,.1);
   }
   .conv-item.active .conv-avatar { border-color: var(--teal); box-shadow: 0 0 14px rgba(0,212,170,.3); }
+  .conv-avatar img, .msg-topbar-avatar img, .profile-big-avatar img {
+    width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
+  }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.6;} }
 
   /* ── MOBILE CHAT OPTIMIERUNG ── */
@@ -3805,7 +3808,7 @@ if (checkAuth()) {
       const tc = tierColorMap[tier.key] || tierColorMap.new;
       return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;border-left:4px solid ${tc.border};${tc.bg?`background:${tc.bg};`:''}">
         <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;margin-right:10px;">
-          <div class="conv-avatar" style="margin:0;position:relative;">${letter}${onlineDot}</div>
+          <div class="conv-avatar" style="margin:0;position:relative;">${avatarImg(c.tg_id, letter)}${onlineDot}</div>
           <div class="spend-pill ${pillCls}">${pillAmt}</div>
         </div>
         <div class="conv-info">
@@ -3848,7 +3851,9 @@ if (checkAuth()) {
   window.openConv = async function openConv(tgId, anonId) {
     currentChatTgId = tgId;
     document.getElementById('msg-conv-name').textContent = anonId;
-    document.getElementById('msg-avatar').textContent = anonId.replace('User #','#').slice(0,2);
+    const _topbarLetter = anonId.replace('User #','#').slice(0,2);
+    const _topbarEl = document.getElementById('msg-avatar');
+    _topbarEl.innerHTML = avatarImg(tgId, _topbarLetter);
     updateConvStatus(tgId);
     renderConvList(allConvs);
     await Promise.all([loadMsgs(), loadProfile(tgId)]);
@@ -3865,6 +3870,18 @@ if (checkAuth()) {
     // Sync call bar with current active call state
     checkActiveCallForConv(tgId);
   }
+
+  // ── Profile photo avatar helper ───────────────────────────────────────────
+  const _photoFailed = new Set(); // tg_ids where photo load failed
+  function avatarImg(tgId, letter) {
+    if (_photoFailed.has(String(tgId))) return letter;
+    const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+    if (!base) return letter;
+    return `<img src="${base}/profile-photo/${tgId}" alt="${letter}"
+      onerror="this.parentNode.innerHTML='${letter.replace(/'/g,"\\'")}';window._photoFailed&&window._photoFailed.add('${tgId}');"
+      style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+  }
+  window._photoFailed = _photoFailed;
 
   window.insertBankTransfer = function() {
     const inp = document.getElementById('chat-input');
@@ -3896,7 +3913,7 @@ if (checkAuth()) {
     const lastDate  = p.last_time  ? new Date(p.last_time).toLocaleDateString('de-DE')  : '—';
     panel.innerHTML = `
       <div class="profile-header">
-        <div class="profile-big-avatar">${letter}</div>
+        <div class="profile-big-avatar">${avatarImg(tgId, letter)}</div>
         <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px;">${p.internal_name || p.anon_id}</div>
         <div class="profile-anon">${p.anon_id}</div>
         ${p.tg_username ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;cursor:pointer;" onclick="navigator.clipboard&&navigator.clipboard.writeText('@${p.tg_username}');this.textContent='✅ Copied!';setTimeout(()=>this.textContent='@${p.tg_username}',1500)" title="Click to copy">@${p.tg_username}</div>` : ''}

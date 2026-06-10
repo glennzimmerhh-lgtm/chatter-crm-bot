@@ -2264,6 +2264,37 @@ async def download_message_media(tg_id: str, msg_id: int):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+@app.get('/profile-photo/{tg_id}')
+async def get_profile_photo(tg_id: str):
+    """Return the Telegram profile photo for a subscriber. Cached to disk after first download."""
+    PHOTOS_DIR = os.path.join(VAULT_DIR, '_photos')
+    os.makedirs(PHOTOS_DIR, exist_ok=True)
+    # Check cache first (any file starting with tg_id)
+    cached = [f for f in os.listdir(PHOTOS_DIR) if f.startswith(f'{tg_id}.')]
+    if cached:
+        p = os.path.join(PHOTOS_DIR, cached[0])
+        if os.path.isfile(p):
+            return FileResponse(p, media_type='image/jpeg')
+    if not tg_client or not tg_client.is_connected():
+        raise HTTPException(503, 'Userbot not connected')
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+                row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        from telethon.tl.types import InputPeerUser
+        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        dl_path = os.path.join(PHOTOS_DIR, f'{tg_id}.jpg')
+        path = await tg_client.download_profile_photo(peer, file=dl_path)
+        if not path or not os.path.isfile(path):
+            raise HTTPException(404, 'No profile photo')
+        return FileResponse(path, media_type='image/jpeg')
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 # ── LISTS ─────────────────────────────────────────────────────────────────────
 class ListCreate(BaseModel):
     name: str
