@@ -14,6 +14,11 @@ import shutil
 import threading
 import urllib.request
 import urllib.parse
+try:
+    import requests as _requests
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
@@ -2540,41 +2545,69 @@ async def upload_call_file(file: UploadFile = File(...), folder: str = ''):
 # ── URL IMPORT ───────────────────────────────────────────────────────────────
 _import_jobs: dict = {}   # job_id → {status, progress, filename, error, folder}
 
-def _gdrive_direct_url(url: str) -> tuple[str, str]:
-    """Convert Google Drive share URL to direct download. Returns (download_url, suggested_filename)."""
+_GDRIVE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+}
+
+def _gdrive_file_id(url: str) -> str | None:
     m = re.search(r'drive\.google\.com/file/d/([^/?#]+)', url)
-    if not m:
-        # Already a direct URL or other service
-        return url, ''
-    file_id = m.group(1)
-    dl_url = f'https://drive.usercontent.google.com/download?id={file_id}&export=download&authuser=0&confirm=t'
-    return dl_url, ''
+    return m.group(1) if m else None
 
 def _run_import(job_id: str, url: str, folder: str):
-    """Background thread: download URL and save to CALLS_DIR / folder."""
+    """Background thread: download URL (Google Drive or direct) and save to CALLS_DIR/folder."""
     job = _import_jobs[job_id]
     target_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
     os.makedirs(target_dir, exist_ok=True)
     try:
-        dl_url, _ = _gdrive_direct_url(url)
+        file_id = _gdrive_file_id(url)
+        CHUNK = 2 * 1024 * 1024  # 2 MB chunks
 
-        # Open connection and read Content-Disposition for filename
-        req = urllib.request.Request(dl_url, headers={
-            'User-Agent': 'Mozilla/5.0 (compatible; CRM-Downloader/1.0)'
-        })
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            # Try to get filename from Content-Disposition
-            cd = resp.headers.get('Content-Disposition', '')
-            fname_match = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)', cd, re.IGNORECASE)
-            if fname_match:
-                raw_name = urllib.parse.unquote(fname_match.group(1).strip('" '))
+        if _HAS_REQUESTS:
+            # ── requests path (preferred) ─────────────────────────────
+            sess = _requests.Session()
+            sess.headers.update(_GDRIVE_HEADERS)
+
+            if file_id:
+                # Step 1: hit the /uc endpoint — GDrive will either start the download
+                # or return an HTML confirmation page for large files
+                dl_url = f'https://drive.google.com/uc?id={file_id}&export=download'
+                r = sess.get(dl_url, stream=True, timeout=60, allow_redirects=True)
+
+                # Step 2: if we got HTML, it's the virus-scan/large-file confirmation
+                content_type = r.headers.get('Content-Type', '')
+                if 'text/html' in content_type:
+                    # Extract confirm token + uuid from the page
+                    confirm_m = re.search(r'name="confirm"\s+value="([^"]+)"', r.text)
+                    uuid_m    = re.search(r'name="uuid"\s+value="([^"]+)"', r.text)
+                    if not confirm_m:
+                        # Newer GDrive format: token in URL param
+                        confirm_m = re.search(r'[?&]confirm=([^&"]+)', r.text)
+                    confirm = confirm_m.group(1) if confirm_m else 't'
+                    uuid_val = uuid_m.group(1) if uuid_m else ''
+                    params = f'id={file_id}&export=download&confirm={confirm}'
+                    if uuid_val:
+                        params += f'&uuid={uuid_val}'
+                    r = sess.get(
+                        f'https://drive.usercontent.google.com/download?{params}',
+                        stream=True, timeout=60, allow_redirects=True
+                    )
             else:
-                # Derive from URL path
-                raw_name = url.rstrip('/').split('/')[-1].split('?')[0] or 'recording'
+                r = sess.get(url, stream=True, timeout=60, allow_redirects=True)
+
+            r.raise_for_status()
+
+            # Filename
+            cd = r.headers.get('Content-Disposition', '')
+            fname_m = re.search(r"filename\*?=(?:UTF-8'')?[\"']?([^\"';\r\n]+)", cd, re.IGNORECASE)
+            if fname_m:
+                raw_name = urllib.parse.unquote(fname_m.group(1).strip('" '))
+            else:
+                raw_name = (url.rstrip('/').split('/')[-1].split('?')[0]) or 'recording'
                 if '.' not in raw_name:
-                    ct = resp.headers.get('Content-Type', 'video/mp4')
+                    ct = r.headers.get('Content-Type', 'video/mp4').split(';')[0].strip()
                     ext_map = {'video/mp4':'mp4','video/quicktime':'mov','audio/mpeg':'mp3','audio/ogg':'ogg','video/x-matroska':'mkv'}
-                    raw_name += '.' + ext_map.get(ct.split(';')[0].strip(), 'mp4')
+                    raw_name += '.' + ext_map.get(ct, 'mp4')
 
             safe_name = _vault_safe(raw_name) or 'recording.mp4'
             fpath = os.path.join(target_dir, safe_name)
@@ -2584,21 +2617,43 @@ def _run_import(job_id: str, url: str, folder: str):
                 fpath = os.path.join(target_dir, safe_name)
 
             job['filename'] = safe_name
-            total = int(resp.headers.get('Content-Length', 0))
+            total = int(r.headers.get('Content-Length', 0))
             downloaded = 0
-            CHUNK = 1024 * 1024  # 1 MB
-
             with open(fpath, 'wb') as f:
-                while True:
-                    chunk = resp.read(CHUNK)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total:
-                        job['progress'] = round(downloaded / total * 100)
-                    else:
-                        job['progress'] = -1  # unknown size
+                for chunk in r.iter_content(chunk_size=CHUNK):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        job['progress'] = round(downloaded / total * 100) if total else -1
+
+        else:
+            # ── urllib fallback ───────────────────────────────────────
+            if file_id:
+                dl_url = f'https://drive.usercontent.google.com/download?id={file_id}&export=download&authuser=0&confirm=t'
+            else:
+                dl_url = url
+            req = urllib.request.Request(dl_url, headers=_GDRIVE_HEADERS)
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                cd = resp.headers.get('Content-Disposition', '')
+                fname_m = re.search(r"filename\*?=(?:UTF-8'')?[\"']?([^\"';\r\n]+)", cd, re.IGNORECASE)
+                raw_name = urllib.parse.unquote(fname_m.group(1).strip('" ')) if fname_m else 'recording.mp4'
+                safe_name = _vault_safe(raw_name) or 'recording.mp4'
+                fpath = os.path.join(target_dir, safe_name)
+                if os.path.exists(fpath):
+                    base, e = os.path.splitext(safe_name)
+                    safe_name = f'{base}_{int(datetime.now().timestamp())}{e}'
+                    fpath = os.path.join(target_dir, safe_name)
+                job['filename'] = safe_name
+                total = int(resp.headers.get('Content-Length', 0))
+                downloaded = 0
+                with open(fpath, 'wb') as f:
+                    while True:
+                        chunk = resp.read(CHUNK)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        job['progress'] = round(downloaded / total * 100) if total else -1
 
         job['status'] = 'done'
         job['progress'] = 100

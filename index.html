@@ -3741,6 +3741,8 @@ function showPage(name) {
   if (name === 'scripts') { renderScriptsPage(); }
   if (name === 'subscribers') { loadSubscribersPage(); }
   if (name === 'performance') { loadPerformance(_perfPeriod); }
+  if (name === 'vault') { if (typeof loadVaultPage === 'function') loadVaultPage(); }
+  if (name === 'notifications') { if (typeof loadNotifications === 'function') loadNotifications(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues
     const _doLoad = () => {
@@ -3825,7 +3827,7 @@ if (checkAuth()) {
     const data = await chatApiGet('/conversations');
     if (!data) return;
     allConvs = data;
-    renderConvList(data);
+    renderConvList(applyConvFilters(data));
     // Update unread badge in nav — show number of CHATS with unread (not sum of all messages)
     const totalUnread = data.filter(c => (c.unread || 0) > 0).length;
     const badge = document.getElementById('chat-unread-badge');
@@ -3983,7 +3985,7 @@ if (checkAuth()) {
     const _topbarEl = document.getElementById('msg-avatar');
     _topbarEl.innerHTML = avatarImg(tgId, _topbarLetter);
     updateConvStatus(tgId);
-    renderConvList(allConvs);
+    renderConvList(applyConvFilters(allConvs));
     await Promise.all([loadMsgs(), loadProfile(tgId)]);
     if (chatMsgInterval) clearInterval(chatMsgInterval);
     // Only poll as fallback if WebSocket is not alive
@@ -4713,7 +4715,7 @@ if (checkAuth()) {
     renderListFilterBar();
     // update conv list badges
     await fetchLists();
-    renderConvList(allConvs);
+    renderConvList(applyConvFilters(allConvs));
   }
 
   window.toggleTimeWaster = async function toggleTimeWaster(tgId, currentVal) {
@@ -4728,7 +4730,7 @@ if (checkAuth()) {
       });
       // update local conv data
       const c = allConvs.find(x => x.tg_id === tgId);
-      if (c) { c.time_waster = newVal; renderConvList(allConvs); }
+      if (c) { c.time_waster = newVal; renderConvList(applyConvFilters(allConvs)); }
       // reload profile to update button
       await loadProfile(tgId);
     } catch(e) { console.error(e); }
@@ -4753,7 +4755,7 @@ if (checkAuth()) {
         const c = allConvs.find(x => x.tg_id === tgId);
         if (c) {
           c.internal_name = iname;
-          renderConvList(allConvs);
+          renderConvList(applyConvFilters(allConvs));
           const displayName = iname ? `${iname} (${c.anon_id})` : c.anon_id;
           document.getElementById('msg-conv-name').textContent = displayName;
         }
@@ -4914,7 +4916,7 @@ if (checkAuth()) {
             if (msg.direction === 'in' && msg.tg_id !== currentChatTgId) _wc.unread = (_wc.unread || 0) + 1;
             // Re-sort exactly like Telegram: most recent message first
             allConvs.sort((a, b) => new Date(b.last_time || 0) - new Date(a.last_time || 0));
-            renderConvList(allConvs);
+            renderConvList(applyConvFilters(allConvs));
           } else {
             // Unknown conv (new subscriber) — fetch full list
             if (window._refreshConvs) window._refreshConvs();
@@ -4980,7 +4982,7 @@ if (checkAuth()) {
         if (conv) {
           conv.is_online = msg.is_online;
           conv.last_seen = msg.is_online ? new Date().toISOString() : conv.last_seen;
-          renderConvList(allConvs);
+          renderConvList(applyConvFilters(allConvs));
           if (msg.tg_id === currentChatTgId) updateConvStatus(msg.tg_id);
           refreshOnlinePanel();
         }
@@ -4988,7 +4990,7 @@ if (checkAuth()) {
       case 'read_update': {
         // Telegram app read → clear unread in local cache + badge
         const rc = allConvs.find(c => c.tg_id === msg.tg_id);
-        if (rc) { rc.unread = 0; renderConvList(allConvs); }
+        if (rc) { rc.unread = 0; renderConvList(applyConvFilters(allConvs)); }
         const totalUnread = allConvs.filter(c => (c.unread || 0) > 0).length;
         const badge = document.getElementById('chat-unread-badge');
         if (badge) { badge.textContent = totalUnread || ''; badge.style.display = totalUnread ? 'inline' : 'none'; }
@@ -5493,7 +5495,7 @@ if (checkAuth()) {
   }, 5000);
   setInterval(() => { if (window.chatPageActive && window._refreshChatStatus) window._refreshChatStatus(); }, 15000);
   // Re-render conv list every 30s for follow-up badge timing
-  setInterval(() => { if (window.chatPageActive && allConvs.length) renderConvList(allConvs); }, 30000);
+  setInterval(() => { if (window.chatPageActive && allConvs.length) renderConvList(applyConvFilters(allConvs)); }, 30000);
 }
 </script>
 
@@ -6267,8 +6269,20 @@ let _notifFilter = 'all';
 let _lastNotifTs = '';
 
 async function loadNotifications() {
+  const feed = document.getElementById('notif-feed');
   try {
-    const data = await fetch('/api/notifications').then(r => r.json());
+    // Try Vercel proxy first, fall back to Railway direct
+    const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+    let data = null;
+    const urls = ['/api/notifications'];
+    if (base) urls.push(base + '/notifications');
+    for (const url of urls) {
+      try {
+        const r = await fetch(url);
+        if (r.ok) { data = await r.json(); break; }
+      } catch(_) {}
+    }
+    if (data === null) throw new Error('All URLs failed');
     _allNotifs = data;
     renderNotifications();
     // Update badge with new unread count
@@ -6277,7 +6291,9 @@ async function loadNotifications() {
     if (badge && newCount > 0 && _lastNotifTs) {
       badge.textContent = newCount; badge.style.display = 'inline';
     }
-  } catch(e) {}
+  } catch(e) {
+    if (feed) feed.innerHTML = '<div class="empty" style="color:#ff5c7a;">⚠️ Could not load notifications — click ↻ to retry</div>';
+  }
 }
 
 function filterNotifs(type) {
@@ -6491,6 +6507,18 @@ if (_origOpenConvForTimer) {
 }
 
 // ── VAULT ─────────────────────────────────────────────────────────────────────
+// Helper: try Vercel proxy first, fall back to Railway direct
+async function _vaultApi(method, path, body) {
+  const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+  const urls = ['/api' + path];
+  if (base) urls.push(base + path);
+  const opts = { method: method || 'GET', ...(body ? { headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) } : {}) };
+  for (const url of urls) {
+    try { const r = await fetch(url, opts); if (r.ok) return r; } catch(_) {}
+  }
+  // Return last attempt for error handling
+  return fetch(urls[0], opts);
+}
 let _vaultFiles = [];
 let _vaultCurrentFolder = ''; // '' = All Files
 let _vaultFolders = [];
@@ -6514,10 +6542,15 @@ async function loadVaultPage() {
   if (!grid) return;
   grid.innerHTML = '<div style="color:var(--text3);font-size:13px;">Loading...</div>';
   // Load folders and files in parallel
-  [_vaultFolders, _vaultFiles] = await Promise.all([
-    fetch('/api/vault/folders').then(r => r.json()).catch(() => []),
-    fetch('/api/vault').then(r => r.json()).catch(() => [])
-  ]);
+  const _vBase = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+  const _vApi = p => ['/api' + p, _vBase + p].filter(Boolean);
+  async function _vFetch(p) {
+    for (const url of _vApi(p)) {
+      try { const r = await fetch(url); if (r.ok) return await r.json(); } catch(_) {}
+    }
+    return [];
+  }
+  [_vaultFolders, _vaultFiles] = await Promise.all([_vFetch('/vault/folders'), _vFetch('/vault')]);
   renderVaultFolderList();
   renderVaultGrid(grid, _vaultFiles, false);
   const cnt = document.getElementById('vault-file-count');
@@ -6627,17 +6660,14 @@ function openVaultPreview(src, type, label) {
 async function vaultCreateFolder() {
   const name = prompt('Folder name:');
   if (!name?.trim()) return;
-  const r = await fetch('/api/vault/folder', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name: name.trim() })
-  });
+  const r = await _vaultApi('POST', '/vault/folder', { name: name.trim() });
   const d = await r.json();
   if (d.ok) { _vaultFolders.push(d.name); renderVaultFolderList(); }
 }
 
 async function vaultDeleteFolder(name) {
   if (!confirm(`Delete folder "${name}" and all its files?`)) return;
-  await fetch('/api/vault/folder/' + encodeURIComponent(name), { method: 'DELETE' });
+  await _vaultApi('DELETE', '/vault/folder/' + encodeURIComponent(name));
   if (_vaultCurrentFolder === name) _vaultCurrentFolder = '';
   await loadVaultPage();
 }
@@ -6709,7 +6739,7 @@ async function vaultUpload(input) {
 async function deleteVaultFile(name, btn) {
   if (!confirm(`Delete "${name.split('/').pop()}"?`)) return;
   btn.textContent = '⏳';
-  await fetch('/api/vault/file/' + name.split('/').map(encodeURIComponent).join('/'), { method: 'DELETE' });
+  await _vaultApi('DELETE', '/vault/file/' + name.split('/').map(encodeURIComponent).join('/'));
   await loadVaultPage();
   vaultSelectFolder(_vaultCurrentFolder);
 }
@@ -6724,10 +6754,14 @@ function openVaultPicker() {
   const status = document.getElementById('vault-picker-status');
   if (status) status.textContent = 'Loading vault...';
   // Load folders + all files
-  Promise.all([
-    fetch('/api/vault/folders').then(r => r.json()).catch(() => []),
-    fetch('/api/vault').then(r => r.json()).catch(() => [])
-  ]).then(([folders, files]) => {
+  const _vpBase = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+  async function _vpFetch(p) {
+    for (const u of ['/api'+p, _vpBase+p].filter(Boolean)) {
+      try { const r = await fetch(u); if (r.ok) return await r.json(); } catch(_) {}
+    }
+    return [];
+  }
+  Promise.all([_vpFetch('/vault/folders'), _vpFetch('/vault')]).then(([folders, files]) => {
     _vaultFiles = files;
     _vaultFolders = folders;
     if (status) status.textContent = files.length + ' files — click to send';
@@ -6766,21 +6800,14 @@ async function sendVaultFile(filename) {
   if (!tgId) return;
   document.getElementById('vault-picker-overlay').style.display = 'none';
   try {
-    const r = await fetch('/api/vault/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tg_id: tgId, filename })
-    });
+    const r = await _vaultApi('POST', '/vault/send', { tg_id: tgId, filename });
     const d = await r.json();
     if (d.ok) { if (window.loadMsgs) loadMsgs(); }
     else { alert('Send failed: ' + (d.detail||'error')); }
   } catch(e) { alert('Error: ' + e.message); }
 }
 
-// Load vault when page opens
-if (typeof showPage === 'function') {
-  const _origSP = showPage;
-  showPage = function(name) { _origSP(name); if (name === 'vault') loadVaultPage(); };
-}
+// vault loading is handled directly in showPage
 
 // ── PAYMENTS / YOUSAFE CSV IMPORT ────────────────────────────────────────────
 function handleCsvDrop(e) {
@@ -7269,7 +7296,7 @@ async function saveFunnelStage(tgId, stage) {
   // Update local allConvs cache
   if (typeof allConvs !== 'undefined') {
     const c = allConvs.find(x => x.tg_id === tgId);
-    if (c) { c.funnel_stage = stage; renderConvList(allConvs); }
+    if (c) { c.funnel_stage = stage; renderConvList(applyConvFilters(allConvs)); }
   }
 }
 
