@@ -3612,8 +3612,8 @@ if (checkAuth()) {
     if (!data) return;
     allConvs = data;
     renderConvList(data);
-    // Update unread badge in nav
-    const totalUnread = data.reduce((s, c) => s + (c.unread || 0), 0);
+    // Update unread badge in nav — show number of CHATS with unread (not sum of all messages)
+    const totalUnread = data.filter(c => (c.unread || 0) > 0).length;
     const badge = document.getElementById('chat-unread-badge');
     // Also update Unread filter button count
     const unreadBtn = document.getElementById('unread-filter-btn');
@@ -3749,22 +3749,24 @@ if (checkAuth()) {
     const statusEl = document.getElementById('msg-conv-status');
     if (!statusEl) return;
     const conv = allConvs.find(c => c.tg_id === tgId);
-    if (!conv) { statusEl.textContent = ''; return; }
+    if (!conv) { statusEl.innerHTML = ''; return; }
+    // Always show TG username if available (chatters need it for calls)
+    const usernameChip = conv.tg_username
+      ? `<span style="color:var(--teal);font-size:10px;margin-right:6px;cursor:pointer;" title="Telegram username" onclick="navigator.clipboard&&navigator.clipboard.writeText('@${conv.tg_username}')">@${conv.tg_username}</span>`
+      : '';
+    let statusTxt = '';
     if (conv.is_online) {
-      statusEl.innerHTML = '<span style="color:#22c55e;">🟢 Online</span>';
+      statusTxt = '<span style="color:#22c55e;">🟢 Online</span>';
     } else if (conv.last_seen) {
       const d = new Date(conv.last_seen);
       const now = new Date();
       const diffMin = Math.floor((now - d) / 60000);
-      let txt;
-      if (diffMin < 1) txt = 'Gerade eben gesehen';
-      else if (diffMin < 60) txt = `Zuletzt gesehen vor ${diffMin} Min.`;
-      else if (diffMin < 1440) txt = `Zuletzt gesehen heute ${d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}`;
-      else txt = `Zuletzt gesehen ${d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})} ${d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}`;
-      statusEl.textContent = txt;
-    } else {
-      statusEl.textContent = '';
+      if (diffMin < 1) statusTxt = 'Gerade eben gesehen';
+      else if (diffMin < 60) statusTxt = `Zuletzt gesehen vor ${diffMin} Min.`;
+      else if (diffMin < 1440) statusTxt = `Zuletzt gesehen heute ${d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}`;
+      else statusTxt = `Zuletzt gesehen ${d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})} ${d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}`;
     }
+    statusEl.innerHTML = usernameChip + statusTxt;
   }
 
   window.openConv = async function openConv(tgId, anonId) {
@@ -3787,6 +3789,10 @@ if (checkAuth()) {
     // Update topbar name: "Jonas (User #1001)" or just "User #1001"
     const displayName = p.internal_name ? `${p.internal_name} (${p.anon_id})` : p.anon_id;
     document.getElementById('msg-conv-name').textContent = displayName;
+    // Update conv data with username so updateConvStatus can show it
+    const convRef = allConvs.find(c => c.tg_id === tgId);
+    if (convRef && p.tg_username && !convRef.tg_username) convRef.tg_username = p.tg_username;
+    updateConvStatus(tgId);
     const panel = document.getElementById('profile-panel');
     const letter = p.anon_id.replace('User #','#').slice(0,2);
     const profileSpending = getSubscriberSpending(tgId);
@@ -3799,7 +3805,7 @@ if (checkAuth()) {
         <div class="profile-big-avatar">${letter}</div>
         <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px;">${p.internal_name || p.anon_id}</div>
         <div class="profile-anon">${p.anon_id}</div>
-        ${(!isChatter() && p.tg_username) ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;">@${p.tg_username}</div>` : ''}
+        ${p.tg_username ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;cursor:pointer;" onclick="navigator.clipboard&&navigator.clipboard.writeText('@${p.tg_username}');this.textContent='✅ Copied!';setTimeout(()=>this.textContent='@${p.tg_username}',1500)" title="Click to copy">@${p.tg_username}</div>` : ''}
         ${(!isChatter() && p.tg_phone) ? `<div style="font-size:11px;color:#55556a;margin-top:1px;">📞 +${p.tg_phone}</div>` : ''}
       </div>
 
@@ -3892,7 +3898,7 @@ if (checkAuth()) {
         <div class="profile-stat-row"><span>First message</span><span class="profile-stat-val">${firstDate}</span></div>
         <div class="profile-stat-row"><span>Last message</span><span class="profile-stat-val">${lastDate}</span></div>
         <div class="profile-stat-row"><span>Messages</span><span class="profile-stat-val">${p.msg_count||0}</span></div>
-        ${!isChatter() ? `<div class="profile-stat-row"><span>Contact</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ No contact'}</span></div>` : ''}
+        <div class="profile-stat-row"><span>Telegram</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ No username'}</span></div>
 
       </div>
     `;
@@ -4461,9 +4467,9 @@ if (checkAuth()) {
         : '';
       // Photo messages — render as draggable thumbnail
       const isPhoto = m.tg_msg_id > 0 &&
-        /\[(photo|image|jpeg|png|gif)\]/i.test(m.text);
+        /(📷|photo|image|jpeg|png|gif|foto)/i.test(m.text);
       const isVideo = m.tg_msg_id > 0 &&
-        /\[(video|mp4|mov)\]/i.test(m.text);
+        /(🎬|video|mp4|mov)/i.test(m.text);
 
       let mediaEl = '';
       if ((isPhoto || isVideo) && dir === 'in') {
@@ -4870,7 +4876,10 @@ async function excludeRecentChatted() {
   } catch(e) { if(info){info.style.display='block';info.textContent='❌ Error loading recent chats';} }
 }
 
+let _bcSending = false; // guard against double-click / double-send
+
 async function startBroadcast() {
+  if (_bcSending) return; // prevent double send
   const text = document.getElementById('bc-text').value.trim();
   const chatter = document.getElementById('bc-chatter').value.trim() || localStorage.getItem('crm_user') || 'Broadcast';
   const stage = document.getElementById('bc-filter-stage').value;
@@ -4879,6 +4888,10 @@ async function startBroadcast() {
 
   const confirmed = confirm(`Send to ${stage ? '"' + stage + '"' : 'ALL'} subscribers${_bcExcludeIds.length ? ` (${_bcExcludeIds.length} excluded)` : ''}?\n\n"${text.slice(0,80)}..."`);
   if (!confirmed) return;
+
+  _bcSending = true;
+  const sendBtn = document.querySelector('button[onclick="startBroadcast()"]');
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '⏳ Sending...'; }
 
   const status = document.getElementById('bc-status');
   status.style.display = 'block';
@@ -4907,6 +4920,9 @@ async function startBroadcast() {
   } catch(e) {
     status.style.color = 'var(--red)';
     status.textContent = '❌ Netzwerkfehler: ' + e.message;
+  } finally {
+    _bcSending = false;
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📣 Send'; }
   }
 }
 </script>

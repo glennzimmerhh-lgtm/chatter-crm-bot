@@ -248,7 +248,7 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: st
             payment_ref = f'ZF-{1001 + n}'
             now = datetime.now().isoformat()
             c.execute(
-                'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count,tg_username,tg_phone,payment_ref) VALUES (%s,%s,%s,%s,%s,1,0,%s,%s,%s)',
+                'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count,tg_username,tg_phone,payment_ref) VALUES (%s,%s,%s,%s,%s,0,0,%s,%s,%s)',
                 (tg_id, anon_id, '', now, now, username, phone, payment_ref)
             )
             # Backfill payment_ref for any existing subscribers that don't have one
@@ -458,11 +458,11 @@ async def start_userbot():
                         if c.fetchone():
                             return
                 if event.text:          text = event.text
-                elif event.photo:       text = '[📷 Foto]'
-                elif event.document:    text = '[📎 Datei]'
+                elif event.photo:       text = '[📷 Photo]'
+                elif event.document:    text = '[📎 Document]'
                 elif event.sticker:     text = '[Sticker]'
-                elif event.voice:       text = '[🎤 Sprachnachricht]'
-                else:                   text = '[Nachricht]'
+                elif event.voice:       text = '[🎤 Voice]'
+                else:                   text = '[Message]'
                 await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'in', tg_msg_id=msg_tg_id))
                 print(f'📨 {tg_id}: {text[:80]}')
                 # Push to all connected CRM clients
@@ -481,6 +481,41 @@ async def start_userbot():
                     'tg_id': tg_id,
                     'text': text[:80],
                     'timestamp': now_ts,
+                }))
+
+            @tg_client.on(events.NewMessage(outgoing=True, func=lambda e: e.is_private))
+            async def on_outgoing_dm(event):
+                """Capture messages sent directly from Telegram (not via CRM /reply)."""
+                tg_id = str(event.chat_id)
+                msg_tg_id = event.id
+                loop = asyncio.get_event_loop()
+                # Only capture for known subscribers
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute('SELECT 1 FROM conversations WHERE tg_id=%s', (tg_id,))
+                        if not c.fetchone():
+                            return
+                # Deduplicate: skip if already saved (e.g. sent via /reply endpoint)
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute('SELECT 1 FROM messages WHERE tg_msg_id=%s AND tg_id=%s AND direction=%s', (msg_tg_id, tg_id, 'out'))
+                        if c.fetchone():
+                            return
+                if event.text:      text = event.text
+                elif event.photo:   text = '[📷 Photo]'
+                elif event.document:text = '[📎 Document]'
+                elif event.voice:   text = '[🎤 Voice]'
+                else:               text = '[Message]'
+                await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'out', 'Telegram', tg_msg_id=msg_tg_id))
+                print(f'📤 Telegram→CRM {tg_id}: {text[:80]}')
+                asyncio.create_task(ws_manager.broadcast({
+                    'type': 'new_message',
+                    'tg_id': tg_id,
+                    'text': text,
+                    'direction': 'out',
+                    'chatter': 'Telegram',
+                    'timestamp': datetime.now().isoformat(),
+                    'tg_msg_id': msg_tg_id,
                 }))
 
             await tg_client.start()
@@ -806,7 +841,7 @@ async def get_messages(tg_id: str, bg: BackgroundTasks):
     with db() as conn:
         with conn.cursor() as c:
             c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
-            c.execute('SELECT text,direction,timestamp,chatter,is_read,read_at,translation FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
+            c.execute('SELECT id,text,direction,timestamp,chatter,is_read,read_at,translation,tg_msg_id FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
             rows = c.fetchall()
     bg.add_task(_bg_read_history, tg_id)
     return [dict(r) for r in rows]
