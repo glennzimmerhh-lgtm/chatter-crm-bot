@@ -3850,6 +3850,7 @@ function showPage(name) {
   if (name === 'performance') { loadPerformance(_perfPeriod); }
   if (name === 'vault') { if (typeof loadVaultPage === 'function') loadVaultPage(); }
   if (name === 'notifications') { if (typeof loadNotifications === 'function') loadNotifications(); }
+  if (name === 'members') { if (typeof loadMembers === 'function') loadMembers(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues
     const _doLoad = () => {
@@ -6378,14 +6379,14 @@ let _lastNotifTs = '';
 async function loadNotifications() {
   const feed = document.getElementById('notif-feed');
   try {
-    // Try Vercel proxy first, fall back to Railway direct
+    // Try Vercel proxy first, fall back to Railway direct (with timeout to prevent infinite hang)
     const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
     let data = null;
     const urls = ['/api/notifications'];
     if (base) urls.push(base + '/notifications');
     for (const url of urls) {
       try {
-        const r = await fetch(url);
+        const r = await _fetchT(url, {}, 8000);
         if (r.ok) { data = await r.json(); break; }
       } catch(_) {}
     }
@@ -7346,7 +7347,14 @@ async function loadMembers() {
   const list = document.getElementById('members-list');
   if (!list) return;
   try {
-    const users = await fetch('/api/auth/users').then(r => r.json());
+    const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+    let users = null;
+    const urls = ['/api/auth/users'];
+    if (base) urls.push(base + '/auth/users');
+    for (const url of urls) {
+      try { const r = await _fetchT(url, {}, 8000); if (r.ok) { users = await r.json(); break; } } catch(_) {}
+    }
+    if (!users) throw new Error('failed');
     const currentUser = localStorage.getItem('crm_user');
     list.innerHTML = users.map(u => `
       <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">
