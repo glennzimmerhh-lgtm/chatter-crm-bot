@@ -2280,6 +2280,45 @@ async def start_fake_call(body: CallStartIn):
             'call_type': 'video' if is_video else 'audio',
             'chatter': body.chatter,
         }))
+
+        # ── Timer-based auto-hangup ──────────────────────────────────────────
+        # Get media duration via ffprobe, then hang up after duration + 3s buffer.
+        # This is the most reliable fallback since StreamEnded events are unreliable
+        # for private calls in py-tgcalls.
+        async def _timed_hangup(tg_id_str: str, filepath: str):
+            try:
+                import subprocess, json as _json
+                result = subprocess.run(
+                    ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+                     '-show_format', filepath],
+                    capture_output=True, text=True, timeout=10
+                )
+                info = _json.loads(result.stdout)
+                duration = float(info['format']['duration'])
+                print(f'⏱ Auto-hangup scheduled in {duration:.1f}s for {tg_id_str}')
+            except Exception as _e:
+                print(f'⚠️ ffprobe duration failed: {_e} — using 300s fallback')
+                duration = 300.0  # 5 min safety fallback
+
+            await asyncio.sleep(duration + 3)
+
+            if tg_id_str not in active_calls:
+                return  # Already hung up (by event or manual)
+
+            print(f'⏰ Auto-hanging up {tg_id_str} after stream duration')
+            try:
+                if hasattr(calls_client, 'leave_call'):
+                    await calls_client.leave_call(int(tg_id_str))
+                elif hasattr(calls_client, 'leave'):
+                    await calls_client.leave(int(tg_id_str))
+            except Exception as _e:
+                print(f'⚠️ Auto-hangup leave_call error: {_e}')
+            active_calls.pop(tg_id_str, None)
+            await ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str})
+
+        asyncio.create_task(_timed_hangup(body.tg_id, fpath))
+        # ── End auto-hangup ──────────────────────────────────────────────────
+
         return {'ok': True, 'type': 'video' if is_video else 'audio'}
     except Exception as e:
         raise HTTPException(500, f'Call failed: {e}')
