@@ -5255,6 +5255,70 @@ if (checkAuth()) {
       statusEl.style.color = '#ff5c7a';
     }
   };
+
+  window.importCallFromUrl = async function() {
+    const urlEl    = document.getElementById('fc-url-input');
+    const url      = urlEl?.value.trim();
+    const folder   = document.getElementById('fc-upload-folder')?.value || '';
+    const statusEl = document.getElementById('fc-upload-status');
+    const wrapEl   = document.getElementById('fc-import-progress-wrap');
+    const barEl    = document.getElementById('fc-import-progress-bar');
+    const lblEl    = document.getElementById('fc-import-progress-label');
+
+    if (!url) { statusEl.textContent = 'Paste a Google Drive or direct URL first.'; statusEl.style.color='#f87171'; return; }
+
+    statusEl.textContent = '⏳ Starting import…'; statusEl.style.color='#f59e0b';
+    if (wrapEl) wrapEl.style.display = 'block';
+    if (barEl)  barEl.style.width = '0%';
+    if (lblEl)  lblEl.textContent = '';
+
+    let jobId;
+    try {
+      const r = await chatApiFetch('/call/import-url', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ url, folder })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'Error starting import');
+      jobId = d.job_id;
+    } catch(e) {
+      statusEl.textContent = '❌ ' + e.message; statusEl.style.color='#f87171';
+      if (wrapEl) wrapEl.style.display = 'none';
+      return;
+    }
+
+    // Poll every 2s for progress
+    const poll = setInterval(async () => {
+      try {
+        const r2  = await chatApiFetch('/call/import-status/' + jobId);
+        const job = await r2.json();
+        if (job.status === 'downloading') {
+          const pct = job.progress >= 0 ? job.progress + '%' : '…';
+          if (barEl && job.progress >= 0) barEl.style.width = job.progress + '%';
+          if (lblEl) lblEl.textContent = `Downloading${job.filename ? ': ' + job.filename : ''} — ${pct}`;
+          statusEl.textContent = `⬇ Importing… ${pct}`;
+          statusEl.style.color = '#f59e0b';
+        } else if (job.status === 'done') {
+          clearInterval(poll);
+          if (barEl) barEl.style.width = '100%';
+          if (lblEl) lblEl.textContent = '✅ ' + job.filename;
+          statusEl.textContent = '✅ Imported: ' + job.filename;
+          statusEl.style.color = '#4ade80';
+          if (urlEl) urlEl.value = '';
+          setTimeout(() => { if (wrapEl) wrapEl.style.display = 'none'; }, 4000);
+          if (folder) switchCallFolder(folder);
+          else await loadCallFiles();
+        } else if (job.status === 'error') {
+          clearInterval(poll);
+          if (wrapEl) wrapEl.style.display = 'none';
+          statusEl.textContent = '❌ ' + (job.error || 'Download failed');
+          statusEl.style.color = '#f87171';
+        }
+      } catch(_) {}
+    }, 2000);
+  };
+
   // ─── END FAKE CALL ────────────────────────────────────────────────────────
 
   // ─── MEDIA GALLERY ─────────────────────────────────────────────────────────
@@ -5857,16 +5921,31 @@ window.showPage = function(page) {
     <!-- Upload section -->
     <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.07);">
       <div style="font-size:12px;color:var(--dim);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Upload recording</div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-        <select id="fc-upload-folder" style="font-size:12px;color:var(--text);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:7px;padding:7px 10px;cursor:pointer;flex-shrink:0;">
-          <option value="fake_checks">✅ Fake Checks</option>
-          <option value="paid_calls">💰 Paid Calls</option>
-        </select>
+      <!-- Folder selector (shared by both methods) -->
+      <select id="fc-upload-folder" style="width:100%;font-size:12px;color:var(--text);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:7px;padding:7px 10px;cursor:pointer;margin-bottom:8px;box-sizing:border-box;">
+        <option value="fake_checks">✅ Fake Checks</option>
+        <option value="paid_calls">💰 Paid Calls</option>
+      </select>
+      <!-- File upload row -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
         <input id="fc-upload-input" type="file" accept="audio/*,video/*,.mp3,.mp4,.wav,.ogg,.aac,.m4a,.mov,.mkv,.flac"
           style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;cursor:pointer;">
         <button onclick="uploadCallRecording()" style="background:var(--teal);border:none;border-radius:7px;color:#000;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">⬆ Upload</button>
       </div>
+      <!-- URL import row -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <input id="fc-url-input" type="url" placeholder="Or paste Google Drive link (for large files)…"
+          style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;outline:none;">
+        <button onclick="importCallFromUrl()" style="background:rgba(74,158,255,.2);border:1px solid rgba(74,158,255,.4);border-radius:7px;color:#4a9eff;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">🔗 Import</button>
+      </div>
       <div id="fc-upload-status" style="font-size:12px;min-height:16px;"></div>
+      <!-- Import progress bar -->
+      <div id="fc-import-progress-wrap" style="display:none;margin-top:6px;">
+        <div style="height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;">
+          <div id="fc-import-progress-bar" style="height:100%;background:var(--teal);width:0%;transition:width .3s;border-radius:3px;"></div>
+        </div>
+        <div id="fc-import-progress-label" style="font-size:11px;color:var(--text3);margin-top:3px;"></div>
+      </div>
     </div>
     <!-- Folder tabs + Files list -->
     <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;">
@@ -7250,132 +7329,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// ── PERFORMANCE DASHBOARD ─────────────────────────────────────────────────────
-let perfChart = null;
-let currentPerfPeriod = 'heute';
-
-async function loadPerformance(period) {
-  currentPerfPeriod = period;
-  // Update period buttons
-  ['heute','woche','monat','alle'].forEach(p => {
-    const btn = document.getElementById('perf-btn-' + p);
-    if (btn) btn.classList.toggle('active', p === period);
-  });
-
-  try {
-    const data = await fetch('/api/analytics/chatters').then(r => r.json());
-    // Filter by period using crmSalesData
-    const filtered = filterPerfByPeriod(data, period);
-    renderPerfPodium(filtered);
-    renderPerfChart(filtered);
-    renderPerfTable(filtered);
-  } catch(e) { console.error('Performance load error:', e); }
-}
-
-function filterPerfByPeriod(chatters, period) {
-  if (period === 'alle' || typeof crmSalesData === 'undefined') return chatters;
-  const now = new Date();
-  const periodSales = crmSalesData.filter(s => {
-    const d = parseTs(s.timestamp);
-    if (period === 'heute') return localDateStr(d) === localDateStr(now);
-    if (period === 'woche') { const w = new Date(now); w.setDate(w.getDate()-7); return d >= w; }
-    if (period === 'monat') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    return true;
-  });
-  // Re-aggregate per chatter
-  const map = {};
-  periodSales.forEach(s => {
-    if (!map[s.chatter]) map[s.chatter] = { chatter: s.chatter, sales_count: 0, total_revenue: 0, avg_sale: 0, msgs_sent: 0 };
-    map[s.chatter].sales_count++;
-    map[s.chatter].total_revenue += parseFloat(s.amount) || 0;
-  });
-  // Merge msgs_sent from full data
-  chatters.forEach(c => { if (map[c.chatter]) map[c.chatter].msgs_sent = c.msgs_sent; });
-  return Object.values(map).map(r => ({
-    ...r,
-    avg_sale: r.sales_count > 0 ? r.total_revenue / r.sales_count : 0,
-    revenue_per_msg: r.msgs_sent > 0 ? r.total_revenue / r.msgs_sent : 0
-  })).sort((a, b) => b.total_revenue - a.total_revenue);
-}
-
-function renderPerfPodium(data) {
-  const el = document.getElementById('perf-podium');
-  if (!el) return;
-  if (!data.length) { el.innerHTML = '<div class="empty">No data im gewählten Zeitraum</div>'; return; }
-  const medals = [
-    { icon: '🥇', color: '#ffd700', height: '140px', rank: 1 },
-    { icon: '🥈', color: '#c0c0c0', height: '110px', rank: 2 },
-    { icon: '🥉', color: '#cd7f32', height: '90px', rank: 3 }
-  ];
-  // Reorder: 2nd, 1st, 3rd for podium effect
-  const order = [data[1], data[0], data[2]].filter(Boolean);
-  const mOrder = [medals[1], medals[0], medals[2]];
-  el.innerHTML = order.map((c, i) => {
-    const m = mOrder[i];
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;min-width:120px;">
-      <div style="font-size:24px;">${m.icon}</div>
-      <div style="font-weight:700;font-size:13px;color:var(--text);">${c.chatter}</div>
-      <div style="font-size:20px;font-weight:700;color:${m.color};">${c.total_revenue.toFixed(0)}€</div>
-      <div style="font-size:11px;color:var(--text2);">${c.sales_count} Sales</div>
-      <div style="width:100%;height:${m.height};background:linear-gradient(to top, ${m.color}33, ${m.color}11);border-radius:8px 8px 0 0;border:1px solid ${m.color}44;"></div>
-    </div>`;
-  }).join('');
-}
-
-function renderPerfChart(data) {
-  const ctx = document.getElementById('perfChart');
-  if (!ctx) return;
-  if (perfChart) perfChart.destroy();
-  const colors = ['#00d4aa','#4a9eff','#ffd166','#ff5c7a','#a78bfa','#fb923c'];
-  perfChart = new Chart(ctx.getContext('2d'), {
-    type: 'bar',
-    data: {
-      labels: data.map(c => c.chatter),
-      datasets: [{
-        data: data.map(c => c.total_revenue),
-        backgroundColor: data.map((_, i) => colors[i % colors.length] + '99'),
-        borderColor: data.map((_, i) => colors[i % colors.length]),
-        borderWidth: 2, borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.raw.toFixed(0) + ' €' } } },
-      scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0' } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0', callback: v => v + ' €' } }
-      }
-    }
-  });
-}
-
-function fmtSeconds(sec) {
-  if (!sec && sec !== 0) return '—';
-  if (sec < 60) return sec + 's';
-  if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
-  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60);
-  return h + 'h ' + m + 'm';
-}
-
-function renderPerfTable(data) {
-  const tbody = document.getElementById('perf-tbody');
-  if (!tbody) return;
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty">No data</div></td></tr>'; return; }
-  const medals = ['🥇','🥈','🥉'];
-  tbody.innerHTML = data.map((c, i) => `<tr>
-    <td style="font-weight:700;color:var(--text2);font-size:16px;">${medals[i] || (i+1)}</td>
-    <td style="font-weight:600;color:var(--text);">${c.chatter}</td>
-    <td style="color:#00d4aa;font-weight:700;">${(c.total_revenue||0).toFixed(0)}€</td>
-    <td>${c.sales_count||0}</td>
-    <td style="color:#a78bfa;">${c.calls_count||0}</td>
-    <td style="color:${(c.avg_response_sec||999)<60?'#22c55e':(c.avg_response_sec||999)<300?'#ffd166':'#ff5c7a'};">
-      ${fmtSeconds(c.avg_response_sec)}
-    </td>
-    <td style="color:var(--text2);">${fmtSeconds(c.active_sec)}</td>
-    <td style="color:var(--text2);">${c.msgs_sent||0}</td>
-    <td style="color:var(--text3);">${(c.revenue_per_msg||0).toFixed(2)}€</td>
-  </tr>`).join('');
-}
 </script>
 </body>
 </html>

@@ -8,7 +8,12 @@ import asyncio
 import os
 import csv
 import io
+import re
+import uuid
 import shutil
+import threading
+import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
@@ -2531,6 +2536,103 @@ async def upload_call_file(file: UploadFile = File(...), folder: str = ''):
             raise HTTPException(507, 'Disk full')
         raise HTTPException(500, str(e))
     return {'ok': True, 'name': safe_name, 'folder': folder}
+
+# ── URL IMPORT ───────────────────────────────────────────────────────────────
+_import_jobs: dict = {}   # job_id → {status, progress, filename, error, folder}
+
+def _gdrive_direct_url(url: str) -> tuple[str, str]:
+    """Convert Google Drive share URL to direct download. Returns (download_url, suggested_filename)."""
+    m = re.search(r'drive\.google\.com/file/d/([^/?#]+)', url)
+    if not m:
+        # Already a direct URL or other service
+        return url, ''
+    file_id = m.group(1)
+    dl_url = f'https://drive.usercontent.google.com/download?id={file_id}&export=download&authuser=0&confirm=t'
+    return dl_url, ''
+
+def _run_import(job_id: str, url: str, folder: str):
+    """Background thread: download URL and save to CALLS_DIR / folder."""
+    job = _import_jobs[job_id]
+    target_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
+    os.makedirs(target_dir, exist_ok=True)
+    try:
+        dl_url, _ = _gdrive_direct_url(url)
+
+        # Open connection and read Content-Disposition for filename
+        req = urllib.request.Request(dl_url, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; CRM-Downloader/1.0)'
+        })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            # Try to get filename from Content-Disposition
+            cd = resp.headers.get('Content-Disposition', '')
+            fname_match = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)', cd, re.IGNORECASE)
+            if fname_match:
+                raw_name = urllib.parse.unquote(fname_match.group(1).strip('" '))
+            else:
+                # Derive from URL path
+                raw_name = url.rstrip('/').split('/')[-1].split('?')[0] or 'recording'
+                if '.' not in raw_name:
+                    ct = resp.headers.get('Content-Type', 'video/mp4')
+                    ext_map = {'video/mp4':'mp4','video/quicktime':'mov','audio/mpeg':'mp3','audio/ogg':'ogg','video/x-matroska':'mkv'}
+                    raw_name += '.' + ext_map.get(ct.split(';')[0].strip(), 'mp4')
+
+            safe_name = _vault_safe(raw_name) or 'recording.mp4'
+            fpath = os.path.join(target_dir, safe_name)
+            if os.path.exists(fpath):
+                base, e = os.path.splitext(safe_name)
+                safe_name = f'{base}_{int(datetime.now().timestamp())}{e}'
+                fpath = os.path.join(target_dir, safe_name)
+
+            job['filename'] = safe_name
+            total = int(resp.headers.get('Content-Length', 0))
+            downloaded = 0
+            CHUNK = 1024 * 1024  # 1 MB
+
+            with open(fpath, 'wb') as f:
+                while True:
+                    chunk = resp.read(CHUNK)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        job['progress'] = round(downloaded / total * 100)
+                    else:
+                        job['progress'] = -1  # unknown size
+
+        job['status'] = 'done'
+        job['progress'] = 100
+    except Exception as e:
+        job['status'] = 'error'
+        job['error'] = str(e)
+
+class ImportUrlBody(BaseModel):
+    url: str
+    folder: str = ''
+
+@app.post('/call/import-url')
+def import_call_from_url(body: ImportUrlBody):
+    """Start background download of a call recording from a URL (incl. Google Drive)."""
+    url = body.url.strip()
+    folder = body.folder.strip()
+    if not url:
+        raise HTTPException(400, 'URL required')
+    if folder and folder not in CALL_FOLDERS:
+        raise HTTPException(400, f'Invalid folder. Choose from: {CALL_FOLDERS}')
+    job_id = str(uuid.uuid4())[:8]
+    _import_jobs[job_id] = {'status': 'downloading', 'progress': 0, 'filename': '', 'error': '', 'folder': folder}
+    t = threading.Thread(target=_run_import, args=(job_id, url, folder), daemon=True)
+    t.start()
+    return {'job_id': job_id}
+
+@app.get('/call/import-status/{job_id}')
+def import_call_status(job_id: str):
+    job = _import_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, 'Job not found')
+    return job
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.delete('/call/file/{filename}')
 def delete_call_file(filename: str, folder: str = ''):
