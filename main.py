@@ -23,7 +23,10 @@ os.makedirs(PROOFS_DIR, exist_ok=True)
 
 # Fake call recordings directory
 CALLS_DIR = os.path.join(VAULT_DIR, '_calls')
+CALL_FOLDERS = ['fake_checks', 'paid_calls']  # fixed folder names
 os.makedirs(CALLS_DIR, exist_ok=True)
+for _f in CALL_FOLDERS:
+    os.makedirs(os.path.join(CALLS_DIR, _f), exist_ok=True)
 
 # ── pytgcalls (optional — fake call feature) ──────────────────────────────────
 _PYTGCALLS_ERR = None
@@ -536,6 +539,22 @@ async def start_userbot():
                     'timestamp': datetime.now().isoformat(),
                     'tg_msg_id': msg_tg_id,
                 }))
+
+            # ── Read receipts: sync unread when Telegram app is used ──────────
+            @tg_client.on(events.MessageRead(inbox=True))
+            async def on_inbox_read(event):
+                """Fires when WE read incoming messages (in Telegram app or via CRM)."""
+                try:
+                    tg_id = str(event.chat_id)
+                    with db() as conn:
+                        with conn.cursor() as c:
+                            c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
+                    asyncio.create_task(ws_manager.broadcast({
+                        'type': 'read_update', 'tg_id': tg_id, 'unread': 0
+                    }))
+                except Exception as _e:
+                    print(f'on_inbox_read error: {_e}')
+            # ──────────────────────────────────────────────────────────────────
 
             await tg_client.start()
             print('✅ Userbot verbunden!')
@@ -2134,36 +2153,52 @@ def call_status():
 
 @app.get('/call/files')
 def get_call_files():
-    """List uploaded call recordings."""
-    files = []
-    try:
-        for fname in sorted(os.listdir(CALLS_DIR)):
-            fpath = os.path.join(CALLS_DIR, fname)
-            if os.path.isfile(fpath) and not fname.startswith('.'):
-                ext = fname.rsplit('.',1)[-1].lower() if '.' in fname else ''
-                ftype = 'video' if ext in ('mp4','mov','mkv') else 'audio'
-                files.append({
-                    'name': fname,
-                    'size': os.path.getsize(fpath),
-                    'type': ftype,
-                    'url': f'/call/file/{fname}',
-                })
-    except Exception as e:
-        print(f'call files error: {e}')
-    return {'files': files}
+    """List recordings organised by folder. Returns {folders: [{name, label, files}]}"""
+    def _scan_dir(directory: str, folder_key: str) -> list:
+        result = []
+        try:
+            for fname in sorted(os.listdir(directory)):
+                fpath = os.path.join(directory, fname)
+                if os.path.isfile(fpath) and not fname.startswith('.'):
+                    ext = fname.rsplit('.',1)[-1].lower() if '.' in fname else ''
+                    if ext not in CALL_ALLOWED_EXTS:
+                        continue
+                    ftype = 'video' if ext in ('mp4','mov','mkv') else 'audio'
+                    result.append({
+                        'name': fname,
+                        'folder': folder_key,
+                        'size': os.path.getsize(fpath),
+                        'type': ftype,
+                    })
+        except Exception as e:
+            print(f'call files scan error ({folder_key}): {e}')
+        return result
+
+    FOLDER_LABELS = {'': 'Alle', 'fake_checks': '✅ Fake Checks', 'paid_calls': '💰 Paid Calls'}
+    folders = []
+    # Root (ungrouped)
+    folders.append({'key': '', 'label': 'Alle', 'files': _scan_dir(CALLS_DIR, '')})
+    # Sub-folders
+    for fkey in CALL_FOLDERS:
+        fdir = os.path.join(CALLS_DIR, fkey)
+        folders.append({'key': fkey, 'label': FOLDER_LABELS.get(fkey, fkey), 'files': _scan_dir(fdir, fkey)})
+    return {'folders': folders}
 
 @app.post('/call/upload')
-async def upload_call_file(file: UploadFile = File(...)):
-    """Upload a call recording (audio or video)."""
+async def upload_call_file(file: UploadFile = File(...), folder: str = ''):
+    """Upload a call recording. folder='' for root, or 'fake_checks'/'paid_calls'."""
+    if folder and folder not in CALL_FOLDERS:
+        raise HTTPException(400, f'Invalid folder. Choose from: {CALL_FOLDERS}')
     ext = (file.filename or 'call.mp3').rsplit('.',1)[-1].lower()
     if ext not in CALL_ALLOWED_EXTS:
-        raise HTTPException(400, f'File type .{ext} not allowed. Use: {", ".join(CALL_ALLOWED_EXTS)}')
+        raise HTTPException(400, f'File type .{ext} not allowed.')
+    target_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
     safe_name = _vault_safe(file.filename or f'call.{ext}') or f'call.{ext}'
-    fpath = os.path.join(CALLS_DIR, safe_name)
+    fpath = os.path.join(target_dir, safe_name)
     if os.path.exists(fpath):
         base, e = os.path.splitext(safe_name)
         safe_name = f'{base}_{int(datetime.now().timestamp())}{e}'
-        fpath = os.path.join(CALLS_DIR, safe_name)
+        fpath = os.path.join(target_dir, safe_name)
     try:
         with open(fpath, 'wb') as f:
             shutil.copyfileobj(file.file, f)
@@ -2171,23 +2206,25 @@ async def upload_call_file(file: UploadFile = File(...)):
         if 'No space left' in str(e):
             raise HTTPException(507, 'Disk full')
         raise HTTPException(500, str(e))
-    return {'ok': True, 'name': safe_name}
+    return {'ok': True, 'name': safe_name, 'folder': folder}
 
 @app.delete('/call/file/{filename}')
-def delete_call_file(filename: str):
-    if '..' in filename:
+def delete_call_file(filename: str, folder: str = ''):
+    if '..' in filename or '..' in folder:
         raise HTTPException(400, 'Invalid')
-    fpath = os.path.join(CALLS_DIR, filename)
+    base_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
+    fpath = os.path.join(base_dir, filename)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
     os.remove(fpath)
     return {'ok': True}
 
 @app.get('/call/file/{filename}')
-def serve_call_file(filename: str):
-    if '..' in filename:
+def serve_call_file(filename: str, folder: str = ''):
+    if '..' in filename or '..' in folder:
         raise HTTPException(400, 'Invalid')
-    fpath = os.path.join(CALLS_DIR, filename)
+    base_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
+    fpath = os.path.join(base_dir, filename)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
     return FileResponse(fpath)
@@ -2195,6 +2232,7 @@ def serve_call_file(filename: str):
 class CallStartIn(BaseModel):
     tg_id: str
     filename: str
+    folder: str = ''   # '' = root, 'fake_checks', 'paid_calls'
     chatter: str = 'Chatter'
 
 @app.post('/call/start')
@@ -2207,7 +2245,8 @@ async def start_fake_call(body: CallStartIn):
     if body.tg_id in active_calls:
         raise HTTPException(409, 'A call is already active with this subscriber.')
 
-    fpath = os.path.join(CALLS_DIR, body.filename)
+    base_dir = os.path.join(CALLS_DIR, body.folder) if body.folder else CALLS_DIR
+    fpath = os.path.join(base_dir, body.filename)
     if '..' in body.filename or not os.path.isfile(fpath):
         raise HTTPException(404, 'Recording file not found.')
 

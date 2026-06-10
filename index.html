@@ -4652,6 +4652,15 @@ if (checkAuth()) {
           refreshOnlinePanel();
         }
         break;
+      case 'read_update': {
+        // Telegram app read → clear unread in local cache + badge
+        const rc = allConvs.find(c => c.tg_id === msg.tg_id);
+        if (rc) { rc.unread = 0; renderConvList(allConvs); }
+        const totalUnread = allConvs.filter(c => (c.unread || 0) > 0).length;
+        const badge = document.getElementById('chat-unread-badge');
+        if (badge) { badge.textContent = totalUnread || ''; badge.style.display = totalUnread ? 'inline' : 'none'; }
+        break;
+      }
       case 'call_started':
         if (msg.tg_id === currentChatTgId) showActiveCallBar(msg);
         break;
@@ -4717,7 +4726,10 @@ if (checkAuth()) {
     overlay.style.display = 'flex';
     document.getElementById('fc-files-list').innerHTML = '<p style="color:var(--dim);font-size:13px;">Laden…</p>';
     document.getElementById('fc-status').textContent = '';
-    await loadCallFiles();
+    document.getElementById('fc-upload-status').textContent = '';
+    // Reset to "Alle" tab (switchCallFolder calls loadCallFiles internally)
+    _currentCallFolder = '';
+    switchCallFolder('');
     // Check pytgcalls status
     try {
       const st = await chatApiGet('/call/status');
@@ -4745,28 +4757,93 @@ if (checkAuth()) {
     if (overlay) overlay.style.display = 'none';
   };
 
+  let _currentCallFolder = ''; // '' = Alle, 'fake_checks', 'paid_calls'
+
+  window.switchCallFolder = function(folder) {
+    _currentCallFolder = folder;
+    // Update tab styles
+    ['all', 'fake_checks', 'paid_calls'].forEach(key => {
+      const btn = document.getElementById('fc-tab-' + key);
+      if (!btn) return;
+      const active = (key === 'all' && folder === '') || key === folder;
+      btn.style.borderBottomColor = active ? 'var(--teal)' : 'transparent';
+      btn.style.color = active ? 'var(--text)' : 'var(--dim)';
+      btn.style.fontWeight = active ? '700' : '600';
+    });
+    loadCallFiles();
+  };
+
   async function loadCallFiles() {
     const list = document.getElementById('fc-files-list');
     if (!list) return;
     try {
       const data = await chatApiGet('/call/files');
-      // backend returns {files: [{name, size, type, url}, ...]}
+      const mb = b => b >= 1048576 ? (b/1048576).toFixed(1)+' MB' : (b/1024).toFixed(0)+' KB';
+
+      // Normalize to flat list with folder info, or handle folders response
+      let filesToShow = [];
+      if (data?.folders) {
+        // New API: {folders: [{key, label, files: [{name,size,...}]}]}
+        if (_currentCallFolder === '') {
+          // Show all folders grouped
+          const html = data.folders.map(folder => {
+            if (!folder.files || !folder.files.length) return `
+              <div style="margin-bottom:14px;">
+                <div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">${folder.label}</div>
+                <p style="color:var(--dim);font-size:13px;padding:8px 0;">Noch keine Recordings</p>
+              </div>`;
+            const items = folder.files.map(f => {
+              const name = typeof f === 'string' ? f : f.name;
+              const isVideo = /\.(mp4|mov|mkv)$/i.test(name);
+              const size = (f.size && typeof f !== 'string') ? ` <span style="opacity:.5;font-size:11px;">${mb(f.size)}</span>` : '';
+              return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
+                <span style="font-size:18px;">${isVideo ? '🎬' : '🎵'}</span>
+                <span style="flex:1;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${name}">${name}${size}</span>
+                <button onclick="startFakeCall('${name}','${folder.key}')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Anrufen</button>
+                <button onclick="deleteCallFile('${name}','${folder.key}')" style="background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);border-radius:6px;color:#ff5c7a;padding:5px 8px;cursor:pointer;font-size:12px;">🗑</button>
+              </div>`;
+            }).join('');
+            return `<div style="margin-bottom:14px;"><div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">${folder.label}</div>${items}</div>`;
+          }).join('');
+          list.innerHTML = html || '<p style="color:var(--dim);font-size:13px;">Keine Recordings hochgeladen</p>';
+          return;
+        } else {
+          // Single folder view
+          const folder = data.folders.find(fd => fd.key === _currentCallFolder);
+          if (!folder || !folder.files || !folder.files.length) {
+            list.innerHTML = '<p style="color:var(--dim);font-size:13px;">Noch keine Recordings in diesem Ordner</p>';
+            return;
+          }
+          list.innerHTML = folder.files.map(f => {
+            const name = typeof f === 'string' ? f : f.name;
+            const isVideo = /\.(mp4|mov|mkv)$/i.test(name);
+            const size = (f.size && typeof f !== 'string') ? ` <span style="opacity:.5;font-size:11px;">${mb(f.size)}</span>` : '';
+            return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
+              <span style="font-size:18px;">${isVideo ? '🎬' : '🎵'}</span>
+              <span style="flex:1;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${name}">${name}${size}</span>
+              <button onclick="startFakeCall('${name}','${_currentCallFolder}')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Anrufen</button>
+              <button onclick="deleteCallFile('${name}','${_currentCallFolder}')" style="background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);border-radius:6px;color:#ff5c7a;padding:5px 8px;cursor:pointer;font-size:12px;">🗑</button>
+            </div>`;
+          }).join('');
+          return;
+        }
+      }
+
+      // Legacy flat list fallback
       const files = Array.isArray(data) ? data : (data?.files || []);
       if (!files.length) {
         list.innerHTML = '<p style="color:var(--dim);font-size:13px;">Keine Recordings hochgeladen</p>';
         return;
       }
-      const mb = b => b >= 1048576 ? (b/1048576).toFixed(1)+' MB' : (b/1024).toFixed(0)+' KB';
       list.innerHTML = files.map(f => {
         const name = typeof f === 'string' ? f : f.name;
         const isVideo = /\.(mp4|mov|mkv)$/i.test(name);
         const size = (f.size && typeof f !== 'string') ? ` <span style="opacity:.5;font-size:11px;">${mb(f.size)}</span>` : '';
-        return `
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
           <span style="font-size:18px;">${isVideo ? '🎬' : '🎵'}</span>
           <span style="flex:1;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${name}">${name}${size}</span>
-          <button onclick="startFakeCall('${name}')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Anrufen</button>
-          <button onclick="deleteCallFile('${name}')" style="background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);border-radius:6px;color:#ff5c7a;padding:5px 8px;cursor:pointer;font-size:12px;">🗑</button>
+          <button onclick="startFakeCall('${name}','')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Anrufen</button>
+          <button onclick="deleteCallFile('${name}','')" style="background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);border-radius:6px;color:#ff5c7a;padding:5px 8px;cursor:pointer;font-size:12px;">🗑</button>
         </div>`;
       }).join('');
     } catch(e) {
@@ -4774,8 +4851,9 @@ if (checkAuth()) {
     }
   }
 
-  window.startFakeCall = async function(filename) {
+  window.startFakeCall = async function(filename, folder) {
     if (!currentChatTgId) return;
+    folder = folder || '';
     const statusEl = document.getElementById('fc-status');
     statusEl.textContent = '⏳ Call wird gestartet…';
     statusEl.style.color = '#fbbf24';
@@ -4784,7 +4862,7 @@ if (checkAuth()) {
       const res = await chatApiFetch('/call/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tg_id: currentChatTgId, filename, chatter: me }),
+        body: JSON.stringify({ tg_id: currentChatTgId, filename, folder, chatter: me }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -4802,10 +4880,12 @@ if (checkAuth()) {
     }
   };
 
-  window.deleteCallFile = async function(filename) {
+  window.deleteCallFile = async function(filename, folder) {
+    folder = folder || '';
     if (!confirm('Recording "' + filename + '" löschen?')) return;
     try {
-      const res = await chatApiFetch('/call/file/' + encodeURIComponent(filename), { method: 'DELETE' });
+      const url = '/call/file/' + encodeURIComponent(filename) + (folder ? '?folder=' + encodeURIComponent(folder) : '');
+      const res = await chatApiFetch(url, { method: 'DELETE' });
       if (res.ok) await loadCallFiles();
       else alert('Fehler beim Löschen');
     } catch(e) { alert('Fehler: ' + e.message); }
@@ -4815,18 +4895,23 @@ if (checkAuth()) {
     const inp = document.getElementById('fc-upload-input');
     if (!inp || !inp.files.length) return;
     const file = inp.files[0];
+    const folderSel = document.getElementById('fc-upload-folder');
+    const folder = folderSel ? folderSel.value : '';
     const statusEl = document.getElementById('fc-upload-status');
     statusEl.textContent = '⏳ Hochladen…';
     statusEl.style.color = '#fbbf24';
     const fd = new FormData();
     fd.append('file', file);
+    if (folder) fd.append('folder', folder);
     try {
       const res = await chatApiFetch('/call/upload', { method: 'POST', body: fd });
       if (res.ok) {
         statusEl.textContent = '✅ Hochgeladen!';
         statusEl.style.color = '#22c55e';
         inp.value = '';
-        await loadCallFiles();
+        // Switch to the uploaded folder tab
+        if (folder) switchCallFolder(folder);
+        else await loadCallFiles();
       } else {
         const err = await res.json().catch(() => ({}));
         statusEl.textContent = '❌ ' + (err.detail || 'Fehler');
@@ -5149,17 +5234,28 @@ async function startBroadcast() {
     <!-- Upload section -->
     <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.07);">
       <div style="font-size:12px;color:var(--dim);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Recording hochladen</div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <select id="fc-upload-folder" style="font-size:12px;color:var(--text);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:7px;padding:7px 10px;cursor:pointer;flex-shrink:0;">
+          <option value="fake_checks">✅ Fake Checks</option>
+          <option value="paid_calls">💰 Paid Calls</option>
+        </select>
         <input id="fc-upload-input" type="file" accept="audio/*,video/*,.mp3,.mp4,.wav,.ogg,.aac,.m4a,.mov,.mkv,.flac"
           style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;cursor:pointer;">
         <button onclick="uploadCallRecording()" style="background:var(--teal);border:none;border-radius:7px;color:#000;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">⬆ Upload</button>
       </div>
-      <div id="fc-upload-status" style="font-size:12px;margin-top:6px;min-height:16px;"></div>
+      <div id="fc-upload-status" style="font-size:12px;min-height:16px;"></div>
     </div>
-    <!-- Files list -->
-    <div style="flex:1;overflow-y:auto;padding:14px 20px;">
-      <div style="font-size:12px;color:var(--dim);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Recordings</div>
-      <div id="fc-files-list"></div>
+    <!-- Folder tabs + Files list -->
+    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;">
+      <!-- Folder tabs -->
+      <div style="display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.07);padding:0 20px;flex-shrink:0;">
+        <button id="fc-tab-all" onclick="switchCallFolder('')" style="background:none;border:none;border-bottom:2px solid var(--teal);color:var(--text);padding:10px 14px;font-size:12px;font-weight:700;cursor:pointer;">Alle</button>
+        <button id="fc-tab-fake_checks" onclick="switchCallFolder('fake_checks')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:10px 14px;font-size:12px;font-weight:600;cursor:pointer;">✅ Fake Checks</button>
+        <button id="fc-tab-paid_calls" onclick="switchCallFolder('paid_calls')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:10px 14px;font-size:12px;font-weight:600;cursor:pointer;">💰 Paid Calls</button>
+      </div>
+      <div style="padding:14px 20px;flex:1;overflow-y:auto;">
+        <div id="fc-files-list"></div>
+      </div>
     </div>
     <!-- Status / footer -->
     <div style="padding:10px 20px 14px;border-top:1px solid rgba(255,255,255,.07);">
