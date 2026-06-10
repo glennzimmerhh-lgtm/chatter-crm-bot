@@ -60,7 +60,7 @@
   body.light .conv-search input { background: #f0f2f7; border-color: rgba(0,0,0,.08); }
   body.light .conv-item:hover { background: rgba(0,0,0,.03); }
   body.light .conv-item.active { background: rgba(0,168,138,.08); }
-  body.light .reply-bar input { background: #f0f2f7; border-color: rgba(0,0,0,.08); color: #111122; }
+  body.light .reply-bar textarea { background: #f0f2f7; border-color: rgba(0,0,0,.08); color: #111122; }
   body.light .profile-input, body.light .profile-textarea { background: #f0f2f7; border-color: rgba(0,0,0,.08); color: #111122; }
   /* Light mode theme toggle */
   .theme-toggle {
@@ -373,7 +373,7 @@
     .msg-area { height: calc(100dvh - 120px); display: flex; flex-direction: column; }
     .msg-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .reply-bar { padding: 8px 10px; gap: 6px; }
-    .reply-bar input { font-size: 16px; /* prevents zoom on iOS */ }
+    .reply-bar textarea { font-size: 16px; /* prevents zoom on iOS */ }
     .reply-bar button { padding: 12px 16px; font-size: 14px; }
     .emoji-bar { padding: 6px 8px; gap: 1px; }
     .emoji-btn { padding: 8px 6px; font-size: 18px; }
@@ -481,20 +481,23 @@
     display: flex; gap: 10px; flex-shrink: 0;
     background: rgba(0,0,0,.2);
   }
-  .reply-bar input {
+  .reply-bar textarea {
     flex: 1;
     background: rgba(255,255,255,.06);
     border: 1px solid rgba(255,255,255,.09);
     border-radius: 12px; padding: 11px 16px;
     color: var(--text); font-size: 13px; outline: none;
     transition: border-color .2s, background .2s, box-shadow .2s;
+    resize: none; overflow-y: auto;
+    min-height: 42px; max-height: 160px;
+    line-height: 1.45; font-family: inherit;
   }
-  .reply-bar input:focus {
+  .reply-bar textarea:focus {
     border-color: rgba(0,212,170,.5);
     background: rgba(0,212,170,.04);
     box-shadow: 0 0 0 3px rgba(0,212,170,.08);
   }
-  .reply-bar input::placeholder { color: #44445a; }
+  .reply-bar textarea::placeholder { color: #44445a; }
   .reply-bar button {
     background: linear-gradient(135deg, #00d4aa, #00b894);
     color: #000; border: none; border-radius: 12px;
@@ -2041,7 +2044,7 @@
           <div id="ai-suggest-chips" style="display:flex;flex-direction:column;gap:5px;"></div>
         </div>
         <div class="reply-bar">
-          <input type="text" id="chat-input" placeholder="Write a message..." onkeydown="if(event.key==='Enter')sendChatReply()" oninput="onChatInput()">
+          <textarea id="chat-input" rows="1" placeholder="Write a message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatReply();}" oninput="onChatInput();this.style.height='auto';this.style.height=Math.min(this.scrollHeight,160)+'px';"></textarea>
           <button onclick="openVaultPicker()" title="Send file from Vault" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:var(--text2);border-radius:10px;padding:11px 12px;font-size:15px;cursor:pointer;flex-shrink:0;">📁</button>
           <button onclick="sendChatReply()">Send ↑</button>
         </div>
@@ -3867,7 +3870,9 @@ if (checkAuth()) {
     const inp = document.getElementById('chat-input');
     if (!inp) return;
     const ref = currentPaymentRef || '—';
-    inp.value = `Marie Stolle\nNL12 YOUR 0322 5530 24\nVerwendungszweck: ${ref}\nBitte sende mir einen screenshot von der Überweisung, damit wir starten können <3`;
+    inp.value = `Name: Marie Stolle\nIBAN: NL12 YOUR 0322 5530 24\nVerwendungszweck: ${ref}\n\nBitte sende mir einen screenshot von der Überweisung, damit wir starten können <3`;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
     inp.focus();
   };
 
@@ -4604,7 +4609,7 @@ if (checkAuth()) {
     const sendBtn = document.querySelector('button[onclick="sendChatReply()"]') || document.getElementById('send-btn');
     const text = input.value.trim();
     if (!text || !currentChatTgId) return;
-    input.value = '';
+    input.value = ''; input.style.height = 'auto';
     if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '⏳'; }
     const user = localStorage.getItem('crm_user') || 'Chatter';
     try {
