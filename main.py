@@ -2189,8 +2189,8 @@ async def start_fake_call(body: CallStartIn):
             c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
             row = c.fetchone()
 
-    ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-    peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+    # py-tgcalls 2.x only accepts int/str chat_id, not InputPeerUser
+    peer = int(body.tg_id)
 
     ext = body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else ''
     is_video = ext in ('mp4','mov','mkv')
@@ -2232,12 +2232,7 @@ async def stop_fake_call(tg_id: str):
     """Hang up the active call with a subscriber."""
     if not calls_client:
         raise HTTPException(503, 'Calls client not ready.')
-    with db() as conn:
-        with conn.cursor() as c:
-            c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
-            row = c.fetchone()
-    ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-    peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+    peer = int(tg_id)
     try:
         if hasattr(calls_client, 'leave_call'):
             await calls_client.leave_call(peer)
