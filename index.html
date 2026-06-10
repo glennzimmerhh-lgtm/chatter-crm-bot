@@ -1343,7 +1343,7 @@
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
       <div>
         <h1 class="page-title">👥 Subscriber Backup</h1>
-        <p style="color:var(--text2);font-size:13px;margin-top:4px;">Jeder Kontakt der je geschrieben hat — Username oder Telefon — falls der Account gebannt wird.</p>
+        <p style="color:var(--text2);font-size:13px;margin-top:4px;">Every contact that has ever written — username or phone — in case the account gets banned.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button onclick="exportSubscribersCSV()" style="padding:9px 16px;border-radius:9px;border:1px solid rgba(0,212,170,.4);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;">⬇️ CSV Export</button>
@@ -1354,15 +1354,15 @@
     <!-- Stats row -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
-        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Gesamt Subscriber</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Total Subscribers</div>
         <div id="sub-stat-total" style="font-size:24px;font-weight:800;">—</div>
       </div>
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
-        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Mit Username (@)</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">With Username (@)</div>
         <div id="sub-stat-username" style="font-size:24px;font-weight:800;color:var(--teal);">—</div>
       </div>
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
-        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Mit Telefon</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">With Phone</div>
         <div id="sub-stat-phone" style="font-size:24px;font-weight:800;color:#ffd166;">—</div>
       </div>
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
@@ -1378,8 +1378,8 @@
     </div>
     <div id="sub-no-webhook" style="background:rgba(255,209,102,.06);border:1px solid rgba(255,209,102,.2);border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:12px;">
       <span style="color:#ffd166;font-weight:700;">⚠️ No Auto-Backup</span>
-      <span style="color:var(--text2);margin-left:8px;">Gehe zu Settings und trage den Make.com Webhook ein, damit neue Subscriber automatisch gesichert werden.</span>
-      <button onclick="openSettings()" style="margin-left:10px;padding:4px 10px;border-radius:6px;border:1px solid rgba(255,209,102,.3);background:rgba(255,209,102,.08);color:#ffd166;font-size:11px;cursor:pointer;">Jetzt einrichten →</button>
+      <span style="color:var(--text2);margin-left:8px;">Go to Settings and add the Make.com Webhook so new subscribers are backed up automatically.</span>
+      <button onclick="openSettings()" style="margin-left:10px;padding:4px 10px;border-radius:6px;border:1px solid rgba(255,209,102,.3);background:rgba(255,209,102,.08);color:#ffd166;font-size:11px;cursor:pointer;">Set up now →</button>
     </div>
 
     <!-- Search -->
@@ -1392,15 +1392,15 @@
         <thead>
           <tr style="background:rgba(255,255,255,.03);border-bottom:1px solid var(--border);">
             <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">ID</th>
-            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Kontakt</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Contact</th>
             <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Internal Name</th>
-            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Erster Kontakt</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">First Contact</th>
             <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Messages</th>
-            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Ausgegeben</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Spent</th>
           </tr>
         </thead>
         <tbody id="sub-table-body">
-          <tr><td colspan="6" style="padding:30px;text-align:center;color:#444;">Lädt...</td></tr>
+          <tr><td colspan="6" style="padding:30px;text-align:center;color:#444;">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -1898,7 +1898,7 @@
         <button class="period-btn active" id="perf-btn-heute" onclick="loadPerformance('heute')">Today</button>
         <button class="period-btn" id="perf-btn-woche" onclick="loadPerformance('woche')">This Week</button>
         <button class="period-btn" id="perf-btn-monat" onclick="loadPerformance('monat')">This Month</button>
-        <button class="period-btn" id="perf-btn-alle" onclick="loadPerformance('alle')">Gesamt</button>
+        <button class="period-btn" id="perf-btn-alle" onclick="loadPerformance('alle')">Total</button>
       </div>
     </div>
     <div id="perf-podium" style="display:flex;gap:16px;margin-bottom:24px;align-items:flex-end;flex-wrap:wrap;"></div>
@@ -1962,13 +1962,13 @@
         <div class="tier-filter-bar" id="tier-filter-bar">
           <button class="tier-filter-btn active" onclick="filterByTier('all')">Alle</button>
           <button class="tier-filter-btn" id="unread-filter-btn" onclick="filterByTier('unread')" style="color:#ff5c7a;border-color:rgba(255,92,122,0.3);">🔴 Unread</button>
+          <button class="tier-filter-btn" id="online-filter-btn" onclick="filterByTier('online')" style="color:#22c55e;border-color:rgba(34,197,94,0.3);">🟢 Online</button>
           <button class="tier-filter-btn" onclick="filterByTier('whale')">🐋 Whale</button>
           <button class="tier-filter-btn" onclick="filterByTier('big')">💰 Big</button>
           <button class="tier-filter-btn" onclick="filterByTier('mid')">⚡ Mid</button>
           <button class="tier-filter-btn" onclick="filterByTier('low')">🌱 Low</button>
           <button class="tier-filter-btn" onclick="filterByTier('new')">🆕 New</button>
           <button class="tier-filter-btn" onclick="filterByTier('tw')">🗑️ Time Waster</button>
-          <button class="tier-filter-btn" id="online-filter-btn" onclick="filterByTier('online')" style="color:#22c55e;border-color:rgba(34,197,94,0.3);">🟢 Online</button>
         </div>
         <div id="conv-list-body">
           <div class="chat-empty" style="height:200px;">No conversations</div>
@@ -5501,7 +5501,7 @@ async function startBroadcast() {
     const data = await r.json();
     if (data.ok) {
       status.style.color = 'var(--teal)';
-      status.textContent = `✅ Fertig: ${data.sent} sent (${data.total} gesamt)`;
+      status.textContent = `✅ Done: ${data.sent} sent (${data.total} total)`;
       document.getElementById('bc-text').value = '';
     } else {
       status.style.color = 'var(--red)';
