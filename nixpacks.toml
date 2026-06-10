@@ -1,2 +1,2 @@
-# ffmpeg wird von Railway automatisch bereitgestellt
-# Diese Datei leer lassen damit Railway Python korrekt erkennt
+[phases.setup]
+aptPkgs = ["ffmpeg"]
