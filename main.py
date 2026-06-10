@@ -2191,22 +2191,36 @@ async def start_fake_call(body: CallStartIn):
 
     peer = int(body.tg_id)
 
-    # Pre-populate Telethon's entity cache so py-tgcalls can resolve the user.
-    # Directly call Telegram API to fetch+cache the user entity.
+    # Pre-populate Telethon's SQLite session so py-tgcalls can resolve the user.
     ah = int(row['tg_access_hash']) if row and row.get('tg_access_hash') else 0
     if tg_client:
-        try:
-            from telethon.tl.types import InputUser as _IU
-            from telethon.tl.functions.users import GetUsersRequest as _GUR
-            await tg_client(_GUR(id=[_IU(user_id=peer, access_hash=ah)]))
-            print(f'✅ Entity resolved for {peer}')
-        except Exception as _e:
-            print(f'⚠️ GetUsers failed ({_e}), trying get_entity fallback...')
+        resolved = False
+        # Step 1: GetUsersRequest returns a full User object which we then
+        # pass through get_input_entity() to persist it in the SQLite session.
+        if ah:
             try:
-                await tg_client.get_entity(peer)
-            except Exception as _e2:
-                print(f'⚠️ get_entity also failed: {_e2}')
-                raise HTTPException(400, f'Cannot resolve Telegram user {peer}. Make sure the userbot has chatted with this user.')
+                from telethon.tl.types import InputUser as _IU
+                from telethon.tl.functions.users import GetUsersRequest as _GUR
+                users = await tg_client(_GUR(id=[_IU(user_id=peer, access_hash=ah)]))
+                if users:
+                    await tg_client.get_input_entity(users[0])
+                    print(f'✅ Entity cached via GetUsers for {peer}')
+                    resolved = True
+            except Exception as _e:
+                print(f'⚠️ GetUsers+cache failed: {_e}')
+        # Step 2: Fallback — scan recent dialogs to find and cache the user
+        if not resolved:
+            try:
+                async for _dlg in tg_client.iter_dialogs(limit=200):
+                    if getattr(_dlg.entity, 'id', None) == peer:
+                        await tg_client.get_input_entity(_dlg.entity)
+                        print(f'✅ Entity found in dialogs for {peer}')
+                        resolved = True
+                        break
+            except Exception as _e:
+                print(f'⚠️ Dialog scan failed: {_e}')
+        if not resolved:
+            raise HTTPException(400, f'Cannot resolve Telegram user {peer}. The userbot may not have chatted with this user yet.')
 
     ext = body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else ''
     is_video = ext in ('mp4','mov','mkv')
