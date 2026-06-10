@@ -3056,7 +3056,7 @@ function loadSettings() {
   return {
     salesUrl:   localStorage.getItem('crm_sales_url')   || DEFAULT_SALES_URL,
     shiftsUrl:  localStorage.getItem('crm_shifts_url')  || DEFAULT_SHIFTS_URL,
-    backendUrl: '/api',
+    backendUrl: localStorage.getItem('crm_backend_url') || '',
   };
 }
 
