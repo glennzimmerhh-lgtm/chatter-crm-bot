@@ -568,28 +568,55 @@ async def lifespan(app: FastAPI):
                 @calls_client.on_update()
                 async def _on_call_update(update):
                     try:
-                        tg_id_str = str(getattr(update, 'chat_id', ''))
+                        # Log ALL updates so we can see exact type names in Railway logs
+                        update_type = type(update).__name__
+                        update_module = type(update).__module__
+                        chat_id_raw = getattr(update, 'chat_id', None)
+                        print(f'📡 pytgcalls update: type={update_type} module={update_module} chat_id={chat_id_raw} attrs={[a for a in dir(update) if not a.startswith("_")]}')
+
+                        tg_id_str = str(chat_id_raw) if chat_id_raw is not None else ''
                         if not tg_id_str or tg_id_str not in active_calls:
                             return
 
-                        update_type = type(update).__name__
+                        # Stream finished — all known names across py-tgcalls versions
+                        STREAM_END_TYPES = {
+                            'StreamAudioEnded', 'StreamVideoEnded', 'StreamEnded',
+                            'MutedStream', 'AudioStreamEnded', 'VideoStreamEnded',
+                            'UpdatedGroupCallParticipant',  # sometimes fired on stream end
+                        }
+                        # Also catch by string content (some versions use str repr)
+                        update_str = update_type.lower()
+                        is_stream_end = (
+                            update_type in STREAM_END_TYPES or
+                            'ended' in update_str or
+                            'finish' in update_str or
+                            'complete' in update_str
+                        )
 
-                        # Stream finished → hang up automatically
-                        if update_type in ('StreamAudioEnded', 'StreamVideoEnded', 'MutedStream', 'StreamEnded'):
-                            print(f'🔔 Stream ended for {tg_id_str} ({update_type}) — hanging up')
+                        # Also check pytgcalls.types.StreamEnded specifically
+                        try:
+                            from pytgcalls.types import StreamEnded as _SE
+                            if isinstance(update, _SE):
+                                is_stream_end = True
+                        except ImportError:
+                            pass
+
+                        if is_stream_end:
+                            print(f'🔔 Stream ended for {tg_id_str} ({update_type}) — hanging up automatically')
                             try:
                                 if hasattr(calls_client, 'leave_call'):
                                     await calls_client.leave_call(int(tg_id_str))
                                 elif hasattr(calls_client, 'leave'):
                                     await calls_client.leave(int(tg_id_str))
                             except Exception as e:
-                                print(f'⚠️  leave_call error: {e}')
+                                print(f'⚠️  leave_call error (may already be ended): {e}')
                             active_calls.pop(tg_id_str, None)
                             asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
                             return
 
-                        # Call rejected / hung up by subscriber
-                        if update_type in ('CallEnded', 'KickedFromGroupCallParticipant', 'ClosedVoiceChat'):
+                        # Call rejected or ended by subscriber
+                        CALL_END_TYPES = {'CallEnded', 'KickedFromGroupCallParticipant', 'ClosedVoiceChat', 'GroupCallEnded'}
+                        if update_type in CALL_END_TYPES or 'ended' in update_str:
                             print(f'📵 Call ended by subscriber {tg_id_str} ({update_type})')
                             active_calls.pop(tg_id_str, None)
                             asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
