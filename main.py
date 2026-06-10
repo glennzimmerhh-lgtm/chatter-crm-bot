@@ -740,7 +740,7 @@ async def websocket_endpoint(websocket: WebSocket):
 def get_conversations():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,call_followup_note,is_online,last_seen FROM conversations ORDER BY is_online DESC, last_time DESC')
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,call_followup_note,is_online,last_seen FROM conversations ORDER BY last_time DESC NULLS LAST')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 

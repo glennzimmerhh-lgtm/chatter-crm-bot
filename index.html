@@ -3719,7 +3719,9 @@ if (checkAuth()) {
       el.innerHTML = '<div class="chat-empty" style="height:200px;">Keine Gespräche</div>';
       return;
     }
-    el.innerHTML = convs.map(c => {
+    // Always render in Telegram order: most recent message first
+    const sorted = [...convs].sort((a, b) => new Date(b.last_time || 0) - new Date(a.last_time || 0));
+    el.innerHTML = sorted.map(c => {
       const active = c.tg_id === currentChatTgId ? 'active' : '';
       const letter = c.anon_id.replace('User #', '#').slice(0,2);
       const time = c.last_time ? new Date(c.last_time).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
@@ -4593,9 +4595,30 @@ if (checkAuth()) {
         if (msg.direction === 'in' && msg.tg_id === currentChatTgId) {
           setTimeout(() => { if (currentChatTgId === msg.tg_id) loadMsgs(); }, 3000);
         }
-        // Always refresh conversation list for unread badge
-        if (window._refreshConvs) window._refreshConvs();
-        if (allConvs.length) renderConvList(allConvs);
+        // Update conv in-place and re-sort by last_time (Telegram order) — instant, no API round-trip
+        if (allConvs.length) {
+          const _wc = allConvs.find(x => x.tg_id === msg.tg_id);
+          if (_wc) {
+            if (msg.text) _wc.last_msg = msg.text;
+            _wc.last_time = msg.timestamp || new Date().toISOString();
+            if (msg.direction === 'in' && msg.tg_id !== currentChatTgId) _wc.unread = (_wc.unread || 0) + 1;
+            // Re-sort exactly like Telegram: most recent message first
+            allConvs.sort((a, b) => new Date(b.last_time || 0) - new Date(a.last_time || 0));
+            renderConvList(allConvs);
+          } else {
+            // Unknown conv (new subscriber) — fetch full list
+            if (window._refreshConvs) window._refreshConvs();
+          }
+        } else {
+          if (window._refreshConvs) window._refreshConvs();
+        }
+        // Also update unread badge
+        { const _tu = allConvs.filter(c => (c.unread||0) > 0).length;
+          const _b = document.getElementById('chat-unread-badge');
+          if (_b) { _b.textContent = _tu || ''; _b.style.display = _tu ? 'inline' : 'none'; }
+          const _ub = document.getElementById('unread-filter-btn');
+          if (_ub) _ub.textContent = _tu > 0 ? `🔴 Unread (${_tu})` : '🔴 Unread';
+        }
         break;
       case 'read_receipt':
         // Refresh messages to update ✓✓ color
