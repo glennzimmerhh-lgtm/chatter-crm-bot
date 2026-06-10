@@ -904,11 +904,11 @@
     <div class="login-logo">Chatter CRM</div>
     <div class="login-sub">Please log in to continue</div>
     <div class="login-field">
-      <label>Benutzername</label>
+      <label>Username</label>
       <input type="text" id="login-user" placeholder="Dein Name" onkeydown="if(event.key==='Enter')document.getElementById('login-pw').focus()" autocomplete="username">
     </div>
     <div class="login-field">
-      <label>Passwort</label>
+      <label>Password</label>
       <input type="password" id="login-pw" placeholder="••••••••••" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="login-btn" onclick="doLogin()">Log in</button>
@@ -945,7 +945,7 @@
     </button>
   </div>
   <nav class="nav">
-    <div class="nav-section">Übersicht</div>
+    <div class="nav-section">Overview</div>
     <div class="nav-item active" onclick="showPage('dashboard')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       Dashboard
@@ -1002,12 +1002,12 @@
     </div>
     <div class="nav-item admin-only" onclick="showPage('members')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      Mitglieder
+      Members
     </div>
     <div class="nav-section">System</div>
     <div class="nav-item admin-only" onclick="openSettings()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-      Einstellungen
+      Settings
     </div>
   </nav>
   <div style="padding: 10px 12px 0; border-top: 1px solid var(--border);">
@@ -1015,15 +1015,15 @@
       <div style="width:28px;height:28px;border-radius:50%;background:var(--teal-dim);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--teal);" id="user-avatar">?</div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:600;color:var(--text);" id="user-name-display">—</div>
-        <div style="font-size:11px;color:var(--text3);">Eingeloggt</div>
+        <div style="font-size:11px;color:var(--text3);">Logged in</div>
       </div>
-      <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Hell/Dunkel">🌙</button>
-      <span onclick="doLogout()" title="Abmelden" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;margin-left:4px;">⏻</span>
+      <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Light/Dark">🌙</button>
+      <span onclick="doLogout()" title="Log out" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;margin-left:4px;">⏻</span>
     </div>
   </div>
   <div class="shift-indicator">
-    <div class="shift-label">Aktive Shift</div>
-    <div class="shift-name"><span class="shift-dot"></span><span id="active-shift-name">Wird geladen...</span></div>
+    <div class="shift-label">Active Shift</div>
+    <div class="shift-name"><span class="shift-dot"></span><span id="active-shift-name">Loading...</span></div>
     <div class="shift-time" id="active-shift-time"></div>
   </div>
 </aside>
@@ -1042,16 +1042,16 @@
       </div>
       <div class="topbar-right">
         <div class="date-badge" id="today-badge"></div>
-        <button class="config-btn" onclick="openSettings()">⚙ Einrichten</button>
-        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Aktualisieren</button>
+        <button class="config-btn" onclick="openSettings()">⚙ Configure</button>
+        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Refresh</button>
       </div>
     </div>
 
     <!-- PERIOD SELECTOR + DATE RANGE -->
     <div class="period-bar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <button class="period-btn active" id="btn-heute" onclick="setPeriod('heute')">Heute</button>
-      <button class="period-btn" id="btn-woche" onclick="setPeriod('woche')">Diese Woche</button>
-      <button class="period-btn" id="btn-monat" onclick="setPeriod('monat')">Dieser Monat</button>
+      <button class="period-btn active" id="btn-heute" onclick="setPeriod('heute')">Today</button>
+      <button class="period-btn" id="btn-woche" onclick="setPeriod('woche')">This Week</button>
+      <button class="period-btn" id="btn-monat" onclick="setPeriod('monat')">This Month</button>
       <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
         <input type="date" id="range-from" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;">
         <span style="color:var(--text3);font-size:12px;">–</span>
@@ -1063,24 +1063,24 @@
     <!-- KPI CARDS -->
     <div class="cards-grid" style="grid-template-columns:repeat(6,1fr);">
       <div class="kpi-card kpi-teal">
-        <div class="kpi-label" id="kpi-rev-label">Umsatz Heute</div>
+        <div class="kpi-label" id="kpi-rev-label">Revenue Today</div>
         <div class="kpi-val" id="kpi-today-rev">—</div>
         <div class="kpi-sub" id="kpi-today-rev-sub">—</div>
       </div>
       <div class="kpi-card kpi-blue">
-        <div class="kpi-label" id="kpi-sales-label">Sales Heute</div>
+        <div class="kpi-label" id="kpi-sales-label">Sales Today</div>
         <div class="kpi-val" id="kpi-today-sales">—</div>
         <div class="kpi-sub" id="kpi-today-sales-sub">—</div>
       </div>
       <div class="kpi-card kpi-red">
         <div class="kpi-label" id="kpi-avg-label">New Subs</div>
         <div class="kpi-val" id="kpi-week-rev" style="color:#4a9eff;">—</div>
-        <div class="kpi-sub" id="kpi-week-sub">neue Telegram-Kontakte</div>
+        <div class="kpi-sub" id="kpi-week-sub">new Telegram contacts</div>
       </div>
       <div class="kpi-card" style="border-color:rgba(167,139,250,0.3);">
         <div class="kpi-label">ARPPU</div>
         <div class="kpi-val" id="kpi-arppu" style="color:#a78bfa;">—</div>
-        <div class="kpi-sub">Ø pro Käufer</div>
+        <div class="kpi-sub">Avg per buyer</div>
       </div>
       <div class="kpi-card" style="border-color:rgba(34,197,94,0.3);">
         <div class="kpi-label">Conversion</div>
@@ -1103,22 +1103,22 @@
     <div class="grid3">
       <div class="panel">
         <div class="panel-hd">
-          <div class="panel-title" id="chart-rev-title">Tagesumsatz (letzte 7 Tage)</div>
+          <div class="panel-title" id="chart-rev-title">Daily Revenue (last 7 days)</div>
         </div>
         <div class="panel-body">
           <div class="chart-wrap">
-            <canvas id="revenueChart" role="img" aria-label="Balkendiagramm: Tagesumsatz letzte 7 Tage"></canvas>
+            <canvas id="revenueChart" role="img" aria-label="Bar chart: daily revenue last 7 days"></canvas>
           </div>
         </div>
       </div>
 
       <div class="panel">
         <div class="panel-hd">
-          <div class="panel-title">Shifts Heute</div>
+          <div class="panel-title">Shifts Today</div>
           <span class="panel-tag" id="shift-tag">3 Shifts</span>
         </div>
         <div class="panel-body" id="shifts-today-panel" style="padding:12px 20px;">
-          <div class="empty">Keine Daten</div>
+          <div class="empty">No data</div>
         </div>
       </div>
     </div>
@@ -1141,15 +1141,15 @@
       </div>
       <!-- New vs Existing + Spenders -->
       <div class="panel">
-        <div class="panel-hd"><div class="panel-title">Käufer Analyse</div></div>
+        <div class="panel-hd"><div class="panel-title">Buyer Analysis</div></div>
         <div class="panel-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
           <div>
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
-              <span style="color:var(--text2);">Neue Käufer</span>
+              <span style="color:var(--text2);">New Buyers</span>
               <span id="new-buyer-val" style="color:#4a9eff;font-weight:700;">—</span>
             </div>
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
-              <span style="color:var(--text2);">Bestehende Käufer</span>
+              <span style="color:var(--text2);">Existing Buyers</span>
               <span id="existing-buyer-val" style="color:#00d4aa;font-weight:700;">—</span>
             </div>
             <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-top:8px;">
@@ -1225,11 +1225,11 @@
     <div class="panel" style="margin-bottom:24px;">
       <div class="panel-hd">
         <div class="panel-title">🏆 Top Spender</div>
-        <span class="panel-tag" id="top-spenders-tag">Alle Zeit</span>
+        <span class="panel-tag" id="top-spenders-tag">All Time</span>
       </div>
       <div class="panel-body" style="padding:0;">
         <div id="top-spenders-list" style="padding:8px 0;">
-          <div class="empty">Keine Sales vorhanden</div>
+          <div class="empty">No sales yet</div>
         </div>
       </div>
     </div>
@@ -1245,11 +1245,11 @@
         <table>
           <thead>
             <tr>
-              <th>Datum</th><th>Uhrzeit</th><th>Shift</th><th>Chatter</th><th>Betrag</th><th>Notiz</th>
+              <th>Date</th><th>Time</th><th>Shift</th><th>Chatter</th><th>Amount</th><th>Note</th>
             </tr>
           </thead>
           <tbody id="sales-tbody">
-            <tr><td colspan="6"><div class="empty">Keine Daten — Google Sheet verbinden</div></td></tr>
+            <tr><td colspan="6"><div class="empty">No data — connect Google Sheet</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -1268,13 +1268,13 @@
         <div class="topbar-title">Sales Log</div>
       </div>
       <div class="topbar-right">
-        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Aktualisieren</button>
+        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Refresh</button>
       </div>
     </div>
     <div class="period-bar">
-      <button class="period-btn active" id="btn-sales-heute" onclick="setSalesPeriod('heute')">Heute</button>
-      <button class="period-btn" id="btn-sales-woche" onclick="setSalesPeriod('woche')">Diese Woche</button>
-      <button class="period-btn" id="btn-sales-monat" onclick="setSalesPeriod('monat')">Dieser Monat</button>
+      <button class="period-btn active" id="btn-sales-heute" onclick="setSalesPeriod('heute')">Today</button>
+      <button class="period-btn" id="btn-sales-woche" onclick="setSalesPeriod('woche')">This Week</button>
+      <button class="period-btn" id="btn-sales-monat" onclick="setSalesPeriod('monat')">This Month</button>
       <button class="period-btn" id="btn-sales-alle" onclick="setSalesPeriod('alle')">Alle</button>
     </div>
     <!-- PENDING REVIEW PANEL (admin only) -->
@@ -1309,24 +1309,24 @@
         <button class="hamburger" onclick="openSidebar()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
-        <div class="topbar-title">Shift Übersicht</div>
+        <div class="topbar-title">Shift Overview</div>
       </div>
       <div class="topbar-right">
-        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Aktualisieren</button>
+        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Refresh</button>
       </div>
     </div>
     <div class="period-bar">
-      <button class="period-btn active" id="btn-shifts-heute" onclick="setShiftsPeriod('heute')">Heute</button>
-      <button class="period-btn" id="btn-shifts-woche" onclick="setShiftsPeriod('woche')">Diese Woche</button>
-      <button class="period-btn" id="btn-shifts-monat" onclick="setShiftsPeriod('monat')">Dieser Monat</button>
+      <button class="period-btn active" id="btn-shifts-heute" onclick="setShiftsPeriod('heute')">Today</button>
+      <button class="period-btn" id="btn-shifts-woche" onclick="setShiftsPeriod('woche')">This Week</button>
+      <button class="period-btn" id="btn-shifts-monat" onclick="setShiftsPeriod('monat')">This Month</button>
       <button class="period-btn" id="btn-shifts-alle" onclick="setShiftsPeriod('alle')">Alle</button>
     </div>
     <div class="panel">
-      <div class="panel-hd"><div class="panel-title" id="shifts-page-title">Alle Shifts</div></div>
+      <div class="panel-hd"><div class="panel-title" id="shifts-page-title">All Shifts</div></div>
       <div style="overflow-x:auto;">
         <table>
-          <thead><tr><th>Datum</th><th>Shift</th><th>Zeiten</th><th>Chatter</th><th>Umsatz</th><th>Sales</th><th>Ø Reply (min)</th></tr></thead>
-          <tbody id="shifts-tbody"><tr><td colspan="7"><div class="empty">Keine Daten</div></td></tr></tbody>
+          <thead><tr><th>Date</th><th>Shift</th><th>Times</th><th>Chatter</th><th>Revenue</th><th>Sales</th><th>Avg Reply (min)</th></tr></thead>
+          <tbody id="shifts-tbody"><tr><td colspan="7"><div class="empty">No data</div></td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1342,7 +1342,7 @@
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button onclick="exportSubscribersCSV()" style="padding:9px 16px;border-radius:9px;border:1px solid rgba(0,212,170,.4);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;">⬇️ CSV Export</button>
-        <button onclick="loadSubscribersPage()" style="padding:9px 16px;border-radius:9px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#666;font-size:12px;cursor:pointer;">🔄 Aktualisieren</button>
+        <button onclick="loadSubscribersPage()" style="padding:9px 16px;border-radius:9px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#666;font-size:12px;cursor:pointer;">🔄 Refresh</button>
       </div>
     </div>
 
@@ -1361,7 +1361,7 @@
         <div id="sub-stat-phone" style="font-size:24px;font-weight:800;color:#ffd166;">—</div>
       </div>
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;">
-        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Kein Kontakt</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">No contact</div>
         <div id="sub-stat-none" style="font-size:24px;font-weight:800;color:var(--red);">—</div>
       </div>
     </div>
@@ -1372,13 +1372,13 @@
       <span style="color:var(--text2);margin-left:8px;">Neue Subscriber werden automatisch zu Google Sheets übertragen.</span>
     </div>
     <div id="sub-no-webhook" style="background:rgba(255,209,102,.06);border:1px solid rgba(255,209,102,.2);border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:12px;">
-      <span style="color:#ffd166;font-weight:700;">⚠️ Kein Auto-Backup</span>
-      <span style="color:var(--text2);margin-left:8px;">Gehe zu Einstellungen und trage den Make.com Webhook ein, damit neue Subscriber automatisch gesichert werden.</span>
+      <span style="color:#ffd166;font-weight:700;">⚠️ No Auto-Backup</span>
+      <span style="color:var(--text2);margin-left:8px;">Gehe zu Settings und trage den Make.com Webhook ein, damit neue Subscriber automatisch gesichert werden.</span>
       <button onclick="openSettings()" style="margin-left:10px;padding:4px 10px;border-radius:6px;border:1px solid rgba(255,209,102,.3);background:rgba(255,209,102,.08);color:#ffd166;font-size:11px;cursor:pointer;">Jetzt einrichten →</button>
     </div>
 
     <!-- Search -->
-    <input type="text" id="sub-search" placeholder="Suchen nach Username, Telefon, Name..." oninput="filterSubscribers(this.value)"
+    <input type="text" id="sub-search" placeholder="Search by username, phone, name..." oninput="filterSubscribers(this.value)"
       style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:13px;color:var(--text);outline:none;margin-bottom:16px;">
 
     <!-- Table -->
@@ -1388,9 +1388,9 @@
           <tr style="background:rgba(255,255,255,.03);border-bottom:1px solid var(--border);">
             <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">ID</th>
             <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Kontakt</th>
-            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Interner Name</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Internal Name</th>
             <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Erster Kontakt</th>
-            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Nachrichten</th>
+            <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Messages</th>
             <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Ausgegeben</th>
           </tr>
         </thead>
@@ -1406,14 +1406,14 @@
   <div id="page-scripts" style="display:none;">
     <div class="page-header">
       <h1 class="page-title">📋 Scripts</h1>
-      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Mehrere Nachrichten pro Script + Shortkey zum schnellen Aufrufen im Chat.</p>
+      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Multiple messages per script + shortkey for quick access in chat.</p>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
 
       <!-- LEFT: Script Editor -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;" id="sp-editor-title">+ Neues Script</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;" id="sp-editor-title">+ New Script</div>
 
         <div style="display:flex;gap:10px;margin-bottom:12px;">
           <div style="flex:1;">
@@ -1433,16 +1433,16 @@
 
         <!-- Messages list -->
         <div style="margin-bottom:10px;">
-          <label style="font-size:10px;color:var(--text2);margin-bottom:8px;display:block;text-transform:uppercase;letter-spacing:.05em;">Nachrichten (Reihenfolge = Sende-Reihenfolge)</label>
+          <label style="font-size:10px;color:var(--text2);margin-bottom:8px;display:block;text-transform:uppercase;letter-spacing:.05em;">Messages (Reihenfolge = Sende-Reihenfolge)</label>
           <div id="sp-msgs-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;"></div>
           <div style="display:flex;gap:6px;">
-            <textarea id="sp-new-msg-input" placeholder="Nachricht hinzufügen..." class="profile-textarea" style="flex:1;min-height:70px;resize:vertical;box-sizing:border-box;"></textarea>
+            <textarea id="sp-new-msg-input" placeholder="Add message..." class="profile-textarea" style="flex:1;min-height:70px;resize:vertical;box-sizing:border-box;"></textarea>
           </div>
-          <button onclick="addMsgToEditor()" style="margin-top:6px;padding:7px 14px;border-radius:8px;border:1px solid rgba(0,212,170,.4);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;">+ Nachricht hinzufügen</button>
+          <button onclick="addMsgToEditor()" style="margin-top:6px;padding:7px 14px;border-radius:8px;border:1px solid rgba(0,212,170,.4);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;">+ Add message</button>
         </div>
 
         <div style="display:flex;gap:8px;margin-top:16px;">
-          <button onclick="saveScriptFromEditor()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--teal);color:#000;font-size:13px;font-weight:700;cursor:pointer;">✅ Speichern</button>
+          <button onclick="saveScriptFromEditor()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--teal);color:#000;font-size:13px;font-weight:700;cursor:pointer;">✅ Save</button>
           <button onclick="resetScriptEditor()" style="padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:none;color:#666;font-size:12px;cursor:pointer;">Reset</button>
         </div>
       </div>
@@ -1610,20 +1610,20 @@
     <!-- SCHEDULED BROADCAST -->
     <div style="margin-top:24px;max-width:900px;">
       <div style="background:var(--bg2);border:1px solid rgba(167,139,250,0.25);border-radius:14px;padding:24px;">
-        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;">⏰ Geplante Broadcasts</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:18px;">Nachricht zu einem bestimmten Zeitpunkt automatisch versenden.</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;">⏰ Scheduled Broadcasts</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:18px;">Send a message automatically at a specific time.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
           <!-- Compose -->
           <div>
             <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Nachricht</label>
-            <textarea id="sb-text" rows="5" placeholder="Deine Nachricht..." style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
+            <textarea id="sb-text" rows="5" placeholder="Your message..." style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
               <div>
-                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">Datum & Uhrzeit</label>
+                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">Date & Time</label>
                 <input type="datetime-local" id="sb-datetime" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:8px;outline:none;">
               </div>
               <div>
-                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">Empfänger</label>
+                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">Recipients</label>
                 <select id="sb-filter" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:9px;outline:none;">
                   <option value="">Alle Subscribers</option>
                   <option value="kalt">❄️ Cold</option>
@@ -1636,19 +1636,19 @@
               </div>
             </div>
             <div style="display:flex;gap:8px;margin-top:10px;">
-              <input id="sb-chatter" type="text" placeholder="Absender-Name" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:8px;outline:none;">
-              <button onclick="scheduleNewBroadcast()" style="background:#a78bfa;color:#000;border:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;">⏰ Planen</button>
+              <input id="sb-chatter" type="text" placeholder="Sender name" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:8px;outline:none;">
+              <button onclick="scheduleNewBroadcast()" style="background:#a78bfa;color:#000;border:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;">⏰ Schedule</button>
             </div>
             <div id="sb-status" style="font-size:12px;margin-top:8px;min-height:16px;"></div>
           </div>
           <!-- Queue -->
           <div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-              <div style="font-size:11px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Geplante Nachrichten</div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Scheduled Messages</div>
               <button onclick="loadScheduledBroadcasts()" style="background:none;border:none;color:var(--dim);font-size:12px;cursor:pointer;">🔄</button>
             </div>
             <div id="sb-queue" style="max-height:220px;overflow-y:auto;">
-              <p style="color:var(--dim);font-size:12px;">Laden…</p>
+              <p style="color:var(--dim);font-size:12px;">Loading...</p>
             </div>
           </div>
         </div>
@@ -1846,23 +1846,23 @@
   <!-- MEMBERS PAGE -->
   <div id="page-members" style="display:none;">
     <div class="page-header">
-      <h1 class="page-title">👥 Mitglieder</h1>
-      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Zugänge verwalten — Chatter einladen und Rollen vergeben.</p>
+      <h1 class="page-title">👥 Members</h1>
+      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Manage access — invite chatters and assign roles.</p>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px;align-items:start;">
       <!-- Create user -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;">+ Neues Mitglied</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;">+ New Member</div>
         <div style="margin-bottom:12px;">
           <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Anzeigename <span style="color:var(--teal);">(sichtbar im CRM)</span></label>
           <input id="mu-display" type="text" placeholder="z.B. Maria" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
         </div>
         <div style="margin-bottom:12px;">
-          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Login-Name <span style="color:var(--text3);">(zum Einloggen)</span></label>
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Login name <span style="color:var(--text3);">(for login)</span></label>
           <input id="mu-name" type="text" placeholder="z.B. maria123" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
         </div>
         <div style="margin-bottom:12px;">
-          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Passwort</label>
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px;">Password</label>
           <input id="mu-pw" type="password" placeholder="••••••••" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none;">
         </div>
         <div style="margin-bottom:16px;">
@@ -1877,9 +1877,9 @@
       </div>
       <!-- Member list -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;">Aktive Mitglieder</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;">Aktive Members</div>
         <div id="members-list" style="display:flex;flex-direction:column;gap:10px;">
-          <div style="color:var(--text3);font-size:13px;">Laden...</div>
+          <div style="color:var(--text3);font-size:13px;">Loading...</div>
         </div>
       </div>
     </div>
@@ -1890,24 +1890,24 @@
     <div class="page-header">
       <h1 class="page-title">📊 Chatter Performance</h1>
       <div style="display:flex;gap:8px;margin-top:12px;">
-        <button class="period-btn active" id="perf-btn-heute" onclick="loadPerformance('heute')">Heute</button>
-        <button class="period-btn" id="perf-btn-woche" onclick="loadPerformance('woche')">Diese Woche</button>
-        <button class="period-btn" id="perf-btn-monat" onclick="loadPerformance('monat')">Dieser Monat</button>
+        <button class="period-btn active" id="perf-btn-heute" onclick="loadPerformance('heute')">Today</button>
+        <button class="period-btn" id="perf-btn-woche" onclick="loadPerformance('woche')">This Week</button>
+        <button class="period-btn" id="perf-btn-monat" onclick="loadPerformance('monat')">This Month</button>
         <button class="period-btn" id="perf-btn-alle" onclick="loadPerformance('alle')">Gesamt</button>
       </div>
     </div>
     <div id="perf-podium" style="display:flex;gap:16px;margin-bottom:24px;align-items:flex-end;flex-wrap:wrap;"></div>
     <div class="panel" style="margin-bottom:20px;">
-      <div class="panel-hd"><div class="panel-title">Umsatz Vergleich</div></div>
+      <div class="panel-hd"><div class="panel-title">Revenue Comparison</div></div>
       <div class="panel-body"><div style="height:200px;"><canvas id="perfChart"></canvas></div></div>
     </div>
     <div class="panel">
       <div class="panel-hd"><div class="panel-title">Details</div></div>
       <div style="overflow-x:auto;">
         <table><thead><tr>
-          <th>#</th><th>Chatter</th><th>Umsatz</th><th>Sales</th><th>Calls</th><th>Ø Response</th><th>Active Time</th><th>Nachrichten</th><th>€/Msg</th>
+          <th>#</th><th>Chatter</th><th>Revenue</th><th>Sales</th><th>Calls</th><th>Ø Response</th><th>Active Time</th><th>Messages</th><th>€/Msg</th>
         </tr></thead>
-        <tbody id="perf-tbody"><tr><td colspan="9"><div class="empty">Keine Daten</div></td></tr></tbody></table>
+        <tbody id="perf-tbody"><tr><td colspan="9"><div class="empty">No data</div></td></tr></tbody></table>
       </div>
     </div>
   </div>
@@ -1924,7 +1924,7 @@
         <!-- Shift Goal Widget -->
         <div id="shift-goal-widget" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:7px 14px;min-width:160px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-            <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;" onclick="editShiftGoal()" title="Klick zum Ändern">Shift Goal ✏️</span>
+            <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;" onclick="editShiftGoal()" title="Click to change">Shift Goal ✏️</span>
             <span style="font-size:12px;font-weight:700;" id="shift-goal-text">0€ / 300€</span>
           </div>
           <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
@@ -1940,7 +1940,7 @@
     </div>
 
     <div class="chat-layout">
-      <!-- Gesprächsliste -->
+      <!-- Conversation list -->
       <div class="conv-list">
         <!-- Online Now Panel -->
         <div id="online-panel" style="display:none;padding:8px 12px;background:rgba(34,197,94,0.08);border-bottom:1px solid rgba(34,197,94,0.2);">
@@ -1970,7 +1970,7 @@
         </div>
       </div>
 
-      <!-- Nachrichten -->
+      <!-- Messages -->
       <div class="msg-area">
         <div class="msg-topbar" id="msg-topbar">
           <button id="mobile-back-btn" onclick="mobileShowConvList()" style="display:none;background:none;border:none;color:var(--text2);cursor:pointer;padding:4px 8px 4px 0;font-size:20px;line-height:1;">‹</button>
@@ -2099,7 +2099,7 @@
   <div class="settings-box" onclick="event.stopPropagation()">
     <div class="settings-title">Google Sheets verbinden</div>
     <div class="settings-sub">
-      Veröffentliche dein Google Sheet unter <strong>Datei → Im Web veröffentlichen → CSV</strong> und füge die URLs hier ein.
+      Publish your Google Sheet via <strong>File → Share → Publish to web → CSV</strong> and paste the URLs here.
     </div>
     <label>Chat Backend URL (Railway)</label>
     <input type="text" id="cfg-backend-url" placeholder="https://dein-service.railway.app">
@@ -2110,8 +2110,8 @@
     <label>Shifts CSV URL</label>
     <input type="text" id="cfg-shifts-url" placeholder="https://docs.google.com/spreadsheets/d/.../gviz/tq?tqx=out:csv&sheet=Shifts">
     <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
-      <button class="btn-ghost" onclick="closeSettings()">Abbrechen</button>
-      <button class="btn-primary" onclick="saveSettings()">Speichern & Laden</button>
+      <button class="btn-ghost" onclick="closeSettings()">Cancel</button>
+      <button class="btn-primary" onclick="saveSettings()">Save & Load</button>
     </div>
   </div>
 </div>
@@ -2150,16 +2150,16 @@ async function doLogin() {
       document.getElementById('login-screen').style.display = 'none';
       showLoadingBar(data.username);
     } else {
-      err.textContent = 'Falscher Benutzername oder Passwort';
+      err.textContent = 'Wrong username or password';
       err.style.display = 'block';
       document.getElementById('login-pw').value = '';
       document.getElementById('login-pw').focus();
     }
   } catch(e) {
-    err.textContent = 'Server nicht erreichbar';
+    err.textContent = 'Server unreachable';
     err.style.display = 'block';
   }
-  btn.textContent = 'Anmelden'; btn.disabled = false;
+  btn.textContent = 'Log in'; btn.disabled = false;
 }
 
 function showLoadingBar(user) {
@@ -2625,19 +2625,19 @@ function applyEnglishUI() {
     // Nav
     'Chat': 'Chat',
     'Broadcast': 'Broadcast',
-    'Einstellungen': 'Settings',
+    'Settings': 'Settings',
     // Chat page
     'Suchen...': 'Search...',
-    'Gespräch auswählen': 'Select conversation',
+    'Select conversation': 'Select conversation',
     'Nachricht schreiben...': 'Write a message...',
     'Senden ↑': 'Send ↑',
     'Scripts': 'Scripts',
-    '💾 Speichern': '💾 Save',
+    '💾 Save': '💾 Save',
     '💰 Sale melden': '💰 Report Sale',
     '🗑️ Als Time Waster markieren': '🗑️ Mark as Time Waster',
     'Als Time Waster markieren': 'Mark as Time Waster',
     'Interner Name': 'Internal Name',
-    'Notizen': 'Notes',
+    'Notes': 'Notes',
     // Profile
     'Interessen, Kaufverhalten, Vorlieben...': 'Interests, behavior, preferences...',
     'z.B. Bernd – mag Sport': 'e.g. John – likes sports',
@@ -2652,8 +2652,8 @@ function applyEnglishUI() {
     // Status
     'Userbot verbunden': 'Userbot connected',
     'Userbot getrennt': 'Userbot disconnected',
-    'Backend nicht erreichbar': 'Backend unreachable',
-    'Keine Backend-URL': 'No backend URL',
+    'Backend unreachable': 'Backend unreachable',
+    'No backend URL': 'No backend URL',
     'Verbinde...': 'Connecting...',
     'Jetzt online': 'Online now',
     // Shift goal
@@ -2661,43 +2661,43 @@ function applyEnglishUI() {
     // Broadcast page
     'Nachricht': 'Message',
     'Deine Nachricht...': 'Your message...',
-    'Absender (dein Name)': 'Sender (your name)',
+    'Sender (your name)': 'Sender (your name)',
     '📣 Senden': '📣 Send',
-    'Empfänger': 'Recipients',
+    'Recipients': 'Recipients',
     'Nach Funnel-Stage filtern': 'Filter by funnel stage',
     'Alle Subscriber': 'All subscribers',
-    'Wähle einen Filter um Empfänger zu sehen': 'Select a filter to see recipients',
-    '🔍 Empfänger prüfen': '🔍 Check recipients',
+    'Select a filter to see recipients': 'Select a filter to see recipients',
+    '🔍 Check recipients': '🔍 Check recipients',
     // Lists
     '📋 Listen': '📋 Lists',
-    'Keine Listen vorhanden': 'No lists available',
+    'No lists vorhanden': 'No lists available',
     // Spending
     '💰 Spending': '💰 Spending',
     // Stats
     'Erste Nachricht': 'First message',
     'Letzte Nachricht': 'Last message',
-    'Nachrichten': 'Messages',
+    'Messages': 'Messages',
     'Kontakt': 'Contact',
     // Sale modal
     'Sale melden': 'Report Sale',
     'BETRAG (€)': 'AMOUNT (€)',
     'PRODUKT': 'PRODUCT',
     'NOTIZEN': 'NOTES',
-    '✅ Sale bestätigen': '✅ Confirm Sale',
-    'Abbrechen': 'Cancel',
+    '✅ Confirm Sale': '✅ Confirm Sale',
+    'Cancel': 'Cancel',
     '✅ Sale erfolgreich gespeichert!': '✅ Sale saved successfully!',
-    '❌ Fehler beim Speichern.': '❌ Error saving.',
-    '❌ Backend nicht erreichbar.': '❌ Backend unreachable.',
+    '❌ Error saving.': '❌ Error saving.',
+    '❌ Backend unreachable.': '❌ Backend unreachable.',
     // Errors
-    'Fehler beim Senden. Ist der Userbot verbunden?': 'Send error. Is the userbot connected?',
+    'Send error. Is the userbot connected?': 'Send error. Is the userbot connected?',
     // Filter bar
     'Alle': 'All',
     '🟢 Online': '🟢 Online',
     // Active shift
-    'Aktive Shift': 'Active Shift',
-    'Eingeloggt': 'Logged in',
-    '💾 Speichern': '💾 Save',
-    'Speichern': 'Save',
+    'Active Shift': 'Active Shift',
+    'Logged in': 'Logged in',
+    '💾 Save': '💾 Save',
+    'Save': 'Save',
     'Alle': 'All',
     'Suchen...': 'Search...',
     'Kein Interesse': 'Not interested',
@@ -2709,10 +2709,10 @@ function applyEnglishUI() {
     '❄️ Kalt': '❄️ Cold',
     '📋 Listen': '📋 Lists',
     '💰 Spending': '💰 Spending',
-    'Keine Listen vorhanden': 'No lists',
+    'No lists vorhanden': 'No lists',
     'Erste Nachricht': 'First message',
     'Letzte Nachricht': 'Last message',
-    'Nachrichten': 'Messages',
+    'Messages': 'Messages',
     '🎙️ Fakecheck senden': '🎙️ Send Fakecheck',
     '⏰ Reminder Timer': '⏰ Reminder Timer',
     '▶ Start': '▶ Start',
@@ -2721,9 +2721,9 @@ function applyEnglishUI() {
     'My Stats': 'My Stats',
     'Notifications': 'Notifications',
     'Chat': 'Chat',
-    '⏳ Warte auf Bot...': '⏳ Waiting for bot...',
+    '⏳ Waiting for bot...': '⏳ Waiting for bot...',
     '✅ Fakecheck gesendet': '✅ Fakecheck sent',
-    'Aktive Shift': 'Active Shift',
+    'Active Shift': 'Active Shift',
   };
 
   // Walk all text nodes and replace
@@ -2995,7 +2995,7 @@ async function loadData() {
 function renderDashboard() {
   const p = currentPeriod;
   const tod = today();
-  const periodLabels = { heute: 'Heute', woche: 'Diese Woche', monat: 'Dieser Monat' };
+  const periodLabels = { heute: 'Today', woche: 'This Week', monat: 'This Month' };
   const label = periodLabels[p];
 
   const filteredSales  = filterByPeriod(salesData,  'Datum', p);
@@ -3012,7 +3012,7 @@ function renderDashboard() {
   const avgPerShift  = filteredShifts.length ? (filteredShifts.reduce((s,r) => s+(parseFloat(r['Umsatz (€)'])||0),0) / filteredShifts.length) : 0;
 
   // Update KPI labels
-  document.getElementById('kpi-rev-label').textContent   = 'Umsatz ' + label;
+  document.getElementById('kpi-rev-label').textContent   = 'Revenue ' + label;
   document.getElementById('kpi-sales-label').textContent = 'Sales ' + label;
   if (document.getElementById('kpi-reply-sub')) document.getElementById('kpi-reply-sub').textContent = 'Minuten (' + label.toLowerCase() + ')';
   document.getElementById('kpi-avg-label').textContent   = 'New Subs';
@@ -3144,7 +3144,7 @@ function renderRevenueChart(period) {
     return Math.round(sheetRev + crmRev);
   });
 
-  const titles = { heute: 'Tagesumsatz (letzte 7 Tage)', woche: 'Tagesumsatz (diese Woche)', monat: 'Tagesumsatz (dieser Monat)' };
+  const titles = { heute: 'Daily Revenue (last 7 days)', woche: 'Daily Revenue (this week)', monat: 'Daily Revenue (this month)' };
   document.getElementById('chart-rev-title').textContent = titles[period] || titles['heute'];
 
   if (revenueChart) revenueChart.destroy();
@@ -3184,7 +3184,7 @@ function renderReplyChart(period) {
 
   const validVals = vals.filter(v => v !== null);
   const overallAvg = validVals.length ? (validVals.reduce((a,b)=>a+b,0)/validVals.length).toFixed(1) : '—';
-  document.getElementById('reply-avg-tag').textContent = overallAvg !== '—' ? overallAvg + ' min Ø' : '— min';
+  document.getElementById('reply-avg-tag').textContent = overallAvg !== '—' ? overallAvg + ' min avg' : '— min';
 
   if (replyChart) replyChart.destroy();
   const ctx = document.getElementById('replyChart').getContext('2d');
@@ -3208,7 +3208,7 @@ function renderReplyChart(period) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: {
-        callbacks: { label: ctx => ctx.raw !== null ? ctx.raw.toFixed(1) + ' min' : 'Keine Daten' }
+        callbacks: { label: ctx => ctx.raw !== null ? ctx.raw.toFixed(1) + ' min' : 'No data' }
       }},
       scales: {
         x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0', font: { size: 11 }, maxRotation: 0 } },
@@ -3221,7 +3221,7 @@ function renderReplyChart(period) {
 function renderShiftsToday(todayShifts, totalRevenue) {
   const panel = document.getElementById('shifts-today-panel');
   if (!todayShifts.length) {
-    panel.innerHTML = '<div class="empty">Keine Shift-Daten für heute</div>';
+    panel.innerHTML = '<div class="empty">No shift data for today</div>';
     return;
   }
   const maxRev = Math.max(...todayShifts.map(r => parseFloat(r['Umsatz (€)']) || 0), 1);
@@ -3249,9 +3249,9 @@ function renderShiftsToday(todayShifts, totalRevenue) {
 function renderRecentSales(sales) {
   const tbody = document.getElementById('sales-tbody');
   const recent = [...sales].reverse().slice(0, 30);
-  const periodLabel = { heute: 'heute', woche: 'diese Woche', monat: 'diesen Monat' }[currentPeriod] || 'im Zeitraum';
+  const periodLabel = { heute: 'today', woche: 'this week', monat: 'this month' }[currentPeriod] || 'in this period';
   if (!recent.length) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">Keine Sales ${periodLabel}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">No sales ${periodLabel}</div></td></tr>`;
     return;
   }
   tbody.innerHTML = recent.map(r => {
@@ -3279,7 +3279,7 @@ function renderTopSpenders() {
     map[s.tg_id].count++;
   });
   const sorted = Object.values(map).sort((a, b) => b.total - a.total).slice(0, 10);
-  if (!sorted.length) { el.innerHTML = '<div class="empty" style="padding:16px;">Keine Sales vorhanden</div>'; return; }
+  if (!sorted.length) { el.innerHTML = '<div class="empty" style="padding:16px;">No sales yet</div>'; return; }
   const medals = ['🥇','🥈','🥉'];
   el.innerHTML = sorted.map((s, i) => {
     const _convs = (typeof allConvs !== 'undefined') ? allConvs : [];
@@ -3367,7 +3367,7 @@ function renderDonutChart(productMap, totalRev) {
 
   if (!labels.length) {
     canvas.style.display = 'none';
-    legend.innerHTML = '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
+    legend.innerHTML = '<div style="color:var(--text3);font-size:12px;">No sales im Zeitraum</div>';
     if (totalEl) totalEl.textContent = '0€';
     return;
   }
@@ -3426,7 +3426,7 @@ function renderSalesPage() {
   const tbody = document.getElementById('all-sales-tbody');
   const filtered = filterByPeriod(salesData, 'Datum', currentSalesPeriod);
   const filteredCrm = filterCrmByPeriod(crmSalesData, currentSalesPeriod);
-  const titleMap = { heute: 'Sales – Heute', woche: 'Sales – Diese Woche', monat: 'Sales – Dieser Monat', alle: 'Alle Sales' };
+  const titleMap = { heute: 'Sales – Today', woche: 'Sales – This Week', monat: 'Sales – This Month', alle: 'All Sales' };
   document.getElementById('sales-page-title').textContent = titleMap[currentSalesPeriod] || 'Sales';
 
   // Status badge helper
@@ -3549,10 +3549,10 @@ async function reviewSale(saleId, action) {
 function renderShiftsPage() {
   const tbody = document.getElementById('shifts-tbody');
   const filtered = filterByPeriod(shiftsData, 'Datum', currentShiftsPeriod);
-  const titleMap = { heute: 'Shifts – Heute', woche: 'Shifts – Diese Woche', monat: 'Shifts – Dieser Monat', alle: 'Alle Shifts' };
+  const titleMap = { heute: 'Shifts – Today', woche: 'Shifts – This Week', monat: 'Shifts – This Month', alle: 'All Shifts' };
   document.getElementById('shifts-page-title').textContent = titleMap[currentShiftsPeriod] || 'Shifts';
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="7"><div class="empty">Keine Daten im gewählten Zeitraum</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty">No data im gewählten Zeitraum</div></td></tr>';
     return;
   }
   tbody.innerHTML = [...filtered].reverse().map(r => {
@@ -3655,7 +3655,7 @@ if (checkAuth()) {
       const data = await r.json();
       return data;
     } catch(e) {
-      alert('❌ Netzwerkfehler bei ' + url + ': ' + e.message);
+      alert('❌ Network error at ' + url + ': ' + e.message);
       return null;
     }
   }
@@ -3769,7 +3769,7 @@ if (checkAuth()) {
   function renderConvList(convs) {
     const el = document.getElementById('conv-list-body');
     if (!convs.length) {
-      el.innerHTML = '<div class="chat-empty" style="height:200px;">Keine Gespräche</div>';
+      el.innerHTML = '<div class="chat-empty" style="height:200px;">No conversations</div>';
       return;
     }
     // Always render in Telegram order: most recent message first
@@ -3910,7 +3910,7 @@ if (checkAuth()) {
           <button onclick="navigator.clipboard.writeText('${p.payment_ref}');this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)"
             style="padding:7px 12px;border-radius:8px;border:1px solid rgba(74,158,255,.3);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">Copy</button>
         </div>
-        <button onclick="insertBankTransfer()" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.1);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🏦 Banküberweisung einfügen</button>
+        <button onclick="insertBankTransfer()" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.1);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🏦 Insert bank transfer</button>
         <div style="font-size:10px;color:var(--text3);margin-top:4px;">Subscriber uses this as transfer reference</div>
       </div>` : ''}
 
@@ -4060,8 +4060,8 @@ if (checkAuth()) {
     // also grab anything typed but not yet added
     const lastMsg = document.getElementById('sp-new-msg-input')?.value.trim();
     if (lastMsg) editorMsgs.push(lastMsg);
-    if (!name) { alert('Name ist Pflicht.'); return; }
-    if (!editorMsgs.length) { alert('Mindestens eine Nachricht eingeben.'); return; }
+    if (!name) { alert('Name is required.'); return; }
+    if (!editorMsgs.length) { alert('Add at least one message.'); return; }
     const scripts = getScripts();
     const entry = { name, key, cat, messages: [...editorMsgs] };
     if (editingScriptIdx >= 0) {
@@ -4082,7 +4082,7 @@ if (checkAuth()) {
       if (el) el.value = '';
     });
     const title = document.getElementById('sp-editor-title');
-    if (title) title.textContent = '+ Neues Script';
+    if (title) title.textContent = '+ New Script';
     renderEditorMsgList();
   }
 
@@ -4103,7 +4103,7 @@ if (checkAuth()) {
   }
 
   window.deleteScriptFromPage = function(i) {
-    if (!confirm('Script löschen?')) return;
+    if (!confirm('Delete script?')) return;
     const scripts = getScripts();
     scripts.splice(i, 1);
     saveScripts(scripts);
@@ -4136,7 +4136,7 @@ if (checkAuth()) {
     const filtered = activeCatFilter === 'all' ? scripts : scripts.filter(s => (s.cat||'Allgemein') === activeCatFilter);
 
     if (!filtered.length) {
-      grid.innerHTML = '<div style="color:#444;font-size:13px;padding:10px;">Noch keine Scripts.</div>';
+      grid.innerHTML = '<div style="color:#444;font-size:13px;padding:10px;">No scripts yet.</div>';
       return;
     }
 
@@ -4186,7 +4186,7 @@ if (checkAuth()) {
         <span>📋 Scripts</span>
         <span style="font-size:10px;color:#333;">Klick → Nachricht 1 laden</span>
       </div>
-      ${!scripts.length ? '<div style="padding:14px;text-align:center;color:#444;font-size:12px;">Keine Scripts. Auf der Scripts-Seite erstellen.</div>' : ''}
+      ${!scripts.length ? '<div style="padding:14px;text-align:center;color:#444;font-size:12px;">No scripts. Create them on the Scripts page.</div>' : ''}
       ${scripts.map((s,i) => {
         const msgs = s.messages || (s.text ? [s.text] : []);
         return `<div style="display:flex;align-items:stretch;">
@@ -4263,7 +4263,7 @@ if (checkAuth()) {
         <span>📋 Scripts</span>
         <span style="font-size:10px;color:#333;">Klick → ins Textfeld</span>
       </div>
-      ${scripts.length === 0 ? '<div style="padding:14px;text-align:center;color:#444;font-size:12px;">Noch keine Scripts. Unten erstellen.</div>' : ''}
+      ${scripts.length === 0 ? '<div style="padding:14px;text-align:center;color:#444;font-size:12px;">No scripts yet. Create one below.</div>' : ''}
       ${scripts.map((s,i) => `
         <div style="display:flex;align-items:stretch;">
           <div class="script-item" style="flex:1;" onclick="useScript(${i})">
@@ -4413,7 +4413,7 @@ if (checkAuth()) {
     const body = document.getElementById('lists-manage-body');
     if (!body) return;
     if (!allLists.length) {
-      body.innerHTML = '<div style="text-align:center;color:#444;font-size:12px;padding:14px;">Noch keine Listen</div>';
+      body.innerHTML = '<div style="text-align:center;color:#444;font-size:12px;padding:14px;">No lists yet</div>';
       return;
     }
     body.innerHTML = allLists.map(l => `
@@ -4460,7 +4460,7 @@ if (checkAuth()) {
     tagsEl.innerHTML = inLists.map(l =>
       `<span class="list-tag" style="background:${l.color}18;border-color:${l.color}40;color:${l.color};">
         <span class="list-dot" style="background:${l.color};"></span>${l.name}
-      </span>`).join('') || '<span style="font-size:11px;color:#444;">Keine Listen</span>';
+      </span>`).join('') || '<span style="font-size:11px;color:#444;">No lists</span>';
 
     sec.innerHTML = allLists.map(l => {
       const inList = (l.members||[]).includes(tgId);
@@ -4471,7 +4471,7 @@ if (checkAuth()) {
         </div>
         ${inList ? '<span class="list-checkmark">✓</span>' : '<span style="font-size:11px;color:#333;">+</span>'}
       </div>`;
-    }).join('') || '<span style="font-size:11px;color:#444;">Keine Listen vorhanden</span>';
+    }).join('') || '<span style="font-size:11px;color:#444;">No lists vorhanden</span>';
   }
 
   window.toggleListMember = async function(listId, tgId, inList) {
@@ -4537,7 +4537,7 @@ if (checkAuth()) {
     if (!msgs) return;
     const el = document.getElementById('msg-list');
     if (!msgs.length) {
-      el.innerHTML = '<div class="chat-empty">Noch keine Nachrichten</div>';
+      el.innerHTML = '<div class="chat-empty">No messages yet</div>';
       return;
     }
     const wasAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 40;
@@ -4619,7 +4619,7 @@ if (checkAuth()) {
       } else {
         input.value = text;
         const detail = res?.detail || `HTTP ${r.status}`;
-        alert('❌ Fehler beim Senden:\n' + detail);
+        alert('❌ Send error:\n' + detail);
       }
     } catch(e) {
       input.value = text;
@@ -4819,7 +4819,7 @@ if (checkAuth()) {
     try {
       await chatApiFetch('/call/stop?tg_id=' + currentChatTgId, { method: 'POST' });
       hideActiveCallBar();
-    } catch(e) { alert('Fehler beim Auflegen: ' + e.message); }
+    } catch(e) { alert('Error hanging up: ' + e.message); }
   };
 
   window.openFakeCallModal = async function() {
@@ -4827,7 +4827,7 @@ if (checkAuth()) {
     const overlay = document.getElementById('fake-call-modal-overlay');
     if (!overlay) return;
     overlay.style.display = 'flex';
-    document.getElementById('fc-files-list').innerHTML = '<p style="color:var(--dim);font-size:13px;">Laden…</p>';
+    document.getElementById('fc-files-list').innerHTML = '<p style="color:var(--dim);font-size:13px;">Loading...</p>';
     document.getElementById('fc-status').textContent = '';
     document.getElementById('fc-upload-status').textContent = '';
     // Reset to "Alle" tab (switchCallFolder calls loadCallFiles internally)
@@ -4840,13 +4840,13 @@ if (checkAuth()) {
       if (!statusEl) return;
       if (!st || !st.pytgcalls_available) {
         const errDetail = st?.pytgcalls_error ? ` — <code style="font-size:10px;">${st.pytgcalls_error.slice(0,80)}</code>` : ' — <code>pip install py-tgcalls</code> auf Railway';
-        statusEl.innerHTML = '⚠️ pytgcalls nicht verfügbar' + errDetail;
+        statusEl.innerHTML = '⚠️ pytgcalls not available' + errDetail;
         statusEl.style.color = '#fbbf24';
       } else if (!st.calls_client_ready) {
-        statusEl.innerHTML = '⚠️ Calls-Client wird noch initialisiert…';
+        statusEl.innerHTML = '⚠️ Calls client initializing...';
         statusEl.style.color = '#fbbf24';
       } else if (st.active_calls && st.active_calls[currentChatTgId]) {
-        statusEl.innerHTML = '📞 Call läuft gerade';
+        statusEl.innerHTML = '📞 Call in progress';
         statusEl.style.color = '#22c55e';
       } else {
         statusEl.innerHTML = '✅ Bereit';
@@ -4893,7 +4893,7 @@ if (checkAuth()) {
             if (!folder.files || !folder.files.length) return `
               <div style="margin-bottom:14px;">
                 <div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">${folder.label}</div>
-                <p style="color:var(--dim);font-size:13px;padding:8px 0;">Noch keine Recordings</p>
+                <p style="color:var(--dim);font-size:13px;padding:8px 0;">No recordings yet</p>
               </div>`;
             const items = folder.files.map(f => {
               const name = typeof f === 'string' ? f : f.name;
@@ -4902,19 +4902,19 @@ if (checkAuth()) {
               return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
                 <span style="font-size:18px;">${isVideo ? '🎬' : '🎵'}</span>
                 <span style="flex:1;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${name}">${name}${size}</span>
-                <button onclick="startFakeCall('${name}','${folder.key}')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Anrufen</button>
+                <button onclick="startFakeCall('${name}','${folder.key}')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Call</button>
                 <button onclick="deleteCallFile('${name}','${folder.key}')" style="background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);border-radius:6px;color:#ff5c7a;padding:5px 8px;cursor:pointer;font-size:12px;">🗑</button>
               </div>`;
             }).join('');
             return `<div style="margin-bottom:14px;"><div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">${folder.label}</div>${items}</div>`;
           }).join('');
-          list.innerHTML = html || '<p style="color:var(--dim);font-size:13px;">Keine Recordings hochgeladen</p>';
+          list.innerHTML = html || '<p style="color:var(--dim);font-size:13px;">No recordings uploaded</p>';
           return;
         } else {
           // Single folder view
           const folder = data.folders.find(fd => fd.key === _currentCallFolder);
           if (!folder || !folder.files || !folder.files.length) {
-            list.innerHTML = '<p style="color:var(--dim);font-size:13px;">Noch keine Recordings in diesem Ordner</p>';
+            list.innerHTML = '<p style="color:var(--dim);font-size:13px;">No recordings in this folder yet</p>';
             return;
           }
           list.innerHTML = folder.files.map(f => {
@@ -4924,7 +4924,7 @@ if (checkAuth()) {
             return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
               <span style="font-size:18px;">${isVideo ? '🎬' : '🎵'}</span>
               <span style="flex:1;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${name}">${name}${size}</span>
-              <button onclick="startFakeCall('${name}','${_currentCallFolder}')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Anrufen</button>
+              <button onclick="startFakeCall('${name}','${_currentCallFolder}')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Call</button>
               <button onclick="deleteCallFile('${name}','${_currentCallFolder}')" style="background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);border-radius:6px;color:#ff5c7a;padding:5px 8px;cursor:pointer;font-size:12px;">🗑</button>
             </div>`;
           }).join('');
@@ -4935,7 +4935,7 @@ if (checkAuth()) {
       // Legacy flat list fallback
       const files = Array.isArray(data) ? data : (data?.files || []);
       if (!files.length) {
-        list.innerHTML = '<p style="color:var(--dim);font-size:13px;">Keine Recordings hochgeladen</p>';
+        list.innerHTML = '<p style="color:var(--dim);font-size:13px;">No recordings uploaded</p>';
         return;
       }
       list.innerHTML = files.map(f => {
@@ -4945,12 +4945,12 @@ if (checkAuth()) {
         return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
           <span style="font-size:18px;">${isVideo ? '🎬' : '🎵'}</span>
           <span style="flex:1;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${name}">${name}${size}</span>
-          <button onclick="startFakeCall('${name}','')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Anrufen</button>
+          <button onclick="startFakeCall('${name}','')" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:6px;color:#22c55e;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Call</button>
           <button onclick="deleteCallFile('${name}','')" style="background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);border-radius:6px;color:#ff5c7a;padding:5px 8px;cursor:pointer;font-size:12px;">🗑</button>
         </div>`;
       }).join('');
     } catch(e) {
-      list.innerHTML = '<p style="color:#ff5c7a;font-size:13px;">Fehler: ' + e.message + '</p>';
+      list.innerHTML = '<p style="color:#ff5c7a;font-size:13px;">Error: ' + e.message + '</p>';
     }
   }
 
@@ -4958,7 +4958,7 @@ if (checkAuth()) {
     if (!currentChatTgId) return;
     folder = folder || '';
     const statusEl = document.getElementById('fc-status');
-    statusEl.textContent = '⏳ Call wird gestartet…';
+    statusEl.textContent = '⏳ Starting call...';
     statusEl.style.color = '#fbbf24';
     try {
       const me = localStorage.getItem('crm_username') || 'Chatter';
@@ -4969,11 +4969,11 @@ if (checkAuth()) {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        statusEl.textContent = '❌ ' + (err.detail || 'Fehler');
+        statusEl.textContent = '❌ ' + (err.detail || 'Error');
         statusEl.style.color = '#ff5c7a';
         return;
       }
-      statusEl.textContent = '✅ Call gestartet!';
+      statusEl.textContent = '✅ Call started!';
       statusEl.style.color = '#22c55e';
       closeFakeCallModal();
       showActiveCallBar({ call_type: filename.match(/\.(mp4|mov|mkv)$/i) ? 'video' : 'audio', filename });
@@ -4985,13 +4985,13 @@ if (checkAuth()) {
 
   window.deleteCallFile = async function(filename, folder) {
     folder = folder || '';
-    if (!confirm('Recording "' + filename + '" löschen?')) return;
+    if (!confirm('Delete recording?')) return;
     try {
       const url = '/call/file/' + encodeURIComponent(filename) + (folder ? '?folder=' + encodeURIComponent(folder) : '');
       const res = await chatApiFetch(url, { method: 'DELETE' });
       if (res.ok) await loadCallFiles();
-      else alert('Fehler beim Löschen');
-    } catch(e) { alert('Fehler: ' + e.message); }
+      else alert('Delete failed');
+    } catch(e) { alert('Error: ' + e.message); }
   };
 
   window.uploadCallRecording = async function() {
@@ -5001,7 +5001,7 @@ if (checkAuth()) {
     const folderSel = document.getElementById('fc-upload-folder');
     const folder = folderSel ? folderSel.value : '';
     const statusEl = document.getElementById('fc-upload-status');
-    statusEl.textContent = '⏳ Hochladen…';
+    statusEl.textContent = '⏳ Uploading...';
     statusEl.style.color = '#fbbf24';
     const fd = new FormData();
     fd.append('file', file);
@@ -5009,7 +5009,7 @@ if (checkAuth()) {
     try {
       const res = await chatApiFetch('/call/upload', { method: 'POST', body: fd });
       if (res.ok) {
-        statusEl.textContent = '✅ Hochgeladen!';
+        statusEl.textContent = '✅ Uploaded!';
         statusEl.style.color = '#22c55e';
         inp.value = '';
         // Switch to the uploaded folder tab
@@ -5017,7 +5017,7 @@ if (checkAuth()) {
         else await loadCallFiles();
       } else {
         const err = await res.json().catch(() => ({}));
-        statusEl.textContent = '❌ ' + (err.detail || 'Fehler');
+        statusEl.textContent = '❌ ' + (err.detail || 'Error');
         statusEl.style.color = '#ff5c7a';
       }
     } catch(e) {
@@ -5040,12 +5040,12 @@ if (checkAuth()) {
     overlay.style.display = 'flex';
     _mgTab = 'all';
     _updateMgTabs();
-    document.getElementById('mg-content').innerHTML = '<p style="color:var(--dim);font-size:13px;padding:20px 0;">Laden…</p>';
+    document.getElementById('mg-content').innerHTML = '<p style="color:var(--dim);font-size:13px;padding:20px 0;">Loading...</p>';
     document.getElementById('mg-subtitle').textContent = '—';
 
     const data = await chatApiGet('/media/' + currentChatTgId);
     if (!data || !data.items) {
-      document.getElementById('mg-content').innerHTML = '<p style="color:#ff5c7a;font-size:13px;">Fehler beim Laden</p>';
+      document.getElementById('mg-content').innerHTML = '<p style="color:#ff5c7a;font-size:13px;">Error loading</p>';
       return;
     }
     _mgItems = data.items;
@@ -5080,7 +5080,7 @@ if (checkAuth()) {
     _mgFiltered = _mgTab === 'all' ? _mgItems : _mgItems.filter(i => i.type === _mgTab);
 
     if (!_mgFiltered.length) {
-      el.innerHTML = '<p style="color:var(--dim);font-size:13px;padding:20px 0;">Keine Medien in dieser Kategorie</p>';
+      el.innerHTML = '<p style="color:var(--dim);font-size:13px;padding:20px 0;">No media in this category</p>';
       return;
     }
 
@@ -5158,7 +5158,7 @@ if (checkAuth()) {
     docEl.style.display = 'none';
     voiceEl.style.display = 'none';
 
-    const dirLabel = item.direction === 'in' ? '↙ Empfangen' : '↗ Gesendet';
+    const dirLabel = item.direction === 'in' ? '↙ Received' : '↗ Sent';
     const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleString('de-DE') : '';
     infoEl.textContent = `${dirLabel} · ${dateStr}${item.chatter ? ' · ' + item.chatter : ''} · ${idx+1}/${_mgFiltered.length}`;
 
@@ -5175,7 +5175,7 @@ if (checkAuth()) {
       docEl.style.display = 'flex';
       docEl.style.flexDirection = 'column';
       docEl.style.alignItems = 'center';
-      document.getElementById('mg-lightbox-doc-name').textContent = 'Dokument · ' + dateStr;
+      document.getElementById('mg-lightbox-doc-name').textContent = 'Document · ' + dateStr;
       document.getElementById('mg-lightbox-doc-link').href = mediaUrl;
     }
   }
@@ -5397,18 +5397,18 @@ async function loadReengagement(days) {
 
 async function sendReengagement() {
   const text = document.getElementById('reeng-text')?.value.trim();
-  if (!text || !window._reengIds?.length) { alert('Nachricht und Empfänger erforderlich'); return; }
+  if (!text || !window._reengIds?.length) { alert('Message and recipients required'); return; }
   const confirmed = confirm(`Nachricht an ${window._reengIds.length} inaktive Subscriber senden?`);
   if (!confirmed) return;
   const status = document.getElementById('reeng-status');
-  status.style.display = 'block'; status.style.color = 'var(--text2)'; status.textContent = '⏳ Läuft...';
+  status.style.display = 'block'; status.style.color = 'var(--text2)'; status.textContent = '⏳ Running...';
   const r = await fetch('/api/broadcast', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, chatter: localStorage.getItem('crm_user') || 'CRM', tg_ids: window._reengIds })
   });
   const d = await r.json();
   status.style.color = d.ok ? 'var(--teal)' : 'var(--red)';
-  status.textContent = d.ok ? `✅ ${d.sent} gesendet` : '❌ Fehler';
+  status.textContent = d.ok ? `✅ ${d.sent} sent` : '❌ Error';
 }
 
 // ── BROADCAST ────────────────────────────────────────────────────────────────
@@ -5469,11 +5469,11 @@ async function startBroadcast() {
     const data = await r.json();
     if (data.ok) {
       status.style.color = 'var(--teal)';
-      status.textContent = `✅ Fertig: ${data.sent} gesendet, ${data.failed} fehlgeschlagen (${data.total} gesamt)`;
+      status.textContent = `✅ Fertig: ${data.sent} sent (${data.total} gesamt)`;
       document.getElementById('bc-text').value = '';
     } else {
       status.style.color = 'var(--red)';
-      status.textContent = '❌ Fehler: ' + JSON.stringify(data);
+      status.textContent = '❌ Error: ' + JSON.stringify(data);
     }
   } catch(e) {
     status.style.color = 'var(--red)';
@@ -5492,11 +5492,11 @@ async function scheduleNewBroadcast() {
   const chatter = document.getElementById('sb-chatter').value.trim() || localStorage.getItem('crm_user') || 'Broadcast';
   const statusEl = document.getElementById('sb-status');
 
-  if (!text) { statusEl.textContent = '❌ Nachricht fehlt'; statusEl.style.color='#ff5c7a'; return; }
-  if (!dt)   { statusEl.textContent = '❌ Zeitpunkt fehlt'; statusEl.style.color='#ff5c7a'; return; }
-  if (new Date(dt) <= new Date()) { statusEl.textContent = '❌ Zeitpunkt muss in der Zukunft liegen'; statusEl.style.color='#ff5c7a'; return; }
+  if (!text) { statusEl.textContent = '❌ Message required'; statusEl.style.color='#ff5c7a'; return; }
+  if (!dt)   { statusEl.textContent = '❌ Time required'; statusEl.style.color='#ff5c7a'; return; }
+  if (new Date(dt) <= new Date()) { statusEl.textContent = '❌ Time must be in the future'; statusEl.style.color='#ff5c7a'; return; }
 
-  statusEl.textContent = '⏳ Wird geplant…'; statusEl.style.color = 'var(--text2)';
+  statusEl.textContent = '⏳ Scheduling...'; statusEl.style.color = 'var(--text2)';
   try {
     const r = await fetch('/api/scheduled-broadcast', {
       method: 'POST',
@@ -5505,12 +5505,12 @@ async function scheduleNewBroadcast() {
     });
     const data = await r.json();
     if (data.ok) {
-      statusEl.textContent = '✅ Geplant!'; statusEl.style.color = 'var(--teal)';
+      statusEl.textContent = '✅ Scheduled!'; statusEl.style.color = 'var(--teal)';
       document.getElementById('sb-text').value = '';
       document.getElementById('sb-datetime').value = '';
       await loadScheduledBroadcasts();
     } else {
-      statusEl.textContent = '❌ ' + (data.detail || 'Fehler'); statusEl.style.color = '#ff5c7a';
+      statusEl.textContent = '❌ ' + (data.detail || 'Error'); statusEl.style.color = '#ff5c7a';
     }
   } catch(e) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = '#ff5c7a'; }
 }
@@ -5521,21 +5521,21 @@ async function loadScheduledBroadcasts() {
   try {
     const r = await fetch('/api/scheduled-broadcasts');
     const data = await r.json();
-    if (!data.length) { el.innerHTML = '<p style="color:var(--dim);font-size:12px;">Keine geplanten Nachrichten</p>'; return; }
+    if (!data.length) { el.innerHTML = '<p style="color:var(--dim);font-size:12px;">No scheduled messages</p>'; return; }
 
     const statusBadge = s => ({
-      pending:   '<span style="background:rgba(167,139,250,.2);color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">⏰ Ausstehend</span>',
+      pending:   '<span style="background:rgba(167,139,250,.2);color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">⏰ Pending</span>',
       running:   '<span style="background:rgba(255,209,102,.2);color:#ffd166;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">⏳ Läuft</span>',
-      sent:      '<span style="background:rgba(34,197,94,.2);color:#22c55e;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">✅ Gesendet</span>',
-      cancelled: '<span style="background:rgba(255,92,122,.15);color:#ff5c7a;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">🚫 Abgebrochen</span>',
+      sent:      '<span style="background:rgba(34,197,94,.2);color:#22c55e;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">✅ Sent</span>',
+      cancelled: '<span style="background:rgba(255,92,122,.15);color:#ff5c7a;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">🚫 Cancelled</span>',
     }[s] || s);
 
     el.innerHTML = data.map(b => {
       const dt = new Date(b.scheduled_at).toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
-      const filterLabel = b.filter_stage ? `· ${b.filter_stage}` : '· Alle';
+      const filterLabel = b.filter_stage ? `· ${b.filter_stage}` : '· All';
       const sentInfo = b.status === 'sent' ? `<div style="font-size:10px;color:var(--dim);margin-top:2px;">✅ ${b.sent_count} gesendet${b.fail_count ? `, ❌ ${b.fail_count} fehlgeschlagen` : ''}</div>` : '';
       const cancelBtn = b.status === 'pending'
-        ? `<button onclick="cancelScheduledBroadcast(${b.id})" style="background:none;border:none;color:#ff5c7a;cursor:pointer;font-size:13px;padding:2px 4px;" title="Abbrechen">🗑</button>`
+        ? `<button onclick="cancelScheduledBroadcast(${b.id})" style="background:none;border:none;color:#ff5c7a;cursor:pointer;font-size:13px;padding:2px 4px;" title="Cancel">🗑</button>`
         : '';
       return `<div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
         <div style="display:flex;align-items:flex-start;gap:6px;">
@@ -5551,11 +5551,11 @@ async function loadScheduledBroadcasts() {
         </div>
       </div>`;
     }).join('');
-  } catch(e) { el.innerHTML = '<p style="color:#ff5c7a;font-size:12px;">Fehler beim Laden</p>'; }
+  } catch(e) { el.innerHTML = '<p style="color:#ff5c7a;font-size:12px;">Error loading</p>'; }
 }
 
 async function cancelScheduledBroadcast(id) {
-  if (!confirm('Geplanten Broadcast abbrechen?')) return;
+  if (!confirm('Cancel scheduled broadcast?')) return;
   await fetch('/api/scheduled-broadcast/' + id, { method: 'DELETE' });
   await loadScheduledBroadcasts();
 }
@@ -5619,14 +5619,14 @@ window.showPage = function(page) {
     <div style="padding:18px 20px 14px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:10px;">
       <span style="font-size:22px;">📞</span>
       <div style="flex:1;">
-        <div style="font-weight:800;font-size:15px;">Pre-recorded Call starten</div>
-        <div id="fc-backend-status" style="font-size:12px;color:var(--dim);margin-top:2px;">Prüfe Status…</div>
+        <div style="font-weight:800;font-size:15px;">Start pre-recorded call</div>
+        <div id="fc-backend-status" style="font-size:12px;color:var(--dim);margin-top:2px;">Checking status...</div>
       </div>
       <button onclick="closeFakeCallModal()" style="background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer;padding:0 4px;">✕</button>
     </div>
     <!-- Upload section -->
     <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.07);">
-      <div style="font-size:12px;color:var(--dim);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Recording hochladen</div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Upload recording</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
         <select id="fc-upload-folder" style="font-size:12px;color:var(--text);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:7px;padding:7px 10px;cursor:pointer;flex-shrink:0;">
           <option value="fake_checks">✅ Fake Checks</option>
@@ -5776,7 +5776,7 @@ window.showPage = function(page) {
     <button onclick="closeListsModal()" style="width:100%;margin-top:10px;padding:9px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;cursor:pointer;font-size:12px;">Schließen</button>
   </div>
 </div>
-<!-- MARIE STIL-ÜBERSETZER PATCH -->
+<!-- MARIE STYLE TRANSLATOR PATCH -->
 <script>
 (function(){
   const _os0 = window.openSettings || openSettings;
@@ -5786,7 +5786,7 @@ window.showPage = function(page) {
     if (box && !document.getElementById('cfg-openai-key')) {
       const lbl = document.createElement('label');
       lbl.style.cssText = 'margin-top:4px;color:#4a9eff;font-size:12px;font-weight:600;';
-      lbl.textContent = '✨ OpenAI API Key (Marie-Stil Übersetzer)';
+      lbl.textContent = '✨ OpenAI API Key (Marie style translator)';
       const inp = document.createElement('input');
       inp.type = 'text'; inp.id = 'cfg-openai-key';
       inp.placeholder = 'sk-proj-...'; inp.autocomplete = 'off';
@@ -5842,8 +5842,8 @@ window.showPage = function(page) {
       });
       const d = await r.json();
       if (d.ok && d.result) return d.result;
-      throw new Error(d.detail || 'Unbekannter Fehler');
-    } catch(e) { alert('Fehler: ' + e.message); return null; }
+      throw new Error(d.detail || 'Unknown error');
+    } catch(e) { alert('Error: ' + e.message); return null; }
   }
 
   const _sv0 = window.saveSettings || saveSettings;
@@ -5941,7 +5941,7 @@ window.showPage = function(page) {
     if(found){
       let warn=document.getElementById('bw-warn');
       if(!warn){warn=document.createElement('div');warn.id='bw-warn';warn.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#2a0a10;border:1px solid #ff5c7a;border-radius:10px;padding:12px 20px;color:#ff5c7a;font-size:13px;font-weight:600;z-index:9999;';document.body.appendChild(warn);}
-      warn.textContent='Geblockt: "'+found+'" darf nicht gesendet werden.';
+      warn.textContent='Blocked: "'+found+'" cannot be sent.';
       warn.style.display='block';
       setTimeout(()=>warn.style.display='none',3000);
       return;
@@ -6001,7 +6001,7 @@ function renderNotifications() {
     let detail = '';
     if (n.type === 'new_sub') detail = `subscribed${n.username ? ' (@' + n.username + ')' : ''}`;
     if (n.type === 'message') detail = n.text || '';
-    if (n.type === 'sale') detail = `Neuer Sale! ${n.name} hat ${n.product || 'Produkt'} für ${n.amount?.toFixed(0)}€ gekauft${n.chatter ? ' · ' + n.chatter : ''}`;
+    if (n.type === 'sale') detail = `New sale! ${n.name} bought ${n.product || 'product'} for ${n.amount?.toFixed(0)}€${n.chatter ? ' · ' + n.chatter : ''}`;
 
     return `<div onclick="openConv('${n.tg_id}','${n.anon_id}');showPage('chat')"
       style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:background .15s;"
@@ -6152,7 +6152,7 @@ function showTimerAlert(subName, tgId) {
   const bar = document.getElementById('timer-alert-bar');
   const txt = document.getElementById('timer-alert-text');
   if (!bar || !txt) return;
-  txt.textContent = `⏰ Reminder: Zeit für ${subName}!`;
+  txt.textContent = `⏰ Reminder: Time for ${subName}!`;
   bar.style.display = 'block';
   bar._tgId = tgId;
   // Also vibrate if supported
@@ -6779,12 +6779,12 @@ async function sendFakecheck(tgId, name, btn) {
   const statusEl = document.getElementById('fakecheck-status-' + tgId);
 
   // Ask what to send to bot
-  const command = prompt(`Fakecheck für "${name}"\n\nWas soll an @FakecheckAudioBot gesendet werden?\n(z.B. Name des Subscribers, oder leer lassen für Standard)`, name || '');
+  const command = prompt(`Fakecheck for "${name}"\n\nWhat should be sent to @FakecheckAudioBot?\n(e.g. subscriber name, or leave empty for default)`, name || '');
   if (command === null) return; // cancelled
 
   btn.disabled = true;
-  btn.textContent = '⏳ Warte auf Bot...';
-  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = '🎙️ Bot wird kontaktiert...'; statusEl.style.color = 'var(--text3)'; }
+  btn.textContent = '⏳ Waiting for bot...';
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = '🎙️ Contacting bot...'; statusEl.style.color = 'var(--text3)'; }
 
   try {
     const r = await fetch('/api/fakecheck', {
@@ -6805,10 +6805,10 @@ async function sendFakecheck(tgId, name, btn) {
         if (statusEl) statusEl.style.display = 'none';
       }, 5000);
     } else {
-      throw new Error(d.detail || 'Fehler');
+      throw new Error(d.detail || 'Error');
     }
   } catch(e) {
-    btn.textContent = '❌ Fehler — nochmal versuchen';
+    btn.textContent = '❌ Error — try again';
     btn.disabled = false;
     if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = 'var(--red)'; }
   }
@@ -6910,7 +6910,7 @@ async function loadMembers() {
         </select>
         ${u.username !== currentUser ? `<button onclick="deleteMember(${u.id},'${u.username}')" style="background:rgba(255,92,122,0.15);border:1px solid rgba(255,92,122,0.3);color:#ff5c7a;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:11px;">✕</button>` : '<div style="width:34px;"></div>'}
       </div>`).join('');
-  } catch(e) { list.innerHTML = '<div style="color:var(--red)">Fehler beim Laden</div>'; }
+  } catch(e) { list.innerHTML = '<div style="color:var(--red)">Error loading</div>'; }
 }
 
 async function createMember() {
@@ -6919,19 +6919,19 @@ async function createMember() {
   const pw = document.getElementById('mu-pw')?.value;
   const role = document.getElementById('mu-role')?.value;
   const status = document.getElementById('mu-status');
-  if (!name || !pw) { status.textContent = '⚠️ Login-Name und Passwort erforderlich'; status.style.color='var(--red)'; status.style.display='block'; return; }
+  if (!name || !pw) { status.textContent = '⚠️ Login name and password required'; status.style.color='var(--red)'; status.style.display='block'; return; }
   try {
     const r = await fetch('/api/auth/users', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: name, display_name: displayName || name, password: pw, role })
     });
     if (r.ok) {
-      status.textContent = `✅ ${name} wurde hinzugefügt`; status.style.color='var(--teal)'; status.style.display='block';
+      status.textContent = `✅ ${name} added`; status.style.color='var(--teal)'; status.style.display='block';
       document.getElementById('mu-name').value = '';
       document.getElementById('mu-display').value = '';
       document.getElementById('mu-pw').value = '';
       loadMembers();
-    } else { const d = await r.json(); status.textContent = '❌ ' + (d.detail||'Fehler'); status.style.color='var(--red)'; status.style.display='block'; }
+    } else { const d = await r.json(); status.textContent = '❌ ' + (d.detail||'Error'); status.style.color='var(--red)'; status.style.display='block'; }
   } catch(e) { status.textContent = '❌ ' + e.message; status.style.color='var(--red)'; status.style.display='block'; }
 }
 
@@ -6947,7 +6947,7 @@ async function deleteMember(id, name) {
   if (!confirm(`${name} wirklich entfernen?`)) return;
   const r = await fetch('/api/auth/users/' + id, { method: 'DELETE' });
   if (r.ok) loadMembers();
-  else { const d = await r.json(); alert(d.detail || 'Fehler'); }
+  else { const d = await r.json(); alert(d.detail || 'Error'); }
 }
 
 // ── FUNNEL STAGE ──────────────────────────────────────────────────────────────
@@ -7071,7 +7071,7 @@ function filterPerfByPeriod(chatters, period) {
 function renderPerfPodium(data) {
   const el = document.getElementById('perf-podium');
   if (!el) return;
-  if (!data.length) { el.innerHTML = '<div class="empty">Keine Daten im gewählten Zeitraum</div>'; return; }
+  if (!data.length) { el.innerHTML = '<div class="empty">No data im gewählten Zeitraum</div>'; return; }
   const medals = [
     { icon: '🥇', color: '#ffd700', height: '140px', rank: 1 },
     { icon: '🥈', color: '#c0c0c0', height: '110px', rank: 2 },
@@ -7130,7 +7130,7 @@ function fmtSeconds(sec) {
 function renderPerfTable(data) {
   const tbody = document.getElementById('perf-tbody');
   if (!tbody) return;
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty">Keine Daten</div></td></tr>'; return; }
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty">No data</div></td></tr>'; return; }
   const medals = ['🥇','🥈','🥉'];
   tbody.innerHTML = data.map((c, i) => `<tr>
     <td style="font-weight:700;color:var(--text2);font-size:16px;">${medals[i] || (i+1)}</td>
