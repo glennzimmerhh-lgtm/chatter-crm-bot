@@ -3906,6 +3906,43 @@ if (checkAuth()) {
     inp.focus();
   };
 
+  window.saveGiftCardNote = async function(tgId) {
+    const type   = document.getElementById('gc-type')?.value || 'amazon';
+    const amount = document.getElementById('gc-amount')?.value.trim();
+    const code   = document.getElementById('gc-code')?.value.trim();
+    const pin    = document.getElementById('gc-pin')?.value.trim() || '';
+    if (!code) return;
+
+    const label  = type === 'amazon' ? 'Amazon' : 'Paysafe';
+    const ts     = new Date().toLocaleDateString('en-GB');
+    let note = `[${ts}] ${label}${amount ? ' €'+amount : ''} — Code: ${code}`;
+    if (pin) note += ` / PIN: ${pin}`;
+
+    // Append to existing notes textarea
+    const notesEl = document.getElementById('prof-notes');
+    if (notesEl) {
+      notesEl.value = (notesEl.value ? notesEl.value + '\n' : '') + note;
+    }
+
+    // Auto-save profile
+    const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url')||'').replace(/\/$/,'');
+    if (base && tgId) {
+      await fetch(`${base}/profile/${tgId}`, {
+        method: 'PATCH',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ notes: notesEl?.value || note })
+      }).catch(() => {});
+    }
+
+    // Clear fields & show confirm
+    if (document.getElementById('gc-code'))   document.getElementById('gc-code').value   = '';
+    if (document.getElementById('gc-amount')) document.getElementById('gc-amount').value = '';
+    if (document.getElementById('gc-pin'))    document.getElementById('gc-pin').value    = '';
+    const tag = document.getElementById('gc-saved-tag');
+    if (tag) { tag.style.display='block'; setTimeout(()=>tag.style.display='none', 2500); }
+  };
+
+
   async function loadProfile(tgId) {
     const p = await chatApiGet('/profile/' + tgId);
     if (!p) return;
@@ -3948,6 +3985,29 @@ if (checkAuth()) {
         <button onclick="insertBankTransfer()" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.1);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🏦 Insert bank transfer</button>
         <div style="font-size:10px;color:var(--text3);margin-top:4px;">Subscriber uses this as transfer reference</div>
       </div>` : ''}
+
+      <div class="profile-section" style="border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:14px;background:rgba(245,158,11,.04);">
+        <div class="profile-label" style="color:#f59e0b;">🎁 Gift Card Note</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <select id="gc-type" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:var(--bg2);color:var(--text1);font-size:13px;" onchange="document.getElementById('gc-pin-row').style.display=this.value==='paysafe'?'block':'none'">
+            <option value="amazon">Amazon</option>
+            <option value="paysafe">Paysafe</option>
+          </select>
+          <input type="number" id="gc-amount" placeholder="EUR" min="1" step="0.01"
+            style="width:90px;padding:7px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:var(--bg2);color:var(--text1);font-size:13px;">
+        </div>
+        <input type="text" id="gc-code" placeholder="Code"
+          style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:var(--bg2);color:var(--text1);font-size:13px;margin-bottom:8px;">
+        <div id="gc-pin-row" style="display:none;margin-bottom:8px;">
+          <input type="text" id="gc-pin" placeholder="PIN"
+            style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:var(--bg2);color:var(--text1);font-size:13px;">
+        </div>
+        <button onclick="saveGiftCardNote('${tgId}')"
+          style="width:100%;padding:9px;border-radius:8px;border:1px solid rgba(245,158,11,.5);background:rgba(245,158,11,.15);color:#f59e0b;font-size:13px;font-weight:700;cursor:pointer;">
+          💾 Save to notes
+        </button>
+        <div id="gc-saved-tag" style="margin-top:6px;font-size:11px;color:#4ade80;display:none;">✓ Saved to notes</div>
+      </div>
 
       <div class="profile-section">
         <div class="profile-label">
