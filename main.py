@@ -2192,17 +2192,21 @@ async def start_fake_call(body: CallStartIn):
     peer = int(body.tg_id)
 
     # Pre-populate Telethon's entity cache so py-tgcalls can resolve the user.
-    # Use stored access_hash if available, otherwise let Telethon fetch it.
+    # Directly call Telegram API to fetch+cache the user entity.
+    ah = int(row['tg_access_hash']) if row and row.get('tg_access_hash') else 0
     if tg_client:
-        ah = int(row['tg_access_hash']) if row and row.get('tg_access_hash') else 0
         try:
-            from telethon.tl.types import InputPeerUser as _IPU
-            if ah:
-                await tg_client.get_input_entity(_IPU(peer, ah))
-            else:
-                await tg_client.get_input_entity(peer)
+            from telethon.tl.types import InputUser as _IU
+            from telethon.tl.functions.users import GetUsersRequest as _GUR
+            await tg_client(_GUR(id=[_IU(user_id=peer, access_hash=ah)]))
+            print(f'✅ Entity resolved for {peer}')
         except Exception as _e:
-            print(f'Entity pre-resolve warning (non-fatal): {_e}')
+            print(f'⚠️ GetUsers failed ({_e}), trying get_entity fallback...')
+            try:
+                await tg_client.get_entity(peer)
+            except Exception as _e2:
+                print(f'⚠️ get_entity also failed: {_e2}')
+                raise HTTPException(400, f'Cannot resolve Telegram user {peer}. Make sure the userbot has chatted with this user.')
 
     ext = body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else ''
     is_video = ext in ('mp4','mov','mkv')
