@@ -3705,20 +3705,26 @@ if (checkAuth()) {
     }
   }
 
-  window.filterConvs = function filterConvs(q) {
-    let filtered = q ? allConvs.filter(c =>
-      c.anon_id.toLowerCase().includes(q.toLowerCase()) ||
-      (c.internal_name||'').toLowerCase().includes(q.toLowerCase()) ||
-      (c.last_msg||'').toLowerCase().includes(q.toLowerCase())
-    ) : [...allConvs];
+  function applyConvFilters(convs) {
+    const q = (document.getElementById('conv-search-input')?.value || '').toLowerCase();
+    let filtered = q ? convs.filter(c =>
+      c.anon_id.toLowerCase().includes(q) ||
+      (c.internal_name||'').toLowerCase().includes(q) ||
+      (c.last_msg||'').toLowerCase().includes(q)
+    ) : [...convs];
     if (activeTierFilter !== 'all') {
       filtered = filtered.filter(c => {
-        const spending = getSubscriberSpending(c.tg_id);
-        if (activeTierFilter === 'tw') return !!c.time_waster;
-        return getSpendingTier(spending).key === activeTierFilter;
+        if (activeTierFilter === 'tw')     return !!c.time_waster;
+        if (activeTierFilter === 'online') return !!c.is_online;
+        if (activeTierFilter === 'unread') return (c.unread || 0) > 0;
+        return getSpendingTier(getSubscriberSpending(c.tg_id)).key === activeTierFilter;
       });
     }
-    renderConvList(filtered);
+    return filtered;
+  }
+
+  window.filterConvs = function filterConvs(q) {
+    renderConvList(applyConvFilters(allConvs));
   }
 
 
@@ -3747,28 +3753,12 @@ if (checkAuth()) {
 
   window.filterByTier = function(tier) {
     activeTierFilter = tier;
-    // update button states
+    // update active button — match by onclick attribute value
     document.querySelectorAll('.tier-filter-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.textContent.includes(tier === 'all' ? 'Alle' :
-        tier === 'whale' ? 'Whale' : tier === 'big' ? 'Big' :
-        tier === 'mid' ? 'Mid' : tier === 'low' ? 'Low' : 'Neu'));
+      const match = (btn.getAttribute('onclick') || '').includes(`'${tier}'`);
+      btn.classList.toggle('active', match);
     });
-    const q = document.getElementById('conv-search-input')?.value || '';
-    let filtered = q ? allConvs.filter(c =>
-      c.anon_id.toLowerCase().includes(q.toLowerCase()) ||
-      (c.internal_name||'').toLowerCase().includes(q.toLowerCase()) ||
-      (c.last_msg||'').toLowerCase().includes(q.toLowerCase())
-    ) : [...allConvs];
-    if (tier !== 'all') {
-      filtered = filtered.filter(c => {
-        const spending = getSubscriberSpending(c.tg_id);
-        if (tier === 'tw') return !!c.time_waster;
-        if (tier === 'online') return !!c.is_online;
-        if (tier === 'unread') return (c.unread || 0) > 0;
-        return getSpendingTier(spending).key === tier;
-      });
-    }
-    renderConvList(filtered);
+    renderConvList(applyConvFilters(allConvs));
   }
 
   function renderConvList(convs) {
@@ -4418,14 +4408,13 @@ if (checkAuth()) {
   window.filterByList = function(listId) {
     activeListFilter = listId;
     renderListFilterBar();
-    if (listId === null) {
-      renderConvList(allConvs);
-    } else {
+    let base = allConvs;
+    if (listId !== null) {
       const list = allLists.find(l => l.id === listId);
       if (!list) return;
-      const filtered = allConvs.filter(c => list.members.includes(c.tg_id));
-      renderConvList(filtered);
+      base = allConvs.filter(c => list.members.includes(c.tg_id));
     }
+    renderConvList(applyConvFilters(base));
   }
 
   window.openListsModal = async function() {
