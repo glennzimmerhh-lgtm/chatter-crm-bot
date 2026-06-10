@@ -2168,22 +2168,30 @@ async function doLogin() {
   const btn  = document.querySelector('.login-btn');
   if (!user || !pw) return;
   btn.textContent = '...'; btn.disabled = true;
+  const _loginBase = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+  const loginOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pw }) };
+  const loginUrls = ['/api/auth/login'];
+  if (_loginBase) loginUrls.push(_loginBase + '/auth/login');
+  let r = null;
   try {
-    const r = await fetch('/api/auth/login', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pw })
-    });
+    for (const url of loginUrls) {
+      try {
+        const resp = await _fetchT(url, loginOpts, 10000);
+        if (resp.ok || resp.status === 401) { r = resp; break; }
+      } catch(_) {}
+    }
+    if (!r) throw new Error('all_failed');
     if (r.ok) {
       const data = await r.json();
       const displayName = data.display_name || data.username;
       localStorage.setItem('crm_user', displayName);
-      localStorage.setItem('crm_login', data.username); // keep login name separate
+      localStorage.setItem('crm_login', data.username); // login name for auth token
       localStorage.setItem('crm_role', data.role);
       localStorage.setItem('crm_auth', btoa(data.username + ':' + data.role));
       err.style.display = 'none';
       document.getElementById('login-pw').value = '';
       document.getElementById('login-screen').style.display = 'none';
-      showLoadingBar(data.username);
+      showLoadingBar(displayName);
     } else {
       err.textContent = 'Wrong username or password';
       err.style.display = 'block';
@@ -2191,7 +2199,7 @@ async function doLogin() {
       document.getElementById('login-pw').focus();
     }
   } catch(e) {
-    err.textContent = 'Server unreachable';
+    err.textContent = e.name === 'AbortError' ? 'Server timeout — try again' : 'Server unreachable';
     err.style.display = 'block';
   }
   btn.textContent = 'Log in'; btn.disabled = false;
@@ -2834,10 +2842,16 @@ async function testBackendConnection() {
   const directUrl = (urlInput?.value || '').trim().replace(/\/$/, '');
   const base = directUrl || '/api';
 
-  async function probe(url, label) {
+  async function probe(url, label, summarize) {
     try {
       const r = await _fetchT(url, {}, 6000);
-      const txt = r.ok ? await r.json().then(d => JSON.stringify(d)).catch(() => 'ok') : `HTTP ${r.status}`;
+      let txt;
+      if (r.ok) {
+        const d = await r.json().catch(() => null);
+        txt = summarize ? summarize(d) : 'ok';
+      } else {
+        txt = `HTTP ${r.status}`;
+      }
       return `${r.ok ? '✅' : '⚠️'} ${label}: ${txt}`;
     } catch(e) {
       return `❌ ${label}: ${e.name === 'AbortError' ? 'timeout (6s)' : e.message}`;
@@ -2845,9 +2859,9 @@ async function testBackendConnection() {
   }
 
   const [r1, r2, r3] = await Promise.all([
-    probe(base + '/status',  'Backend reachable'),
-    probe(base + '/healthz', 'Database connection'),
-    probe(base + '/conversations', 'Conversations API'),
+    probe(base + '/status',        'Backend reachable',   d => `userbot=${d?.userbot||'?'} ws=${d?.ws_clients??'?'}`),
+    probe(base + '/healthz',       'Database connection', d => d?.status === 'ok' ? `ok · ${d.conversations??'?'} convs` : (d?.detail||'error')),
+    probe(base + '/conversations', 'Conversations API',   d => Array.isArray(d) ? `${d.length} records` : 'unexpected response'),
   ]);
 
   const lines = [r1, r2, r3];
@@ -2867,10 +2881,12 @@ async function testBackendConnection() {
 }
 
 function checkAuth() {
-  const storedUser = localStorage.getItem('crm_user');
-  const storedRole = localStorage.getItem('crm_role');
-  const storedAuth = localStorage.getItem('crm_auth');
-  if (storedUser && storedRole && storedAuth === btoa(storedUser + ':' + storedRole)) {
+  const storedUser  = localStorage.getItem('crm_user');
+  const storedLogin = localStorage.getItem('crm_login') || storedUser; // login name used for auth token
+  const storedRole  = localStorage.getItem('crm_role');
+  const storedAuth  = localStorage.getItem('crm_auth');
+  // crm_auth = btoa(loginName + ':' + role) — must match login name, NOT display name
+  if (storedUser && storedRole && storedAuth === btoa(storedLogin + ':' + storedRole)) {
     showApp(storedUser);
     return true;
   }
