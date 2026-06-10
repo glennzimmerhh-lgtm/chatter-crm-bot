@@ -1931,6 +1931,10 @@
             <span id="msg-conv-name" style="letter-spacing:.01em;">Select conversation</span>
             <span id="msg-conv-status" style="font-size:11px;color:var(--text3);"></span>
           </div>
+          <!-- Media Gallery Button -->
+          <button id="media-gallery-btn" onclick="openMediaGallery()" style="display:none;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.35);border-radius:8px;color:#4a9eff;padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;" title="Subscriber-Medien anzeigen">
+            📷
+          </button>
           <!-- Fake Call Button — shown when conversation is open -->
           <button id="fake-call-btn" onclick="openFakeCallModal()" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:8px;color:#22c55e;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;gap:5px;align-items:center;white-space:nowrap;" title="Start pre-recorded call">
             📞 Start Call
@@ -3801,9 +3805,11 @@ if (checkAuth()) {
     chatMsgInterval = setInterval(() => {
       if (!window._wsAlive) { loadMsgs(); updateConvStatus(currentChatTgId); }
     }, 5000);
-    // Show fake call button
+    // Show action buttons
     const callBtn = document.getElementById('fake-call-btn');
     if (callBtn) callBtn.style.display = 'inline-flex';
+    const mediaBtn = document.getElementById('media-gallery-btn');
+    if (mediaBtn) mediaBtn.style.display = 'inline-flex';
     // Sync call bar with current active call state
     checkActiveCallForConv(tgId);
   }
@@ -4947,6 +4953,169 @@ if (checkAuth()) {
   };
   // ─── END FAKE CALL ────────────────────────────────────────────────────────
 
+  // ─── MEDIA GALLERY ─────────────────────────────────────────────────────────
+  let _mgItems = [];         // all items for current sub
+  let _mgFiltered = [];      // currently displayed (after tab filter)
+  let _mgTab = 'all';
+  let _lightboxIdx = 0;
+
+  window.openMediaGallery = async function() {
+    if (!currentChatTgId) return;
+    const overlay = document.getElementById('media-gallery-overlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    _mgTab = 'all';
+    _updateMgTabs();
+    document.getElementById('mg-content').innerHTML = '<p style="color:var(--dim);font-size:13px;padding:20px 0;">Laden…</p>';
+    document.getElementById('mg-subtitle').textContent = '—';
+
+    const data = await chatApiGet('/media/' + currentChatTgId);
+    if (!data || !data.items) {
+      document.getElementById('mg-content').innerHTML = '<p style="color:#ff5c7a;font-size:13px;">Fehler beim Laden</p>';
+      return;
+    }
+    _mgItems = data.items;
+    document.getElementById('mg-subtitle').textContent = `${_mgItems.length} Medien`;
+    _renderMgGrid();
+  };
+
+  window.closeMediaGallery = function() {
+    const overlay = document.getElementById('media-gallery-overlay');
+    if (overlay) overlay.style.display = 'none';
+  };
+
+  window.switchMediaTab = function(tab) {
+    _mgTab = tab;
+    _updateMgTabs();
+    _renderMgGrid();
+  };
+
+  function _updateMgTabs() {
+    ['all','photo','video','document','voice'].forEach(t => {
+      const btn = document.getElementById('mg-tab-' + t);
+      if (!btn) return;
+      const active = t === _mgTab;
+      btn.style.borderBottomColor = active ? 'var(--teal)' : 'transparent';
+      btn.style.color = active ? 'var(--text)' : 'var(--dim)';
+      btn.style.fontWeight = active ? '700' : '600';
+    });
+  }
+
+  function _renderMgGrid() {
+    const el = document.getElementById('mg-content');
+    _mgFiltered = _mgTab === 'all' ? _mgItems : _mgItems.filter(i => i.type === _mgTab);
+
+    if (!_mgFiltered.length) {
+      el.innerHTML = '<p style="color:var(--dim);font-size:13px;padding:20px 0;">Keine Medien in dieser Kategorie</p>';
+      return;
+    }
+
+    const isPhoto = i => i.type === 'photo' || i.type === 'video';
+    const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
+
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">
+        ${_mgFiltered.map((item, idx) => {
+          const mediaUrl = '/api' + item.media_url;
+          const dirIcon = item.direction === 'in' ? '↙' : '↗';
+          const dateStr = fmtDate(item.timestamp);
+
+          if (item.type === 'photo' || item.type === 'video') {
+            return `<div onclick="openLightbox(${idx})" style="position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;background:rgba(255,255,255,.06);cursor:zoom-in;border:1px solid rgba(255,255,255,.08);">
+              <img data-src="${mediaUrl}" class="mg-lazy" style="width:100%;height:100%;object-fit:cover;transition:opacity .2s;" onerror="this.style.display='none';this.nextSibling.style.display='flex'">
+              <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:28px;">${item.type === 'video' ? '🎬' : '📷'}</div>
+              <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.6));padding:4px 5px;font-size:9px;color:rgba(255,255,255,.8);display:flex;justify-content:space-between;">
+                <span>${dirIcon}</span><span>${dateStr}</span>
+              </div>
+            </div>`;
+          } else if (item.type === 'voice') {
+            return `<div onclick="openLightbox(${idx})" style="aspect-ratio:1;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">
+              <span style="font-size:28px;">🎤</span>
+              <span style="font-size:10px;color:var(--dim);">${dirIcon} ${dateStr}</span>
+            </div>`;
+          } else {
+            return `<div onclick="openLightbox(${idx})" style="aspect-ratio:1;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px;">
+              <span style="font-size:26px;">📎</span>
+              <span style="font-size:9px;color:var(--dim);text-align:center;word-break:break-all;">${dirIcon} ${dateStr}</span>
+            </div>`;
+          }
+        }).join('')}
+      </div>`;
+
+    // Lazy-load images with IntersectionObserver
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const img = e.target;
+          if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
+          observer.unobserve(img);
+        }
+      });
+    }, { rootMargin: '200px' });
+    el.querySelectorAll('.mg-lazy').forEach(img => observer.observe(img));
+  }
+
+  window.openLightbox = function(idx) {
+    _lightboxIdx = idx;
+    _showLightboxItem(idx);
+    document.getElementById('mg-lightbox').style.display = 'flex';
+  };
+
+  window.closeLightbox = function() {
+    document.getElementById('mg-lightbox').style.display = 'none';
+    const audio = document.getElementById('mg-lightbox-audio');
+    if (audio) audio.pause();
+  };
+
+  window.lightboxNav = function(dir) {
+    _lightboxIdx = (_lightboxIdx + dir + _mgFiltered.length) % _mgFiltered.length;
+    _showLightboxItem(_lightboxIdx);
+  };
+
+  function _showLightboxItem(idx) {
+    const item = _mgFiltered[idx];
+    if (!item) return;
+    const mediaUrl = '/api' + item.media_url;
+    const imgEl   = document.getElementById('mg-lightbox-img');
+    const docEl   = document.getElementById('mg-lightbox-doc');
+    const voiceEl = document.getElementById('mg-lightbox-voice');
+    const infoEl  = document.getElementById('mg-lightbox-info');
+    imgEl.style.display = 'none';
+    docEl.style.display = 'none';
+    voiceEl.style.display = 'none';
+
+    const dirLabel = item.direction === 'in' ? '↙ Empfangen' : '↗ Gesendet';
+    const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleString('de-DE') : '';
+    infoEl.textContent = `${dirLabel} · ${dateStr}${item.chatter ? ' · ' + item.chatter : ''} · ${idx+1}/${_mgFiltered.length}`;
+
+    if (item.type === 'photo' || item.type === 'video') {
+      imgEl.style.display = 'block';
+      imgEl.src = mediaUrl;
+    } else if (item.type === 'voice') {
+      voiceEl.style.display = 'flex';
+      voiceEl.style.flexDirection = 'column';
+      voiceEl.style.alignItems = 'center';
+      const audio = document.getElementById('mg-lightbox-audio');
+      audio.src = mediaUrl;
+    } else {
+      docEl.style.display = 'flex';
+      docEl.style.flexDirection = 'column';
+      docEl.style.alignItems = 'center';
+      document.getElementById('mg-lightbox-doc-name').textContent = 'Dokument · ' + dateStr;
+      document.getElementById('mg-lightbox-doc-link').href = mediaUrl;
+    }
+  }
+
+  // Keyboard navigation for lightbox
+  document.addEventListener('keydown', function(e) {
+    if (document.getElementById('mg-lightbox')?.style.display === 'flex') {
+      if (e.key === 'ArrowLeft')  lightboxNav(-1);
+      if (e.key === 'ArrowRight') lightboxNav(1);
+      if (e.key === 'Escape')     closeLightbox();
+    }
+  });
+  // ─── END MEDIA GALLERY ─────────────────────────────────────────────────────
+
   // Start WebSocket connection
   connectWS();
 
@@ -5241,6 +5410,50 @@ async function startBroadcast() {
   }
 }
 </script>
+
+<!-- MEDIA GALLERY MODAL -->
+<div id="media-gallery-overlay" onclick="if(event.target===this)closeMediaGallery()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:600;align-items:center;justify-content:center;">
+  <div style="background:var(--sidebar);border:1px solid rgba(255,255,255,.1);border-radius:14px;width:680px;max-width:96vw;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;">
+    <!-- Header -->
+    <div style="padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <span style="font-size:20px;">📷</span>
+      <div style="flex:1;">
+        <div style="font-weight:800;font-size:15px;">Medien-Galerie</div>
+        <div id="mg-subtitle" style="font-size:12px;color:var(--dim);margin-top:1px;">—</div>
+      </div>
+      <button onclick="closeMediaGallery()" style="background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer;padding:0 4px;">✕</button>
+    </div>
+    <!-- Tabs -->
+    <div style="display:flex;border-bottom:1px solid rgba(255,255,255,.07);padding:0 20px;flex-shrink:0;">
+      <button id="mg-tab-all"      onclick="switchMediaTab('all')"      style="background:none;border:none;border-bottom:2px solid var(--teal);color:var(--text);padding:9px 13px;font-size:12px;font-weight:700;cursor:pointer;">Alle</button>
+      <button id="mg-tab-photo"    onclick="switchMediaTab('photo')"    style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:9px 13px;font-size:12px;font-weight:600;cursor:pointer;">📷 Fotos</button>
+      <button id="mg-tab-video"    onclick="switchMediaTab('video')"    style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:9px 13px;font-size:12px;font-weight:600;cursor:pointer;">🎬 Videos</button>
+      <button id="mg-tab-document" onclick="switchMediaTab('document')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:9px 13px;font-size:12px;font-weight:600;cursor:pointer;">📎 Dokumente</button>
+      <button id="mg-tab-voice"    onclick="switchMediaTab('voice')"    style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:9px 13px;font-size:12px;font-weight:600;cursor:pointer;">🎤 Voice</button>
+    </div>
+    <!-- Grid -->
+    <div id="mg-grid" style="flex:1;overflow-y:auto;padding:16px 20px;">
+      <div id="mg-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MEDIA LIGHTBOX -->
+<div id="mg-lightbox" onclick="closeLightbox()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:700;align-items:center;justify-content:center;cursor:zoom-out;">
+  <button onclick="event.stopPropagation();lightboxNav(-1)" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.1);border:none;color:#fff;font-size:28px;cursor:pointer;padding:8px 14px;border-radius:8px;">‹</button>
+  <img id="mg-lightbox-img" src="" style="max-width:90vw;max-height:88vh;border-radius:8px;object-fit:contain;" onclick="event.stopPropagation()">
+  <div id="mg-lightbox-doc" style="display:none;color:#fff;text-align:center;" onclick="event.stopPropagation()">
+    <div style="font-size:60px;margin-bottom:12px;">📎</div>
+    <div id="mg-lightbox-doc-name" style="font-size:15px;margin-bottom:16px;"></div>
+    <a id="mg-lightbox-doc-link" href="#" target="_blank" style="background:var(--teal);color:#000;padding:10px 22px;border-radius:8px;font-weight:700;text-decoration:none;">⬇ Herunterladen</a>
+  </div>
+  <div id="mg-lightbox-voice" style="display:none;color:#fff;text-align:center;" onclick="event.stopPropagation()">
+    <div style="font-size:60px;margin-bottom:12px;">🎤</div>
+    <audio id="mg-lightbox-audio" controls style="width:320px;"></audio>
+  </div>
+  <div id="mg-lightbox-info" style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.6);font-size:12px;text-align:center;"></div>
+  <button onclick="event.stopPropagation();lightboxNav(1)" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.1);border:none;color:#fff;font-size:28px;cursor:pointer;padding:8px 14px;border-radius:8px;">›</button>
+</div>
 
 <!-- FAKE CALL MODAL -->
 <div id="fake-call-modal-overlay" onclick="if(event.target===this)closeFakeCallModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:600;align-items:center;justify-content:center;flex-direction:column;">

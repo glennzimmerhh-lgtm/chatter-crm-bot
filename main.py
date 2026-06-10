@@ -21,6 +21,10 @@ os.makedirs(VAULT_DIR, exist_ok=True)
 PROOFS_DIR = os.path.join(VAULT_DIR, '_proofs')
 os.makedirs(PROOFS_DIR, exist_ok=True)
 
+# Subscriber media cache directory (downloaded Telegram photos/docs)
+MEDIA_CACHE_DIR = os.path.join(VAULT_DIR, '_media')
+os.makedirs(MEDIA_CACHE_DIR, exist_ok=True)
+
 # Fake call recordings directory
 CALLS_DIR = os.path.join(VAULT_DIR, '_calls')
 CALL_FOLDERS = ['fake_checks', 'paid_calls']  # fixed folder names
@@ -2027,9 +2031,69 @@ def get_sales(limit: int = 200):
         result.append(d)
     return result
 
+@app.get('/media/{tg_id}')
+def get_subscriber_media(tg_id: str, limit: int = 200, offset: int = 0):
+    """List all media messages for a subscriber (photos, docs, voice)."""
+    def _media_type(text: str) -> str:
+        t = text.lower()
+        if 'photo' in t: return 'photo'
+        if 'voice' in t or '🎤' in text: return 'voice'
+        if 'video' in t or '🎬' in text: return 'video'
+        if 'document' in t or '📎' in text: return 'document'
+        if 'sticker' in t: return 'sticker'
+        return 'other'
+
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('''
+                SELECT id, tg_msg_id, text, direction, timestamp, chatter
+                FROM messages
+                WHERE tg_id=%s
+                  AND tg_msg_id > 0
+                  AND (text LIKE '[📷%%' OR text LIKE '[📎%%' OR text LIKE '[🎤%%'
+                       OR text LIKE '[Sticker%%' OR text LIKE '[🎬%%'
+                       OR text = '[Message]')
+                ORDER BY timestamp DESC
+                LIMIT %s OFFSET %s
+            ''', (tg_id, limit, offset))
+            rows = c.fetchall()
+
+    # Also check which ones are already cached on disk
+    cache_dir = os.path.join(MEDIA_CACHE_DIR, str(tg_id))
+    cached_ids = set()
+    if os.path.isdir(cache_dir):
+        for f in os.listdir(cache_dir):
+            try: cached_ids.add(int(f.split('.')[0]))
+            except: pass
+
+    return {
+        'items': [
+            {
+                'id': r['id'],
+                'tg_msg_id': r['tg_msg_id'],
+                'type': _media_type(r['text']),
+                'direction': r['direction'],
+                'timestamp': r['timestamp'],
+                'chatter': r.get('chatter', ''),
+                'cached': r['tg_msg_id'] in cached_ids,
+                'media_url': f'/messages/{tg_id}/{r["tg_msg_id"]}/media',
+            }
+            for r in rows
+        ]
+    }
+
 @app.get('/messages/{tg_id}/{msg_id}/media')
 async def download_message_media(tg_id: str, msg_id: int):
-    """Download media from a specific Telegram message and return it."""
+    """Download media from a specific Telegram message. Caches to disk after first download."""
+    # ── Serve from cache if available ──────────────────────────────────────────
+    cache_dir = os.path.join(MEDIA_CACHE_DIR, str(tg_id))
+    os.makedirs(cache_dir, exist_ok=True)
+    cached_matches = [f for f in os.listdir(cache_dir) if f.startswith(f'{msg_id}.') or f == str(msg_id)]
+    if cached_matches:
+        cached_path = os.path.join(cache_dir, cached_matches[0])
+        if os.path.isfile(cached_path):
+            return FileResponse(cached_path, filename=os.path.basename(cached_path))
+    # ── Download from Telegram ─────────────────────────────────────────────────
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot not connected')
     try:
@@ -2042,9 +2106,9 @@ async def download_message_media(tg_id: str, msg_id: int):
         msgs = await tg_client.get_messages(peer, ids=msg_id)
         if not msgs or not msgs.media:
             raise HTTPException(404, 'No media in this message')
-        # Download to temp file in proofs dir
-        tmp_path = os.path.join(PROOFS_DIR, f'tmp_{tg_id}_{msg_id}')
-        path = await tg_client.download_media(msgs, file=tmp_path)
+        # Download directly into cache dir (Telethon adds the extension automatically)
+        dl_path = os.path.join(cache_dir, str(msg_id))
+        path = await tg_client.download_media(msgs, file=dl_path)
         if not path or not os.path.isfile(path):
             raise HTTPException(500, 'Download failed')
         return FileResponse(path, filename=os.path.basename(path))
