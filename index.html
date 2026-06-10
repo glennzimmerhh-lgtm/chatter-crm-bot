@@ -2943,9 +2943,11 @@ function saveSettings() {
   const su  = document.getElementById('cfg-sales-url').value.trim();
   const shu = document.getElementById('cfg-shifts-url').value.trim();
   const bu  = document.getElementById('cfg-backend-url').value.trim();
-  localStorage.setItem('crm_sales_url',   su);
-  localStorage.setItem('crm_shifts_url',  shu);
-  localStorage.setItem('crm_backend_url', bu);
+  const bw  = document.getElementById('cfg-backup-webhook')?.value.trim();
+  localStorage.setItem('crm_sales_url',      su);
+  localStorage.setItem('crm_shifts_url',     shu);
+  localStorage.setItem('crm_backend_url',    bu);
+  if (bw !== undefined) localStorage.setItem('crm_backup_webhook', bw);
   closeSettings();
   loadData();
 }
