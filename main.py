@@ -566,14 +566,31 @@ async def lifespan(app: FastAPI):
                 @calls_client.on_update()
                 async def _on_call_update(update):
                     try:
-                        from pytgcalls.types import Update
                         tg_id_str = str(getattr(update, 'chat_id', ''))
-                        if tg_id_str and tg_id_str in active_calls:
-                            # Call ended by subscriber
+                        if not tg_id_str or tg_id_str not in active_calls:
+                            return
+
+                        update_type = type(update).__name__
+
+                        # Stream finished → hang up automatically
+                        if update_type in ('StreamAudioEnded', 'StreamVideoEnded', 'MutedStream', 'StreamEnded'):
+                            print(f'🔔 Stream ended for {tg_id_str} ({update_type}) — hanging up')
+                            try:
+                                await calls_client.leave_call(int(tg_id_str))
+                            except Exception as e:
+                                print(f'⚠️  leave_call error: {e}')
                             active_calls.pop(tg_id_str, None)
                             asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
-                    except Exception:
-                        pass
+                            return
+
+                        # Call rejected / hung up by subscriber
+                        if update_type in ('CallEnded', 'KickedFromGroupCallParticipant', 'ClosedVoiceChat'):
+                            print(f'📵 Call ended by subscriber {tg_id_str} ({update_type})')
+                            active_calls.pop(tg_id_str, None)
+                            asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
+
+                    except Exception as e:
+                        print(f'⚠️  _on_call_update error: {e}')
 
                 print('✅ PyTgCalls initialized and started')
             except Exception as e:
