@@ -244,6 +244,7 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_last_time ON conversations(last_time DESC)",
+
             ]:
                 try:
                     c.execute(stmt)
@@ -877,7 +878,17 @@ def get_recent_chatted(hours: int = 5):
     return [dict(r) for r in rows]
 
 @app.get('/analytics/chatters')
-def get_chatter_analytics():
+def get_chatter_analytics(period: str = 'alle'):
+    now = datetime.now()
+    if period == 'heute':
+        since = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    elif period == 'woche':
+        since = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    elif period == 'monat':
+        since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    else:
+        since = '2000-01-01'
+
     with db() as conn:
         with conn.cursor() as c:
             # Sales per chatter
@@ -887,9 +898,9 @@ def get_chatter_analytics():
                        COALESCE(SUM(amount),0) as total_revenue,
                        COALESCE(AVG(amount),0) as avg_sale,
                        COUNT(CASE WHEN LOWER(product) LIKE '%call%' THEN 1 END) as calls_count
-                FROM sales WHERE chatter != ''
+                FROM sales WHERE chatter != '' AND timestamp >= %s
                 GROUP BY chatter ORDER BY total_revenue DESC
-            ''')
+            ''', (since,))
             sales_rows = {r['chatter']: dict(r) for r in c.fetchall()}
 
             # Messages sent + active time per chatter
@@ -899,9 +910,9 @@ def get_chatter_analytics():
                        MIN(timestamp) as first_msg,
                        MAX(timestamp) as last_msg
                 FROM messages
-                WHERE direction='out' AND chatter != ''
+                WHERE direction='out' AND chatter != '' AND timestamp >= %s
                 GROUP BY chatter
-            ''')
+            ''', (since,))
             msg_rows = {r['chatter']: dict(r) for r in c.fetchall()}
 
             # Average response time: time from incoming msg to next outgoing by chatter
@@ -919,9 +930,9 @@ def get_chatter_analytics():
                       AND EXTRACT(EPOCH FROM (m.timestamp::timestamp - m_in.timestamp::timestamp)) BETWEEN 5 AND 3600
                     ORDER BY m.timestamp ASC LIMIT 1
                 ) m_out ON true
-                WHERE m_in.direction = 'in'
+                WHERE m_in.direction = 'in' AND m_in.timestamp >= %s
                 GROUP BY m_out.chatter
-            ''')
+            ''', (since,))
             response_rows = {r['chatter']: dict(r) for r in c.fetchall()}
 
     chatters = {}
@@ -931,7 +942,7 @@ def get_chatter_analytics():
         m = msg_rows.get(name, {'msgs_sent':0,'first_msg':None,'last_msg':None})
         r = response_rows.get(name, {'avg_response_sec':None})
 
-        # Active time in seconds (first to last message)
+        # Active time in seconds (first to last message within period)
         active_sec = 0
         if m['first_msg'] and m['last_msg']:
             try:
@@ -1175,7 +1186,7 @@ def set_setting(key: str, value: str):
 
 @app.get('/settings/crm')
 def get_crm_settings():
-    keys = ['auto_online_enabled','auto_online_text','auto_online_cooldown_h','auto_online_stages','shift_goal']
+    keys = ['auto_online_enabled','auto_online_text','auto_online_cooldown_h','auto_online_stages','shift_goal','noones_key','noones_secret']
     result = {}
     with db() as conn:
         with conn.cursor() as c:
@@ -1191,6 +1202,8 @@ class SettingsUpdate(BaseModel):
     auto_online_cooldown_h: Optional[str] = None
     auto_online_stages: Optional[str] = None
     shift_goal: Optional[str] = None
+    noones_key: Optional[str] = None
+    noones_secret: Optional[str] = None
 
 @app.post('/settings/crm')
 def save_crm_settings(body: SettingsUpdate):
@@ -2294,6 +2307,75 @@ async def get_profile_photo(tg_id: str):
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+# ── NOONES INTEGRATION ────────────────────────────────────────────────────────
+import urllib.request as _urllib_req, urllib.parse as _urllib_parse, json as _json_mod
+
+def _noones_setting(key: str) -> str:
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT value FROM crm_settings WHERE key=%s", (key,))
+            row = c.fetchone()
+    return (row['value'] if row else '') or ''
+
+async def _noones_token(key: str, secret: str) -> str:
+    data = _urllib_parse.urlencode({'grant_type':'client_credentials','client_id':key,'client_secret':secret}).encode()
+    req = _urllib_req.Request('https://auth.noones.com/oauth2/token', data=data,
+        headers={'Content-Type':'application/x-www-form-urlencoded'}, method='POST')
+    loop = asyncio.get_event_loop()
+    def _do():
+        with _urllib_req.urlopen(req, timeout=10) as r: return _json_mod.loads(r.read())
+    return (await loop.run_in_executor(None, _do))['access_token']
+
+async def _noones_api(token: str, method: str, path: str, payload: dict = None):
+    url = f'https://api.noones.com/noones/v1{path}'
+    body = _urllib_parse.urlencode(payload or {}).encode() if payload else None
+    req = _urllib_req.Request(url, data=body,
+        headers={'Authorization': f'Bearer {token}', 'Content-Type':'application/x-www-form-urlencoded'},
+        method=method)
+    loop = asyncio.get_event_loop()
+    def _do():
+        with _urllib_req.urlopen(req, timeout=15) as r: return _json_mod.loads(r.read())
+    return await loop.run_in_executor(None, _do)
+
+_NOONES_SLUG = {'amazon': 'amazon-gift-card', 'paysafe': 'paysafecash'}
+
+class NoonesRedeemBody(BaseModel):
+    card_type:  str
+    amount_eur: float
+    code:       str
+    pin:        str = ''
+
+@app.post('/noones/redeem')
+async def noones_redeem(body: NoonesRedeemBody):
+    key    = _noones_setting('noones_key')
+    secret = _noones_setting('noones_secret')
+    if not key or not secret:
+        raise HTTPException(400, 'Noones API key not configured in Settings')
+    slug = _NOONES_SLUG.get(body.card_type)
+    if not slug:
+        raise HTTPException(400, f'Unknown card type: {body.card_type}')
+    try:
+        token = await _noones_token(key, secret)
+        offers_resp = await _noones_api(token, 'GET',
+            f'/offer/list?payment_method={slug}&fiat_currency=EUR&offer_type=buy&limit=10')
+        offers = (offers_resp.get('data', {}).get('offer_list') or
+                  offers_resp.get('data', []) or offers_resp.get('offers', []))
+        if not offers:
+            raise HTTPException(404, f'No active {body.card_type} buyers on Noones right now')
+        offer_hash = offers[0].get('offer_id') or offers[0].get('id')
+        trade_resp = await _noones_api(token, 'POST', '/trade/start',
+            {'offer_hash': offer_hash, 'fiat_amount': str(body.amount_eur)})
+        trade = trade_resp.get('data', {}).get('trade') or trade_resp.get('data', {})
+        trade_hash = trade.get('trade_hash') or trade.get('id')
+        if not trade_hash:
+            raise HTTPException(500, f'Trade start failed: {trade_resp}')
+        msg = f'Code: {body.code}' + (f'\nPIN: {body.pin}' if body.pin else '')
+        await _noones_api(token, 'POST', '/trade/chat/message',
+            {'trade_hash': trade_hash, 'message': msg})
+        return {'ok': True, 'trade_hash': trade_hash, 'trade_url': f'https://noones.com/trade/{trade_hash}'}
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(500, f'Noones error: {e}')
 
 # ── LISTS ─────────────────────────────────────────────────────────────────────
 class ListCreate(BaseModel):
