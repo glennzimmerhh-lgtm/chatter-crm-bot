@@ -448,10 +448,11 @@ def mark_read(tg_id: str, max_msg_id: int):
 
 # ── USERBOT WITH AUTO-RECONNECT ───────────────────────────────────────────────
 tg_client: Optional[TelegramClient] = None
+_tg_client_ready = False   # True only when client is started and connected
 _userbot_running = False
 
 async def start_userbot():
-    global tg_client, _userbot_running
+    global tg_client, _tg_client_ready, _userbot_running
     if not (TG_API_ID and TG_API_HASH and TG_SESSION):
         print('⚠️  Userbot nicht gestartet – Env-Variablen fehlen')
         return
@@ -585,9 +586,11 @@ async def start_userbot():
             # ──────────────────────────────────────────────────────────────────
 
             await tg_client.start()
+            _tg_client_ready = True
             print('✅ Userbot verbunden!')
             retry_delay = 5  # reset on success
             await tg_client.run_until_disconnected()
+            _tg_client_ready = False
             print('⚠️  Userbot getrennt – reconnecting...')
 
         except Exception as e:
@@ -746,15 +749,26 @@ def healthz():
             with conn.cursor() as c:
                 c.execute('SELECT COUNT(*) as n FROM conversations')
                 n = c.fetchone()['n']
-        ok = tg_client is not None and tg_client.is_connected()
-        return {'status': 'ok', 'conversations': n, 'userbot': 'connected' if ok else 'disconnected', 'db': 'postgresql'}
+        return {'status': 'ok', 'conversations': n, 'userbot': 'connected' if _tg_client_ready else 'disconnected', 'db': 'postgresql'}
     except Exception as e:
         return {'status': 'error', 'detail': str(e)}
 
 @app.get('/status')
 def status():
-    ok = tg_client is not None and tg_client.is_connected()
-    return {'userbot': 'connected' if ok else 'disconnected', 'ws_clients': len(ws_manager._connections)}
+    return {'userbot': 'connected' if _tg_client_ready else 'disconnected', 'ws_clients': len(ws_manager._connections)}
+
+@app.post('/admin/reconnect-userbot')
+async def reconnect_userbot():
+    """Force-restart the Telethon userbot (admin use only)."""
+    global tg_client, _tg_client_ready
+    if tg_client:
+        try:
+            await tg_client.disconnect()
+        except Exception:
+            pass
+    _tg_client_ready = False
+    asyncio.create_task(start_userbot())
+    return {'status': 'reconnecting'}
 
 @app.websocket('/ws')
 async def websocket_endpoint(websocket: WebSocket):

@@ -3925,9 +3925,29 @@ if (checkAuth()) {
     if (s && s.userbot === 'connected') {
       dot.className = 'chat-status-dot';
       txt.textContent = 'Userbot connected';
+      // Hide reconnect button when connected
+      const rb = document.getElementById('reconnect-userbot-btn');
+      if (rb) rb.style.display = 'none';
     } else {
       dot.className = 'chat-status-dot offline';
       txt.textContent = s ? 'Userbot disconnected' : 'Backend unreachable';
+      // Show reconnect button for admins when disconnected
+      if (typeof isAdmin === 'function' && isAdmin()) {
+        let rb = document.getElementById('reconnect-userbot-btn');
+        if (!rb) {
+          rb = document.createElement('button');
+          rb.id = 'reconnect-userbot-btn';
+          rb.textContent = '↺ Reconnect';
+          rb.style.cssText = 'margin-left:8px;background:rgba(255,209,102,.15);border:1px solid rgba(255,209,102,.4);color:#ffd166;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;';
+          rb.onclick = async function() {
+            rb.textContent = '⏳'; rb.disabled = true;
+            await fetch('/api/admin/reconnect-userbot', { method: 'POST' }).catch(() => {});
+            setTimeout(() => { window._refreshChatStatus(); rb.textContent = '↺ Reconnect'; rb.disabled = false; }, 4000);
+          };
+          txt.parentNode.appendChild(rb);
+        }
+        rb.style.display = '';
+      }
     }
   }
 
@@ -6453,18 +6473,11 @@ function renderNotifications() {
   if (_allNotifs.length) _lastNotifTs = _allNotifs[0].ts;
 }
 
-// Refresh notifications every 30s and update badge
-setInterval(() => {
-  if (document.getElementById('page-notifications')?.style.display !== 'none') loadNotifications();
-  else {
-    // Just fetch for badge count
-    fetch('/api/notifications?limit=5').then(r => r.json()).then(data => {
-      const newItems = _lastNotifTs ? data.filter(n => n.ts > _lastNotifTs && (n.type === 'new_sub' || n.type === 'sale')) : [];
-      const badge = document.getElementById('notif-badge');
-      if (badge) { badge.textContent = newItems.length; badge.style.display = newItems.length ? 'inline' : 'none'; }
-    }).catch(() => {});
-  }
-}, 30000);
+// Load notifications immediately on startup (fills badge + pre-loads data)
+loadNotifications();
+
+// Refresh every 30s
+setInterval(() => { loadNotifications(); }, 30000);
 
 // ── MY STATS ──────────────────────────────────────────────────────────────────
 let _myStatsDonut = null;
