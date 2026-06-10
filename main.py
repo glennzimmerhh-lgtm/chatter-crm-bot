@@ -167,6 +167,19 @@ def init_db():
                 created_at      TEXT NOT NULL,
                 paid_at         TEXT DEFAULT ''
             )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS scheduled_broadcasts (
+                id              SERIAL PRIMARY KEY,
+                text            TEXT NOT NULL,
+                scheduled_at    TEXT NOT NULL,
+                filter_stage    TEXT DEFAULT '',
+                exclude_stages  TEXT DEFAULT '',
+                chatter         TEXT DEFAULT 'Broadcast',
+                status          TEXT DEFAULT 'pending',
+                created_at      TEXT NOT NULL,
+                sent_at         TEXT DEFAULT '',
+                sent_count      INTEGER DEFAULT 0,
+                fail_count      INTEGER DEFAULT 0
+            )''')
             c.execute('''CREATE TABLE IF NOT EXISTS lists (
                 id    SERIAL PRIMARY KEY,
                 name  TEXT NOT NULL,
@@ -579,6 +592,7 @@ async def lifespan(app: FastAPI):
     global calls_client
     init_db()
     asyncio.create_task(start_userbot())
+    asyncio.create_task(_run_scheduled_broadcasts())
     # Give userbot 3s to connect, then init calls_client
     async def _init_calls():
         await asyncio.sleep(5)
@@ -996,7 +1010,8 @@ async def post_reply(body: ReplyIn):
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
     try:
-        # Look up access_hash from DB for reliable entity resolution
+        # Look up access_hash for reliable entity resolution
+        peer_int = int(body.tg_id)
         access_hash = 0
         with db() as conn:
             with conn.cursor() as c:
@@ -1004,15 +1019,40 @@ async def post_reply(body: ReplyIn):
                 row = c.fetchone()
                 if row and row['tg_access_hash']:
                     access_hash = int(row['tg_access_hash'])
+
+        # ── Entity pre-resolution (same as call endpoint) ──────────────────────
+        # Ensures Telethon session cache has this user, preventing PeerIdInvalidError
+        resolved = False
         if access_hash:
-            peer = InputPeerUser(int(body.tg_id), access_hash)
+            try:
+                from telethon.tl.types import InputUser as _IU
+                from telethon.tl.functions.users import GetUsersRequest as _GUR
+                users = await tg_client(_GUR(id=[_IU(user_id=peer_int, access_hash=access_hash)]))
+                if users:
+                    await tg_client.get_input_entity(users[0])
+                    resolved = True
+            except Exception as _e:
+                print(f'⚠️ reply GetUsers failed: {_e}')
+        if not resolved:
+            try:
+                async for _dlg in tg_client.iter_dialogs(limit=200):
+                    if getattr(_dlg.entity, 'id', None) == peer_int:
+                        await tg_client.get_input_entity(_dlg.entity)
+                        resolved = True
+                        break
+            except Exception as _e:
+                print(f'⚠️ reply dialog scan failed: {_e}')
+
+        # Build peer — prefer resolved InputPeerUser, fall back to int
+        if access_hash:
+            peer = InputPeerUser(peer_int, access_hash)
         else:
-            peer = int(body.tg_id)
+            peer = peer_int
+
         sent_msg = await tg_client.send_message(peer, body.text)
         tg_msg_id = sent_msg.id
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter, tg_msg_id))
-        # Broadcast sent message to all CRM clients
         asyncio.create_task(ws_manager.broadcast({
             'type': 'new_message',
             'tg_id': body.tg_id,
@@ -1026,6 +1066,7 @@ async def post_reply(body: ReplyIn):
     except FloodWaitError as e:
         raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
     except Exception as e:
+        print(f'❌ /reply error for {body.tg_id}: {e}')
         raise HTTPException(500, str(e))
 
 # ── AUTH & USERS ─────────────────────────────────────────────────────────────
@@ -1858,6 +1899,112 @@ async def post_broadcast(body: BroadcastIn):
             sent_fail += 1
 
     return {'ok': True, 'sent': sent_ok, 'failed': sent_fail, 'total': len(recipients)}
+
+# ── SCHEDULED BROADCAST ──────────────────────────────────────────────────────
+class ScheduledBroadcastIn(BaseModel):
+    text: str
+    scheduled_at: str          # ISO datetime string e.g. "2024-06-10T18:00:00"
+    filter_stage: str = ''     # '' = all, or funnel stage key
+    exclude_stages: list = []
+    chatter: str = 'Broadcast'
+
+@app.post('/scheduled-broadcast')
+def create_scheduled_broadcast(body: ScheduledBroadcastIn):
+    if not body.text.strip():
+        raise HTTPException(400, 'Text darf nicht leer sein')
+    ts = datetime.now().isoformat()
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('''
+                INSERT INTO scheduled_broadcasts (text, scheduled_at, filter_stage, exclude_stages, chatter, status, created_at)
+                VALUES (%s, %s, %s, %s, %s, 'pending', %s) RETURNING id
+            ''', (body.text, body.scheduled_at, body.filter_stage,
+                  ','.join(body.exclude_stages), body.chatter, ts))
+            row = c.fetchone()
+    return {'ok': True, 'id': row['id']}
+
+@app.get('/scheduled-broadcasts')
+def list_scheduled_broadcasts():
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT * FROM scheduled_broadcasts ORDER BY scheduled_at ASC')
+            rows = c.fetchall()
+    return [dict(r) for r in rows]
+
+@app.delete('/scheduled-broadcast/{bid}')
+def delete_scheduled_broadcast(bid: int):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("UPDATE scheduled_broadcasts SET status='cancelled' WHERE id=%s AND status='pending'", (bid,))
+    return {'ok': True}
+
+async def _run_scheduled_broadcasts():
+    """Background task: every 60s check for pending scheduled broadcasts and fire them."""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            if not tg_client or not tg_client.is_connected():
+                continue
+            now = datetime.now().isoformat()
+            with db() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        SELECT * FROM scheduled_broadcasts
+                        WHERE status='pending' AND scheduled_at <= %s
+                        ORDER BY scheduled_at ASC
+                    """, (now,))
+                    due = c.fetchall()
+
+            for job in due:
+                print(f'⏰ Running scheduled broadcast id={job["id"]} at {now}')
+                # Mark as running immediately to prevent double-fire
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute("UPDATE scheduled_broadcasts SET status='running' WHERE id=%s AND status='pending'", (job['id'],))
+
+                # Build recipient list
+                with db() as conn:
+                    with conn.cursor() as c:
+                        if job['filter_stage']:
+                            c.execute('SELECT tg_id,tg_access_hash FROM conversations WHERE funnel_stage=%s', (job['filter_stage'],))
+                        else:
+                            c.execute('SELECT tg_id,tg_access_hash FROM conversations')
+                        recipients = c.fetchall()
+
+                exclude_stages = set(s.strip() for s in (job['exclude_stages'] or '').split(',') if s.strip())
+                if exclude_stages:
+                    with db() as conn:
+                        with conn.cursor() as c:
+                            c.execute('SELECT tg_id,funnel_stage FROM conversations')
+                            stage_map = {r['tg_id']: r['funnel_stage'] for r in c.fetchall()}
+                    recipients = [r for r in recipients if stage_map.get(r['tg_id'], '') not in exclude_stages]
+
+                sent_ok, sent_fail = 0, 0
+                for r in recipients:
+                    try:
+                        ah = int(r['tg_access_hash']) if r['tg_access_hash'] else 0
+                        peer = InputPeerUser(int(r['tg_id']), ah) if ah else int(r['tg_id'])
+                        sent_msg = await tg_client.send_message(peer, job['text'])
+                        save_msg(r['tg_id'], job['text'], 'out', job['chatter'], sent_msg.id)
+                        sent_ok += 1
+                        await asyncio.sleep(1.2)
+                    except FloodWaitError as e:
+                        await asyncio.sleep(e.seconds + 5)
+                    except Exception as ex:
+                        print(f'Scheduled broadcast skip {r["tg_id"]}: {ex}')
+                        sent_fail += 1
+
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute("""
+                            UPDATE scheduled_broadcasts
+                            SET status='sent', sent_count=%s, fail_count=%s, sent_at=%s
+                            WHERE id=%s
+                        """, (sent_ok, sent_fail, datetime.now().isoformat(), job['id']))
+                print(f'✅ Scheduled broadcast id={job["id"]} done: {sent_ok} sent, {sent_fail} failed')
+
+        except Exception as e:
+            print(f'⚠️ Scheduled broadcast runner error: {e}')
 
 # ── SALES ─────────────────────────────────────────────────────────────────────
 

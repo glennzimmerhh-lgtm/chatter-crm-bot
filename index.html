@@ -1607,6 +1607,54 @@
       </div>
     </div>
 
+    <!-- SCHEDULED BROADCAST -->
+    <div style="margin-top:24px;max-width:900px;">
+      <div style="background:var(--bg2);border:1px solid rgba(167,139,250,0.25);border-radius:14px;padding:24px;">
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;">⏰ Geplante Broadcasts</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:18px;">Nachricht zu einem bestimmten Zeitpunkt automatisch versenden.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
+          <!-- Compose -->
+          <div>
+            <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Nachricht</label>
+            <textarea id="sb-text" rows="5" placeholder="Deine Nachricht..." style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:none;outline:none;font-family:inherit;"></textarea>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+              <div>
+                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">Datum & Uhrzeit</label>
+                <input type="datetime-local" id="sb-datetime" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:8px;outline:none;">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">Empfänger</label>
+                <select id="sb-filter" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:9px;outline:none;">
+                  <option value="">Alle Subscribers</option>
+                  <option value="kalt">❄️ Cold</option>
+                  <option value="warm">🌱 Warm</option>
+                  <option value="hot">🔥 Hot</option>
+                  <option value="angebot">💬 Offer made</option>
+                  <option value="gebucht">📅 Booked</option>
+                  <option value="done">✅ Done</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <input id="sb-chatter" type="text" placeholder="Absender-Name" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:8px;outline:none;">
+              <button onclick="scheduleNewBroadcast()" style="background:#a78bfa;color:#000;border:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;">⏰ Planen</button>
+            </div>
+            <div id="sb-status" style="font-size:12px;margin-top:8px;min-height:16px;"></div>
+          </div>
+          <!-- Queue -->
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <div style="font-size:11px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Geplante Nachrichten</div>
+              <button onclick="loadScheduledBroadcasts()" style="background:none;border:none;color:var(--dim);font-size:12px;cursor:pointer;">🔄</button>
+            </div>
+            <div id="sb-queue" style="max-height:220px;overflow-y:auto;">
+              <p style="color:var(--dim);font-size:12px;">Laden…</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- AUTO-ONLINE MESSAGE -->
     <div style="margin-top:24px;max-width:900px;">
       <div style="background:var(--bg2);border:1px solid rgba(34,197,94,0.25);border-radius:14px;padding:24px;">
@@ -1982,6 +2030,7 @@
           <button class="emoji-btn" onclick="addEmoji('🥺')">🥺</button>
           <button class="emoji-btn" onclick="addEmoji('🙄')">🙄</button>
           </div>
+          <button onclick="insertBankTransfer()" title="Banküberweisung einfügen" style="flex-shrink:0;background:rgba(0,212,170,.12);border:1px solid rgba(0,212,170,.35);border-radius:7px;color:var(--teal);padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">🏦 Bank</button>
           <button class="scripts-btn" onclick="toggleScriptsPanel()" title="Scripts">📋 Scripts</button>
         </div>
         <!-- AI Suggestions Panel -->
@@ -3576,6 +3625,7 @@ if (checkAuth()) {
   window._getCurrentTgId = () => currentChatTgId;
   let allConvs = [];
   let chatMsgInterval = null;
+  let currentPaymentRef = '';
 
   function getChatBackendUrl() {
     // Always use same-origin /api proxy — Vercel routes to Railway, no CORS
@@ -3814,9 +3864,18 @@ if (checkAuth()) {
     checkActiveCallForConv(tgId);
   }
 
+  window.insertBankTransfer = function() {
+    const inp = document.getElementById('chat-input');
+    if (!inp) return;
+    const ref = currentPaymentRef || '—';
+    inp.value = `Marie Stolle\nNL12 YOUR 0322 5530 24\nVerwendungszweck: ${ref}\nBitte sende mir einen screenshot von der Überweisung, damit wir starten können <3`;
+    inp.focus();
+  };
+
   async function loadProfile(tgId) {
     const p = await chatApiGet('/profile/' + tgId);
     if (!p) return;
+    currentPaymentRef = p.payment_ref || '';
     // Update topbar name: "Jonas (User #1001)" or just "User #1001"
     const displayName = p.internal_name ? `${p.internal_name} (${p.anon_id})` : p.anon_id;
     document.getElementById('msg-conv-name').textContent = displayName;
@@ -4542,16 +4601,31 @@ if (checkAuth()) {
 
   window.sendChatReply = async function sendChatReply() {
     const input = document.getElementById('chat-input');
+    const sendBtn = document.querySelector('button[onclick="sendChatReply()"]') || document.getElementById('send-btn');
     const text = input.value.trim();
     if (!text || !currentChatTgId) return;
     input.value = '';
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '⏳'; }
     const user = localStorage.getItem('crm_user') || 'Chatter';
-    const res = await chatApiPost('/reply', { tg_id: currentChatTgId, text, chatter: user });
-    if (res && res.ok) {
-      await loadMsgs();
-    } else {
+    try {
+      const r = await fetch('/api/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tg_id: currentChatTgId, text, chatter: user })
+      });
+      const res = await r.json().catch(() => ({}));
+      if (r.ok && res.ok) {
+        await loadMsgs();
+      } else {
+        input.value = text;
+        const detail = res?.detail || `HTTP ${r.status}`;
+        alert('❌ Fehler beim Senden:\n' + detail);
+      }
+    } catch(e) {
       input.value = text;
-      alert('Fehler beim Senden. Ist der Userbot verbunden?');
+      alert('❌ Netzwerkfehler: ' + e.message);
+    } finally {
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send ↑'; }
     }
   }
 
@@ -5409,6 +5483,89 @@ async function startBroadcast() {
     if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📣 Send'; }
   }
 }
+
+// ── SCHEDULED BROADCASTS ────────────────────────────────────────────────────
+async function scheduleNewBroadcast() {
+  const text = document.getElementById('sb-text').value.trim();
+  const dt   = document.getElementById('sb-datetime').value;
+  const filter = document.getElementById('sb-filter').value;
+  const chatter = document.getElementById('sb-chatter').value.trim() || localStorage.getItem('crm_user') || 'Broadcast';
+  const statusEl = document.getElementById('sb-status');
+
+  if (!text) { statusEl.textContent = '❌ Nachricht fehlt'; statusEl.style.color='#ff5c7a'; return; }
+  if (!dt)   { statusEl.textContent = '❌ Zeitpunkt fehlt'; statusEl.style.color='#ff5c7a'; return; }
+  if (new Date(dt) <= new Date()) { statusEl.textContent = '❌ Zeitpunkt muss in der Zukunft liegen'; statusEl.style.color='#ff5c7a'; return; }
+
+  statusEl.textContent = '⏳ Wird geplant…'; statusEl.style.color = 'var(--text2)';
+  try {
+    const r = await fetch('/api/scheduled-broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, scheduled_at: new Date(dt).toISOString(), filter_stage: filter, chatter })
+    });
+    const data = await r.json();
+    if (data.ok) {
+      statusEl.textContent = '✅ Geplant!'; statusEl.style.color = 'var(--teal)';
+      document.getElementById('sb-text').value = '';
+      document.getElementById('sb-datetime').value = '';
+      await loadScheduledBroadcasts();
+    } else {
+      statusEl.textContent = '❌ ' + (data.detail || 'Fehler'); statusEl.style.color = '#ff5c7a';
+    }
+  } catch(e) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = '#ff5c7a'; }
+}
+
+async function loadScheduledBroadcasts() {
+  const el = document.getElementById('sb-queue');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/scheduled-broadcasts');
+    const data = await r.json();
+    if (!data.length) { el.innerHTML = '<p style="color:var(--dim);font-size:12px;">Keine geplanten Nachrichten</p>'; return; }
+
+    const statusBadge = s => ({
+      pending:   '<span style="background:rgba(167,139,250,.2);color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">⏰ Ausstehend</span>',
+      running:   '<span style="background:rgba(255,209,102,.2);color:#ffd166;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">⏳ Läuft</span>',
+      sent:      '<span style="background:rgba(34,197,94,.2);color:#22c55e;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">✅ Gesendet</span>',
+      cancelled: '<span style="background:rgba(255,92,122,.15);color:#ff5c7a;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">🚫 Abgebrochen</span>',
+    }[s] || s);
+
+    el.innerHTML = data.map(b => {
+      const dt = new Date(b.scheduled_at).toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+      const filterLabel = b.filter_stage ? `· ${b.filter_stage}` : '· Alle';
+      const sentInfo = b.status === 'sent' ? `<div style="font-size:10px;color:var(--dim);margin-top:2px;">✅ ${b.sent_count} gesendet${b.fail_count ? `, ❌ ${b.fail_count} fehlgeschlagen` : ''}</div>` : '';
+      const cancelBtn = b.status === 'pending'
+        ? `<button onclick="cancelScheduledBroadcast(${b.id})" style="background:none;border:none;color:#ff5c7a;cursor:pointer;font-size:13px;padding:2px 4px;" title="Abbrechen">🗑</button>`
+        : '';
+      return `<div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);margin-bottom:6px;">
+        <div style="display:flex;align-items:flex-start;gap:6px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${b.text}">${b.text.slice(0,60)}${b.text.length>60?'…':''}</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
+              ${statusBadge(b.status)}
+              <span style="font-size:10px;color:var(--dim);">🕐 ${dt} ${filterLabel}</span>
+            </div>
+            ${sentInfo}
+          </div>
+          ${cancelBtn}
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<p style="color:#ff5c7a;font-size:12px;">Fehler beim Laden</p>'; }
+}
+
+async function cancelScheduledBroadcast(id) {
+  if (!confirm('Geplanten Broadcast abbrechen?')) return;
+  await fetch('/api/scheduled-broadcast/' + id, { method: 'DELETE' });
+  await loadScheduledBroadcasts();
+}
+
+// Load scheduled broadcasts when broadcast page opens
+const _origShowPage = window.showPage;
+window.showPage = function(page) {
+  if (_origShowPage) _origShowPage(page);
+  if (page === 'broadcast') loadScheduledBroadcasts();
+};
 </script>
 
 <!-- MEDIA GALLERY MODAL -->
