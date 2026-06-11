@@ -2190,8 +2190,9 @@ async function doLogin() {
       localStorage.setItem('crm_auth', btoa(data.username + ':' + data.role));
       err.style.display = 'none';
       document.getElementById('login-pw').value = '';
-      document.getElementById('login-screen').style.display = 'none';
-      showLoadingBar(displayName);
+      // Page reload ensures all functions (chat, notifications, etc.) are properly
+      // initialized — they only run when checkAuth() is true at page load time.
+      window.location.reload();
     } else {
       err.textContent = 'Wrong username or password';
       err.style.display = 'block';
