@@ -2818,8 +2818,20 @@ async def start_fake_call(body: CallStartIn):
 
     try:
         if is_video:
-            from pytgcalls.types import VideoQuality
-            stream = MediaStream(media_source, video_parameters=VideoQuality.HD_720p)
+            try:
+                from pytgcalls.types import VideoQuality
+                # Always include BOTH audio + video — required for proper video call setup
+                # Use SD_480p: more compatible and lighter on Railway CPU than HD_720p
+                stream = MediaStream(
+                    media_source,
+                    audio_parameters=AudioQuality.HIGH,
+                    video_parameters=VideoQuality.SD_480p,
+                )
+                print(f'🎬 Video stream: {media_source} SD_480p+audio')
+            except Exception as _vq_e:
+                # Fallback: try without explicit VideoQuality (let pytgcalls auto-detect)
+                print(f'⚠️ VideoQuality.SD_480p failed ({_vq_e}), trying auto-detect')
+                stream = MediaStream(media_source, audio_parameters=AudioQuality.HIGH)
         else:
             stream = MediaStream(media_source, audio_parameters=AudioQuality.HIGH)
         # py-tgcalls 2.x uses play(), older versions used call()
