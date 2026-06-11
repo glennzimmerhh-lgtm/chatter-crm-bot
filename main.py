@@ -2730,9 +2730,10 @@ def serve_call_file(filename: str, folder: str = ''):
 
 class CallStartIn(BaseModel):
     tg_id: str
-    filename: str
+    filename: str = ''
     folder: str = ''   # '' = root, 'fake_checks', 'paid_calls'
     chatter: str = 'Chatter'
+    url: str = ''      # Google Drive or direct URL — skips local file lookup
 
 @app.post('/call/start')
 async def start_fake_call(body: CallStartIn):
@@ -2744,10 +2745,27 @@ async def start_fake_call(body: CallStartIn):
     if body.tg_id in active_calls:
         raise HTTPException(409, 'A call is already active with this subscriber.')
 
-    base_dir = os.path.join(CALLS_DIR, body.folder) if body.folder else CALLS_DIR
-    fpath = os.path.join(base_dir, body.filename)
-    if '..' in body.filename or not os.path.isfile(fpath):
-        raise HTTPException(404, 'Recording file not found.')
+    # ── Resolve file path OR direct/Drive URL ─────────────────────────────────
+    stream_url: str | None = None   # set if streaming from URL instead of local file
+    fpath: str | None = None
+
+    if body.url:
+        # Convert Google Drive share URL → direct download URL
+        file_id = _gdrive_file_id(body.url)
+        if file_id:
+            stream_url = (
+                f'https://drive.usercontent.google.com/download'
+                f'?id={file_id}&export=download&authuser=0&confirm=t'
+            )
+        else:
+            stream_url = body.url   # already a direct URL
+    else:
+        if not body.filename:
+            raise HTTPException(400, 'Provide either filename or url.')
+        base_dir = os.path.join(CALLS_DIR, body.folder) if body.folder else CALLS_DIR
+        fpath = os.path.join(base_dir, body.filename)
+        if '..' in body.filename or not os.path.isfile(fpath):
+            raise HTTPException(404, 'Recording file not found.')
 
     with db() as conn:
         with conn.cursor() as c:
@@ -2787,15 +2805,23 @@ async def start_fake_call(body: CallStartIn):
         if not resolved:
             raise HTTPException(400, f'Cannot resolve Telegram user {peer}. The userbot may not have chatted with this user yet.')
 
-    ext = body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else ''
-    is_video = ext in ('mp4','mov','mkv')
+    media_source = stream_url if stream_url else fpath
+    label = stream_url if stream_url else body.filename
+    # Determine if video by extension (from URL path or filename)
+    src_name = (stream_url or body.filename or '').split('?')[0]
+    ext = src_name.rsplit('.',1)[-1].lower() if '.' in src_name else ''
+    is_video = ext in ('mp4','mov','mkv') or 'video' in (stream_url or '')
+
+    # For Drive URLs without a clear extension, assume video/mp4
+    if stream_url and not ext:
+        is_video = True
 
     try:
         if is_video:
             from pytgcalls.types import VideoQuality
-            stream = MediaStream(fpath, video_parameters=VideoQuality.HD_720p)
+            stream = MediaStream(media_source, video_parameters=VideoQuality.HD_720p)
         else:
-            stream = MediaStream(fpath, audio_parameters=AudioQuality.HIGH)
+            stream = MediaStream(media_source, audio_parameters=AudioQuality.HIGH)
         # py-tgcalls 2.x uses play(), older versions used call()
         if hasattr(calls_client, 'play'):
             await calls_client.play(peer, stream)
@@ -2805,16 +2831,16 @@ async def start_fake_call(body: CallStartIn):
             raise RuntimeError(f'No play/call method. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
         now_ts = datetime.now().isoformat()
         active_calls[body.tg_id] = {
-            'file': body.filename,
+            'file': label,
             'chatter': body.chatter,
             'started_at': now_ts,
             'type': 'video' if is_video else 'audio',
         }
-        save_msg(body.tg_id, f'[📞 Pre-recorded {"Video" if is_video else "Audio"} Call – {body.filename}]', 'out', body.chatter)
+        save_msg(body.tg_id, f'[📞 Pre-recorded {"Video" if is_video else "Audio"} Call – {label}]', 'out', body.chatter)
         asyncio.create_task(ws_manager.broadcast({
             'type': 'call_started',
             'tg_id': body.tg_id,
-            'file': body.filename,
+            'file': label,
             'call_type': 'video' if is_video else 'audio',
             'chatter': body.chatter,
         }))
@@ -2854,7 +2880,7 @@ async def start_fake_call(body: CallStartIn):
             active_calls.pop(tg_id_str, None)
             await ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str})
 
-        asyncio.create_task(_timed_hangup(body.tg_id, fpath))
+        asyncio.create_task(_timed_hangup(body.tg_id, media_source))
         # ── End auto-hangup ──────────────────────────────────────────────────
 
         return {'ok': True, 'type': 'video' if is_video else 'audio'}

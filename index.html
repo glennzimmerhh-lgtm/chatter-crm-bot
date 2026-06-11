@@ -5344,6 +5344,44 @@ if (checkAuth()) {
     }
   };
 
+  // ── Direct call from Google Drive / URL (no download needed) ─────────────
+  window.startFakeCallFromUrl = async function() {
+    if (!currentChatTgId) return;
+    const urlEl = document.getElementById('fc-url-input');
+    const url = urlEl?.value.trim();
+    const statusEl = document.getElementById('fc-status');
+    if (!url) {
+      statusEl.textContent = '⚠️ Bitte einen Google Drive Link oder MP4-URL einfügen.';
+      statusEl.style.color = '#fbbf24';
+      return;
+    }
+    statusEl.textContent = '⏳ Call wird gestartet…';
+    statusEl.style.color = '#fbbf24';
+    try {
+      const me = localStorage.getItem('crm_username') || 'Chatter';
+      const res = await chatApiFetch('/call/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tg_id: currentChatTgId, url, chatter: me }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        statusEl.textContent = '❌ ' + (err.detail || 'Fehler');
+        statusEl.style.color = '#ff5c7a';
+        return;
+      }
+      const data = await res.json();
+      statusEl.textContent = '✅ Call gestartet!';
+      statusEl.style.color = '#22c55e';
+      if (urlEl) urlEl.value = '';
+      closeFakeCallModal();
+      showActiveCallBar({ call_type: data.type || 'video', filename: url });
+    } catch(e) {
+      statusEl.textContent = '❌ ' + e.message;
+      statusEl.style.color = '#ff5c7a';
+    }
+  };
+
   window.deleteCallFile = async function(filename, folder) {
     folder = folder || '';
     if (!confirm('Delete recording?')) return;
@@ -6065,9 +6103,10 @@ window.showPage = function(page) {
       </div>
       <!-- URL import row -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-        <input id="fc-url-input" type="url" placeholder="Or paste Google Drive link (for large files)…"
+        <input id="fc-url-input" type="url" placeholder="Google Drive link oder direkte MP4-URL…"
           style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;outline:none;">
-        <button onclick="importCallFromUrl()" style="background:rgba(74,158,255,.2);border:1px solid rgba(74,158,255,.4);border-radius:7px;color:#4a9eff;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">🔗 Import</button>
+        <button onclick="startFakeCallFromUrl()" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:7px;color:#22c55e;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Call</button>
+        <button onclick="importCallFromUrl()" style="background:rgba(74,158,255,.2);border:1px solid rgba(74,158,255,.4);border-radius:7px;color:#4a9eff;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">⬇ Save</button>
       </div>
       <div id="fc-upload-status" style="font-size:12px;min-height:16px;"></div>
       <!-- Import progress bar -->
