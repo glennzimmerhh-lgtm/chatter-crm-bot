@@ -2825,9 +2825,9 @@ async def start_fake_call(body: CallStartIn):
                 stream = MediaStream(
                     media_source,
                     audio_parameters=AudioQuality.HIGH,
-                    video_parameters=VideoQuality.SD_480p,
+                    video_parameters=VideoQuality.HD_720p,
                 )
-                print(f'🎬 Video stream: {media_source} SD_480p+audio')
+                print(f'🎬 Video stream: {media_source} HD_720p+audio')
             except Exception as _vq_e:
                 # Fallback: try without explicit VideoQuality (let pytgcalls auto-detect)
                 print(f'⚠️ VideoQuality.SD_480p failed ({_vq_e}), trying auto-detect')
