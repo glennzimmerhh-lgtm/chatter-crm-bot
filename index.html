@@ -5409,8 +5409,14 @@ if (checkAuth()) {
     const fd = new FormData();
     fd.append('file', file);
     if (folder) fd.append('folder', folder);
+    // Upload directly to Railway — Vercel proxy has a 4.5 MB body limit which
+    // blocks large video files. Railway accepts unlimited multipart uploads.
+    const railwayBase = 'https://worker-production-806f.up.railway.app';
     try {
-      const res = await chatApiFetch('/call/upload', { method: 'POST', body: fd });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 120000); // 2 min for large files
+      const res = await fetch(railwayBase + '/call/upload', { method: 'POST', body: fd, signal: ctrl.signal });
+      clearTimeout(timer);
       if (res.ok) {
         statusEl.textContent = '✅ Uploaded!';
         statusEl.style.color = '#22c55e';
@@ -5420,11 +5426,11 @@ if (checkAuth()) {
         else await loadCallFiles();
       } else {
         const err = await res.json().catch(() => ({}));
-        statusEl.textContent = '❌ ' + (err.detail || 'Error');
+        statusEl.textContent = '❌ ' + (err.detail || 'Upload fehlgeschlagen');
         statusEl.style.color = '#ff5c7a';
       }
     } catch(e) {
-      statusEl.textContent = '❌ ' + e.message;
+      statusEl.textContent = '❌ ' + (e.name === 'AbortError' ? 'Timeout — Datei zu groß?' : e.message);
       statusEl.style.color = '#ff5c7a';
     }
   };
