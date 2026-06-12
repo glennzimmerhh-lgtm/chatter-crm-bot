@@ -1,6 +1,6 @@
 """
 Chatter CRM – Subscriber Chat Backend
-Telethon Userbot + FastAPI REST API — PostgreSQL edition (production-ready)
+Telethon Userbot + FastAPI REST API — PostgreSQL + SQLite fallback (production-ready)
 """
 from __future__ import annotations
 
@@ -57,9 +57,15 @@ except Exception as _e:
 calls_client: Optional[object] = None
 active_calls: dict = {}   # tg_id → {file, chatter, started_at}
 
+import sqlite3 as _sqlite3
+
 import uvicorn
-import psycopg2
-import psycopg2.extras
+try:
+    import psycopg2
+    import psycopg2.extras
+    _PSYCOPG2_OK = True
+except ImportError:
+    _PSYCOPG2_OK = False
 from fastapi import FastAPI, HTTPException, Form, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -125,18 +131,160 @@ setup_client: Optional[TelegramClient] = None
 setup_phone: str = ''
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
+DB_PATH = os.environ.get('DB_PATH', '/data/chatter_crm.db')
+USE_SQLITE = not DATABASE_URL or not _PSYCOPG2_OK
+
+if USE_SQLITE:
+    print(f'📂 Using SQLite: {DB_PATH}')
+else:
+    print(f'🐘 Using PostgreSQL')
+
+# ─ SQLite adapter: makes sqlite3 behave like psycopg2+RealDictCursor ─────────
+class _SLCursor:
+    """Wraps sqlite3 cursor to behave like psycopg2 RealDictCursor (dict rows, %s params, RETURNING)."""
+    def __init__(self, cur, conn_ref):
+        self._c = cur
+        self._conn = conn_ref  # for UPDATE RETURNING SELECT
+        self._ret_rows = None
+
+    def execute(self, sql, params=()):
+        self._ret_rows = None
+        returning = None
+        upper = sql.upper()
+        ret_pos = upper.rfind(' RETURNING ')
+        if ret_pos >= 0:
+            returning = sql[ret_pos + 11:].strip()
+            sql = sql[:ret_pos]
+        # adapt syntax
+        sql = sql.replace('%s', '?')
+        sql = sql.replace('SERIAL PRIMARY KEY', 'INTEGER PRIMARY KEY')
+        sql = sql.replace('BOOLEAN DEFAULT FALSE', 'INTEGER DEFAULT 0')
+        sql = sql.replace('BOOLEAN DEFAULT TRUE', 'INTEGER DEFAULT 1')
+        sql = sql.replace('BOOLEAN DEFAULT NULL', 'INTEGER DEFAULT NULL')
+        sql = sql.replace(' BOOLEAN ', ' INTEGER ')
+        sql = sql.replace('ADD COLUMN IF NOT EXISTS', 'ADD COLUMN')
+        # PostgreSQL SUBSTRING(col FROM n) → SQLite SUBSTR(col, n)
+        sql = _re.sub(r"SUBSTRING\((\w+)\s+FROM\s+(\d+)\)", r"SUBSTR(\1,\2)", sql, flags=_re.IGNORECASE)
+        self._c.execute(sql, params or ())
+        if returning:
+            self._handle_returning(returning, sql, params)
+
+    def _handle_returning(self, returning, sql, params):
+        upper = sql.upper().strip()
+        if upper.startswith('INSERT') or upper.startswith('UPDATE'):
+            last_id = self._c.lastrowid
+            cols = [c.strip() for c in returning.split(',')]
+            if cols == ['id'] or cols == ['*']:
+                self._ret_rows = [{'id': last_id}]
+            else:
+                # Need a SELECT — figure out table name and row id
+                tbl_match = _re.search(r'(?:INTO|UPDATE)\s+(\w+)', sql, _re.IGNORECASE)
+                if tbl_match and last_id:
+                    tbl = tbl_match.group(1)
+                    sel = f"SELECT {', '.join(cols)} FROM {tbl} WHERE rowid = ?"
+                    try:
+                        cur2 = self._conn.cursor()
+                        cur2.execute(sel, (last_id,))
+                        row = cur2.fetchone()
+                        if row and cur2.description:
+                            keys = [d[0] for d in cur2.description]
+                            self._ret_rows = [dict(zip(keys, row))]
+                        else:
+                            self._ret_rows = [{'id': last_id}]
+                    except Exception:
+                        self._ret_rows = [{'id': last_id}]
+                else:
+                    self._ret_rows = [{'id': last_id}]
+
+    def _row_to_dict(self, row):
+        if row is None:
+            return None
+        if isinstance(row, dict):
+            return row
+        cols = [d[0] for d in self._c.description]
+        return dict(zip(cols, row))
+
+    def fetchone(self):
+        if self._ret_rows is not None:
+            return self._ret_rows[0] if self._ret_rows else None
+        return self._row_to_dict(self._c.fetchone())
+
+    def fetchall(self):
+        if self._ret_rows is not None:
+            return self._ret_rows
+        rows = self._c.fetchall()
+        if not rows or not self._c.description:
+            return []
+        cols = [d[0] for d in self._c.description]
+        return [dict(zip(cols, r)) for r in rows]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+class _SLConn:
+    """Wraps sqlite3 connection to behave like psycopg2 connection."""
+    def __init__(self, path):
+        self._c = _sqlite3.connect(path, check_same_thread=False)
+        self._c.execute('PRAGMA journal_mode=WAL')
+        self._c.execute('PRAGMA foreign_keys=ON')
+
+    def cursor(self):
+        return _SLCursor(self._c.cursor(), self._c)
+
+    def commit(self):
+        self._c.commit()
+
+    def rollback(self):
+        try: self._c.rollback()
+        except Exception: pass
+
+    def close(self):
+        pass  # keep SQLite connection open
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self._c.commit()
+        else:
+            self.rollback()
+
+# Single shared SQLite connection (WAL mode allows concurrent reads)
+_sqlite_conn: Optional[_SLConn] = None
+_sqlite_lock = threading.Lock()
+
+def _get_sqlite():
+    global _sqlite_conn
+    with _sqlite_lock:
+        if _sqlite_conn is None:
+            _sqlite_conn = _SLConn(DB_PATH)
+    return _sqlite_conn
+
 @contextmanager
 def db():
     """Open a fresh connection per request — commit on success, rollback+close on error."""
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    if USE_SQLITE:
+        conn = _get_sqlite()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    else:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
 def init_db():
     with db() as conn:
@@ -156,7 +304,7 @@ def init_db():
                 tg_phone      TEXT DEFAULT ''
             )''')
             c.execute('''CREATE TABLE IF NOT EXISTS messages (
-                id        SERIAL PRIMARY KEY,
+                id        INTEGER PRIMARY KEY,
                 tg_id     TEXT NOT NULL,
                 text      TEXT NOT NULL,
                 direction TEXT NOT NULL,
@@ -164,7 +312,7 @@ def init_db():
                 chatter   TEXT DEFAULT ''
             )''')
             c.execute('''CREATE TABLE IF NOT EXISTS sales (
-                id        SERIAL PRIMARY KEY,
+                id        INTEGER PRIMARY KEY,
                 tg_id     TEXT NOT NULL,
                 anon_id   TEXT NOT NULL,
                 amount    REAL NOT NULL,
@@ -174,7 +322,7 @@ def init_db():
                 timestamp TEXT NOT NULL
             )''')
             c.execute('''CREATE TABLE IF NOT EXISTS pledges (
-                id              SERIAL PRIMARY KEY,
+                id              INTEGER PRIMARY KEY,
                 tg_id           TEXT NOT NULL,
                 anon_id         TEXT NOT NULL,
                 amount          REAL NOT NULL,
@@ -187,7 +335,7 @@ def init_db():
                 paid_at         TEXT DEFAULT ''
             )''')
             c.execute('''CREATE TABLE IF NOT EXISTS scheduled_broadcasts (
-                id              SERIAL PRIMARY KEY,
+                id              INTEGER PRIMARY KEY,
                 text            TEXT NOT NULL,
                 scheduled_at    TEXT NOT NULL,
                 filter_stage    TEXT DEFAULT '',
@@ -200,7 +348,7 @@ def init_db():
                 fail_count      INTEGER DEFAULT 0
             )''')
             c.execute('''CREATE TABLE IF NOT EXISTS lists (
-                id    SERIAL PRIMARY KEY,
+                id    INTEGER PRIMARY KEY,
                 name  TEXT NOT NULL,
                 color TEXT DEFAULT '#00d4aa'
             )''')
@@ -211,7 +359,7 @@ def init_db():
             )''')
             # Users table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
-                id            SERIAL PRIMARY KEY,
+                id            INTEGER PRIMARY KEY,
                 username      TEXT NOT NULL UNIQUE,
                 email         TEXT DEFAULT '',
                 password_hash TEXT NOT NULL,
@@ -274,7 +422,10 @@ def init_db():
     # Backfill payment_ref for existing subscribers
     with db() as conn:
         with conn.cursor() as c:
-            c.execute("UPDATE conversations SET payment_ref='ZF-'||SUBSTRING(anon_id FROM 7) WHERE (payment_ref IS NULL OR payment_ref='') AND anon_id LIKE 'User #%'")
+            if USE_SQLITE:
+                c.execute("UPDATE conversations SET payment_ref='ZF-'||SUBSTR(anon_id,7) WHERE (payment_ref IS NULL OR payment_ref='') AND anon_id LIKE 'User #%'")
+            else:
+                c.execute("UPDATE conversations SET payment_ref='ZF-'||SUBSTRING(anon_id FROM 7) WHERE (payment_ref IS NULL OR payment_ref='') AND anon_id LIKE 'User #%'")
     print('✅ DB initialized')
 
 def _fire_webhook_sync(url: str, payload: dict):
@@ -789,7 +940,7 @@ def healthz():
             with conn.cursor() as c:
                 c.execute('SELECT COUNT(*) as n FROM conversations')
                 n = c.fetchone()['n']
-        return {'status': 'ok', 'conversations': n, 'userbot': 'connected' if _tg_client_ready else 'disconnected', 'db': 'postgresql'}
+        return {'status': 'ok', 'conversations': n, 'userbot': 'connected' if _tg_client_ready else 'disconnected', 'db': DB_PATH if USE_SQLITE else 'postgresql'}
     except Exception as e:
         return {'status': 'error', 'detail': str(e)}
 
