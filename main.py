@@ -71,8 +71,16 @@ from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 from telethon.tl.types import (User, InputPeerUser, UpdateReadHistoryOutbox, PeerUser,
                                UpdateUserStatus, UserStatusOnline, UserStatusOffline,
-                               UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth,
-                               UpdatePhoneCall, PhoneCallDiscarded)
+                               UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth)
+# Safe optional import — not present in all Telethon builds
+try:
+    from telethon.tl.types import UpdatePhoneCall as _UpdatePhoneCall
+    from telethon.tl.types import PhoneCallDiscarded as _PhoneCallDiscarded
+    _PHONE_CALL_TYPES_OK = True
+except ImportError:
+    _UpdatePhoneCall = None
+    _PhoneCallDiscarded = None
+    _PHONE_CALL_TYPES_OK = False
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 TG_API_ID   = os.environ.get('TG_API_ID', '')
@@ -228,6 +236,7 @@ def init_db():
             # safe migrations + indexes for performance
             for stmt in [
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS time_waster BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS is_muted BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_username TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_phone TEXT DEFAULT ''",
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tg_access_hash TEXT DEFAULT ''",
@@ -491,27 +500,31 @@ async def start_userbot():
                         'type': 'read_receipt', 'tg_id': tg_id, 'max_id': max_id
                     }))
 
-            @tg_client.on(events.Raw(UpdatePhoneCall))
-            async def on_phone_call_update(update):
-                """Fires when subscriber hangs up or a call is discarded."""
-                try:
-                    if isinstance(update.phone_call, PhoneCallDiscarded):
-                        print(f'📵 Telethon: PhoneCallDiscarded — ending active calls')
-                        for tg_id_str in list(active_calls.keys()):
-                            active_calls.pop(tg_id_str, None)
-                            asyncio.create_task(ws_manager.broadcast({
-                                'type': 'call_ended', 'tg_id': tg_id_str
-                            }))
-                        # Also try to cleanly leave via pytgcalls
-                        if calls_client:
-                            for tg_id_str in list(active_calls.keys()):
-                                try:
-                                    if hasattr(calls_client, 'leave_call'):
-                                        await calls_client.leave_call(int(tg_id_str))
-                                except Exception:
-                                    pass
-                except Exception as e:
-                    print(f'⚠️ on_phone_call_update: {e}')
+            if _PHONE_CALL_TYPES_OK:
+                @tg_client.on(events.Raw(_UpdatePhoneCall))
+                async def on_phone_call_update(update):
+                    """Fires when subscriber hangs up or a call is discarded."""
+                    try:
+                        if isinstance(update.phone_call, _PhoneCallDiscarded):
+                            print(f'📵 Telethon: PhoneCallDiscarded — ending active calls')
+                            ended = list(active_calls.keys())
+                            for tg_id_str in ended:
+                                active_calls.pop(tg_id_str, None)
+                                asyncio.create_task(ws_manager.broadcast({
+                                    'type': 'call_ended', 'tg_id': tg_id_str
+                                }))
+                            # Also try to cleanly leave via pytgcalls
+                            if calls_client:
+                                for tg_id_str in ended:
+                                    try:
+                                        if hasattr(calls_client, 'leave_call'):
+                                            await calls_client.leave_call(int(tg_id_str))
+                                    except Exception:
+                                        pass
+                    except Exception as e:
+                        print(f'⚠️ on_phone_call_update: {e}')
+            else:
+                print('⚠️ UpdatePhoneCall types not available — call hangup detection via pytgcalls only')
 
             @tg_client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
             async def on_dm(event):
@@ -810,7 +823,7 @@ async def websocket_endpoint(websocket: WebSocket):
 def get_conversations():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,call_followup_note,is_online,last_seen FROM conversations ORDER BY last_time DESC NULLS LAST')
+            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,is_muted,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,call_followup_note,is_online,last_seen FROM conversations ORDER BY last_time DESC NULLS LAST')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -842,6 +855,7 @@ class ProfileUpdate(BaseModel):
     internal_name: Optional[str] = None
     notes: Optional[str] = None
     time_waster: Optional[bool] = None
+    is_muted: Optional[bool] = None
     funnel_stage: Optional[str] = None
     call_followup_at: Optional[str] = None
     call_followup_note: Optional[str] = None
@@ -856,6 +870,8 @@ def update_profile(tg_id: str, body: ProfileUpdate):
                 c.execute('UPDATE conversations SET notes=%s WHERE tg_id=%s', (body.notes, tg_id))
             if body.time_waster is not None:
                 c.execute('UPDATE conversations SET time_waster=%s WHERE tg_id=%s', (body.time_waster, tg_id))
+            if body.is_muted is not None:
+                c.execute('UPDATE conversations SET is_muted=%s WHERE tg_id=%s', (body.is_muted, tg_id))
             if body.funnel_stage is not None:
                 c.execute('UPDATE conversations SET funnel_stage=%s WHERE tg_id=%s', (body.funnel_stage, tg_id))
             if body.call_followup_at is not None:
