@@ -2746,8 +2746,8 @@ async def start_fake_call(body: CallStartIn):
         raise HTTPException(409, 'A call is already active with this subscriber.')
 
     # ── Resolve file path OR direct/Drive URL ─────────────────────────────────
-    stream_url: str | None = None   # set if streaming from URL instead of local file
-    fpath: str | None = None
+    stream_url = None   # set if streaming from URL instead of local file
+    fpath = None
 
     if body.url:
         # Convert Google Drive share URL → direct download URL

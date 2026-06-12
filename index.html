@@ -3897,6 +3897,10 @@ if (checkAuth()) {
   async function chatApiFetch(path, opts = {}) {
     return _fetchT('/api' + path, opts, 8000);
   }
+  // Longer timeout for call endpoints — pytgcalls needs time to negotiate with Telegram
+  async function chatApiCallFetch(path, opts = {}) {
+    return _fetchT('/api' + path, opts, 30000);
+  }
 
   async function chatApiPost(path, body) {
     const url = '/api' + path;
@@ -5323,7 +5327,7 @@ if (checkAuth()) {
     statusEl.style.color = '#fbbf24';
     try {
       const me = localStorage.getItem('crm_username') || 'Chatter';
-      const res = await chatApiFetch('/call/start', {
+      const res = await chatApiCallFetch('/call/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tg_id: currentChatTgId, filename, folder, chatter: me }),
@@ -5359,7 +5363,7 @@ if (checkAuth()) {
     statusEl.style.color = '#fbbf24';
     try {
       const me = localStorage.getItem('crm_username') || 'Chatter';
-      const res = await chatApiFetch('/call/start', {
+      const res = await chatApiCallFetch('/call/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tg_id: currentChatTgId, url, chatter: me }),
