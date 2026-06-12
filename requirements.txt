@@ -4,4 +4,5 @@ uvicorn[standard]==0.30.0
 python-multipart==0.0.9
 psycopg2-binary==2.9.9
 openai==1.30.0
-py-tgcalls>=1.0.0
+py-tgcalls==2.2.11
+requests>=2.31.0
