@@ -2920,7 +2920,10 @@ async def start_fake_call(body: CallStartIn):
 
         return {'ok': True, 'type': 'video' if is_video else 'audio'}
     except Exception as e:
-        raise HTTPException(500, f'Call failed: {e}')
+        import traceback
+        full_err = f'{type(e).__name__}: {e}'
+        print(f'❌ Call failed — {full_err}\n{traceback.format_exc()}')
+        raise HTTPException(500, f'Call failed: {full_err}')
 
 @app.post('/call/stop')
 async def stop_fake_call(tg_id: str):

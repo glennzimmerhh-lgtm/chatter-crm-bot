@@ -5349,8 +5349,14 @@ if (checkAuth()) {
         body: JSON.stringify({ tg_id: currentChatTgId, filename, folder, chatter: me }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        statusEl.textContent = '❌ ' + (err.detail || 'Error');
+        let errText = '';
+        try {
+          const errBody = await res.json();
+          errText = errBody.detail || JSON.stringify(errBody);
+        } catch(_) {
+          errText = await res.text().catch(() => `HTTP ${res.status}`);
+        }
+        statusEl.textContent = '❌ ' + errText;
         statusEl.style.color = '#ff5c7a';
         return;
       }
@@ -6149,14 +6155,14 @@ window.showPage = function(page) {
         <button onclick="importCallFromUrl()" style="background:rgba(74,158,255,.18);border:1px solid rgba(74,158,255,.35);border-radius:8px;color:#4a9eff;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0;">⬇ Save</button>
       </div>
       <!-- Status + progress -->
-      <div id="fc-upload-status" style="font-size:12px;min-height:14px;margin-top:6px;"></div>
+      <div id="fc-upload-status" style="font-size:12px;min-height:14px;margin-top:6px;word-break:break-word;white-space:pre-wrap;"></div>
       <div id="fc-import-progress-wrap" style="display:none;margin-top:6px;">
         <div style="height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;">
           <div id="fc-import-progress-bar" style="height:100%;background:var(--teal);width:0%;transition:width .3s;border-radius:2px;"></div>
         </div>
         <div id="fc-import-progress-label" style="font-size:11px;color:var(--text3);margin-top:3px;"></div>
       </div>
-      <div id="fc-status" style="font-size:12px;min-height:14px;text-align:center;margin-top:4px;"></div>
+      <div id="fc-status" style="font-size:12px;min-height:14px;text-align:center;margin-top:4px;word-break:break-word;white-space:pre-wrap;"></div>
     </div>
 
   </div>
