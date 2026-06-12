@@ -2932,6 +2932,7 @@ class CallStartIn(BaseModel):
 @app.post('/call/start')
 async def start_fake_call(body: CallStartIn):
     """Initiate a pre-recorded call to a subscriber via Telegram."""
+    global calls_client
     if not _PYTGCALLS_OK:
         raise HTTPException(503, 'pytgcalls not installed on Railway. Add "py-tgcalls" to requirements.txt and redeploy.')
     if not calls_client:
