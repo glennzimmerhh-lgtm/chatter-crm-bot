@@ -461,6 +461,72 @@ tg_client: Optional[TelegramClient] = None
 _tg_client_ready = False   # True only when client is started and connected
 _userbot_running = False
 
+async def _reinit_calls(client):
+    """(Re-)initialize PyTgCalls bound to the given Telethon client.
+    Called every time the userbot successfully connects so calls_client
+    always uses the live MTProto session."""
+    global calls_client
+    await asyncio.sleep(3)   # let Telethon fully settle
+    if not _PYTGCALLS_OK or not client:
+        return
+    # Stop old instance cleanly
+    if calls_client:
+        try:
+            await calls_client.stop()
+        except Exception:
+            pass
+        calls_client = None
+    try:
+        new_client = PyTgCalls(client)
+        await new_client.start()
+
+        @new_client.on_update()
+        async def _on_call_update(update):
+            try:
+                update_type = type(update).__name__
+                chat_id_raw = getattr(update, 'chat_id', None)
+                print(f'📡 pytgcalls update: {update_type} chat_id={chat_id_raw}')
+                tg_id_str = str(chat_id_raw) if chat_id_raw is not None else ''
+                if not tg_id_str or tg_id_str not in active_calls:
+                    return
+                update_str = update_type.lower()
+                STREAM_END_TYPES = {
+                    'StreamAudioEnded', 'StreamVideoEnded', 'StreamEnded',
+                    'AudioStreamEnded', 'VideoStreamEnded',
+                }
+                is_stream_end = update_type in STREAM_END_TYPES or 'ended' in update_str or 'finish' in update_str
+                try:
+                    from pytgcalls.types import StreamEnded as _SE
+                    if isinstance(update, _SE):
+                        is_stream_end = True
+                except ImportError:
+                    pass
+                if is_stream_end:
+                    print(f'🔔 Stream ended for {tg_id_str} — hanging up')
+                    try:
+                        if hasattr(new_client, 'leave_call'):
+                            await new_client.leave_call(int(tg_id_str))
+                        elif hasattr(new_client, 'leave'):
+                            await new_client.leave(int(tg_id_str))
+                    except Exception as _e:
+                        print(f'⚠️ leave_call: {_e}')
+                    active_calls.pop(tg_id_str, None)
+                    asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
+                    return
+                CALL_END_TYPES = {'CallEnded', 'KickedFromGroupCallParticipant', 'ClosedVoiceChat', 'GroupCallEnded'}
+                if update_type in CALL_END_TYPES or 'ended' in update_str:
+                    print(f'📵 Call ended by subscriber {tg_id_str}')
+                    active_calls.pop(tg_id_str, None)
+                    asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
+            except Exception as e:
+                print(f'⚠️ _on_call_update: {e}')
+
+        calls_client = new_client
+        print('✅ PyTgCalls (re-)initialized with fresh MTProto client')
+    except Exception as e:
+        print(f'⚠️ PyTgCalls reinit failed: {e}')
+
+
 async def start_userbot():
     global tg_client, _tg_client_ready, _userbot_running
     if not (TG_API_ID and TG_API_HASH and TG_SESSION):
@@ -625,6 +691,15 @@ async def start_userbot():
             _tg_client_ready = True
             print('✅ Userbot verbunden!')
             retry_delay = 5  # reset on success
+
+            # ── Re-init pytgcalls on every connect cycle ──────────────────────
+            # calls_client must be tied to the CURRENT tg_client instance.
+            # After reconnect tg_client is a new object → old calls_client gives
+            # MTProtoClientNotConnected. We (re-)init here every time we connect.
+            if _PYTGCALLS_OK:
+                asyncio.create_task(_reinit_calls(tg_client))
+            # ─────────────────────────────────────────────────────────────────
+
             await tg_client.run_until_disconnected()
             _tg_client_ready = False
             print('⚠️  Userbot getrennt – reconnecting...')
@@ -639,82 +714,11 @@ async def start_userbot():
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global calls_client
     init_db()
     asyncio.create_task(start_userbot())
     asyncio.create_task(_run_scheduled_broadcasts())
-    # Give userbot 3s to connect, then init calls_client
-    async def _init_calls():
-        await asyncio.sleep(5)
-        global calls_client
-        if _PYTGCALLS_OK and tg_client:
-            try:
-                calls_client = PyTgCalls(tg_client)
-                await calls_client.start()
-
-                @calls_client.on_update()
-                async def _on_call_update(update):
-                    try:
-                        # Log ALL updates so we can see exact type names in Railway logs
-                        update_type = type(update).__name__
-                        update_module = type(update).__module__
-                        chat_id_raw = getattr(update, 'chat_id', None)
-                        print(f'📡 pytgcalls update: type={update_type} module={update_module} chat_id={chat_id_raw} attrs={[a for a in dir(update) if not a.startswith("_")]}')
-
-                        tg_id_str = str(chat_id_raw) if chat_id_raw is not None else ''
-                        if not tg_id_str or tg_id_str not in active_calls:
-                            return
-
-                        # Stream finished — all known names across py-tgcalls versions
-                        STREAM_END_TYPES = {
-                            'StreamAudioEnded', 'StreamVideoEnded', 'StreamEnded',
-                            'MutedStream', 'AudioStreamEnded', 'VideoStreamEnded',
-                            'UpdatedGroupCallParticipant',  # sometimes fired on stream end
-                        }
-                        # Also catch by string content (some versions use str repr)
-                        update_str = update_type.lower()
-                        is_stream_end = (
-                            update_type in STREAM_END_TYPES or
-                            'ended' in update_str or
-                            'finish' in update_str or
-                            'complete' in update_str
-                        )
-
-                        # Also check pytgcalls.types.StreamEnded specifically
-                        try:
-                            from pytgcalls.types import StreamEnded as _SE
-                            if isinstance(update, _SE):
-                                is_stream_end = True
-                        except ImportError:
-                            pass
-
-                        if is_stream_end:
-                            print(f'🔔 Stream ended for {tg_id_str} ({update_type}) — hanging up automatically')
-                            try:
-                                if hasattr(calls_client, 'leave_call'):
-                                    await calls_client.leave_call(int(tg_id_str))
-                                elif hasattr(calls_client, 'leave'):
-                                    await calls_client.leave(int(tg_id_str))
-                            except Exception as e:
-                                print(f'⚠️  leave_call error (may already be ended): {e}')
-                            active_calls.pop(tg_id_str, None)
-                            asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
-                            return
-
-                        # Call rejected or ended by subscriber
-                        CALL_END_TYPES = {'CallEnded', 'KickedFromGroupCallParticipant', 'ClosedVoiceChat', 'GroupCallEnded'}
-                        if update_type in CALL_END_TYPES or 'ended' in update_str:
-                            print(f'📵 Call ended by subscriber {tg_id_str} ({update_type})')
-                            active_calls.pop(tg_id_str, None)
-                            asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
-
-                    except Exception as e:
-                        print(f'⚠️  _on_call_update error: {e}')
-
-                print('✅ PyTgCalls initialized and started')
-            except Exception as e:
-                print(f'⚠️  PyTgCalls init failed: {e}')
-    asyncio.create_task(_init_calls())
+    # PyTgCalls is now initialized inside start_userbot() on every connect cycle
+    # via _reinit_calls() — no separate _init_calls task needed.
     yield
     global _userbot_running
     _userbot_running = False
