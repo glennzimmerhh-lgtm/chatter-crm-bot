@@ -3051,7 +3051,9 @@ async def start_fake_call(body: CallStartIn):
             else:
                 raise RuntimeError(f'No play/call method on calls_client. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
 
-        # Retry loop: DH_G_A_HASH_INVALID is a transient Telegram key-exchange error — retry up to 2x
+        # Retry loop: DH_G_A_HASH_INVALID is a Telegram DH key-exchange error.
+        # After each failure we do a fast calls_client reinit (new PyTgCalls instance
+        # generates fresh DH params) and retry up to 2 more times.
         _last_err = None
         for _attempt in range(3):
             try:
@@ -3066,11 +3068,22 @@ async def start_fake_call(body: CallStartIn):
             except Exception as _e:
                 _last_err = _e
                 err_str = str(_e)
-                if 'DH_G_A_HASH_INVALID' in err_str or 'HASH_INVALID' in err_str:
-                    print(f'🔄 DH_G_A_HASH_INVALID on attempt {_attempt+1} for {body.tg_id} — retrying...')
-                    await asyncio.sleep(1.5)
-                    continue  # retry
-                raise  # other errors: propagate immediately
+                if ('DH_G_A_HASH_INVALID' in err_str or 'HASH_INVALID' in err_str) and _attempt < 2:
+                    print(f'🔄 DH_G_A_HASH_INVALID on attempt {_attempt+1} for {body.tg_id} — reiniting calls_client and retrying...')
+                    # Fast reinit: create a fresh PyTgCalls instance so new DH params are generated
+                    if tg_client and _PYTGCALLS_OK:
+                        try:
+                            if calls_client:
+                                try: await calls_client.stop()
+                                except Exception: pass
+                            calls_client = PyTgCalls(tg_client)
+                            await calls_client.start()
+                            print(f'✅ calls_client restarted for retry {_attempt+2}')
+                        except Exception as _re:
+                            print(f'⚠️ reinit failed: {_re}')
+                    await asyncio.sleep(2)
+                    continue  # retry with fresh client
+                raise  # other errors or final attempt: propagate immediately
         if _last_err is not None:
             print(f'❌ Call failed after 3 attempts for {body.tg_id}: {_last_err}')
             raise HTTPException(500, f'Call failed after 3 attempts: {_last_err}')
