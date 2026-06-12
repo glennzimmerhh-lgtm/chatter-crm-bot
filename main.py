@@ -2834,15 +2834,20 @@ async def start_fake_call(body: CallStartIn):
                     resolved = True
             except Exception as _e:
                 print(f'⚠️ GetUsers+cache failed: {_e}')
-        # Step 2: Fallback — scan recent dialogs to find and cache the user
+        # Step 2: Fallback — scan recent dialogs to find and cache the user (with timeout)
         if not resolved:
             try:
-                async for _dlg in tg_client.iter_dialogs(limit=200):
-                    if getattr(_dlg.entity, 'id', None) == peer:
-                        await tg_client.get_input_entity(_dlg.entity)
-                        print(f'✅ Entity found in dialogs for {peer}')
-                        resolved = True
-                        break
+                async def _scan_dialogs():
+                    async for _dlg in tg_client.iter_dialogs(limit=200):
+                        if getattr(_dlg.entity, 'id', None) == peer:
+                            await tg_client.get_input_entity(_dlg.entity)
+                            return True
+                    return False
+                resolved = await asyncio.wait_for(_scan_dialogs(), timeout=10)
+                if resolved:
+                    print(f'✅ Entity found in dialogs for {peer}')
+            except asyncio.TimeoutError:
+                print(f'⚠️ Dialog scan timed out for {peer}')
             except Exception as _e:
                 print(f'⚠️ Dialog scan failed: {_e}')
         if not resolved:
@@ -2878,12 +2883,24 @@ async def start_fake_call(body: CallStartIn):
         else:
             stream = MediaStream(media_source, audio_parameters=AudioQuality.HIGH)
         # py-tgcalls 2.x uses play(), older versions used call()
-        if hasattr(calls_client, 'play'):
-            await calls_client.play(peer, stream)
-        elif hasattr(calls_client, 'call'):
-            await calls_client.call(peer, stream)
-        else:
-            raise RuntimeError(f'No play/call method. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
+        # Wrap with timeout — play() can hang indefinitely if PyTgCalls is in a bad state.
+        # If it times out, trigger a reinit so the next call attempt will work.
+        async def _do_play():
+            if hasattr(calls_client, 'play'):
+                await calls_client.play(peer, stream)
+            elif hasattr(calls_client, 'call'):
+                await calls_client.call(peer, stream)
+            else:
+                raise RuntimeError(f'No play/call method on calls_client. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
+
+        try:
+            await asyncio.wait_for(_do_play(), timeout=25)
+        except asyncio.TimeoutError:
+            print(f'⏰ calls_client.play() timed out for {body.tg_id} — triggering reinit')
+            # Schedule a reinit so the next call attempt works
+            if tg_client:
+                asyncio.create_task(_reinit_calls(tg_client))
+            raise HTTPException(503, 'Call timed out — PyTgCalls client was stuck. It is being restarted automatically. Please try again in 5 seconds.')
         now_ts = datetime.now().isoformat()
         active_calls[body.tg_id] = {
             'file': label,

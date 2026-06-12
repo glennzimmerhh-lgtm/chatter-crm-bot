@@ -3906,7 +3906,7 @@ if (checkAuth()) {
   }
   // Longer timeout for call endpoints — pytgcalls needs time to negotiate with Telegram
   async function chatApiCallFetch(path, opts = {}) {
-    return _fetchT('/api' + path, opts, 30000);
+    return _fetchT('/api' + path, opts, 60000); // 60s — backend has 25s internal timeout, gives time for response to arrive
   }
 
   async function chatApiPost(path, body) {
