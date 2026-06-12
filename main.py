@@ -2785,8 +2785,15 @@ async def start_fake_call(body: CallStartIn):
         raise HTTPException(503, 'pytgcalls not installed on Railway. Add "py-tgcalls" to requirements.txt and redeploy.')
     if not calls_client:
         raise HTTPException(503, 'Calls client not ready yet (wait a few seconds after startup).')
-    if body.tg_id in active_calls:
-        raise HTTPException(409, 'A call is already active with this subscriber.')
+    # Telegram only supports ONE active voice/video call per account at a time.
+    # Block immediately if any call is running — avoids PyTgCalls timeout/hang.
+    if active_calls:
+        other = [k for k in active_calls if k != body.tg_id]
+        if body.tg_id in active_calls:
+            raise HTTPException(409, 'Ein Call mit diesem Subscriber läuft bereits.')
+        if other:
+            raise HTTPException(409, f'Es läuft bereits ein anderer Call (Subscriber {other[0]}). Bitte erst den laufenden Call beenden.')
+
 
     # ── Resolve file path OR direct/Drive URL ─────────────────────────────────
     stream_url = None   # set if streaming from URL instead of local file
