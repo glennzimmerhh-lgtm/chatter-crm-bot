@@ -3051,14 +3051,29 @@ async def start_fake_call(body: CallStartIn):
             else:
                 raise RuntimeError(f'No play/call method on calls_client. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
 
-        try:
-            await asyncio.wait_for(_do_play(), timeout=25)
-        except asyncio.TimeoutError:
-            print(f'⏰ calls_client.play() timed out for {body.tg_id} — triggering reinit')
-            # Schedule a reinit so the next call attempt works
-            if tg_client:
-                asyncio.create_task(_reinit_calls(tg_client))
-            raise HTTPException(503, 'Call timed out — PyTgCalls client was stuck. It is being restarted automatically. Please try again in 5 seconds.')
+        # Retry loop: DH_G_A_HASH_INVALID is a transient Telegram key-exchange error — retry up to 2x
+        _last_err = None
+        for _attempt in range(3):
+            try:
+                await asyncio.wait_for(_do_play(), timeout=25)
+                _last_err = None
+                break  # success
+            except asyncio.TimeoutError:
+                print(f'⏰ calls_client.play() timed out for {body.tg_id} — triggering reinit')
+                if tg_client:
+                    asyncio.create_task(_reinit_calls(tg_client))
+                raise HTTPException(503, 'Call timed out — PyTgCalls client was stuck. It is being restarted automatically. Please try again in 5 seconds.')
+            except Exception as _e:
+                _last_err = _e
+                err_str = str(_e)
+                if 'DH_G_A_HASH_INVALID' in err_str or 'HASH_INVALID' in err_str:
+                    print(f'🔄 DH_G_A_HASH_INVALID on attempt {_attempt+1} for {body.tg_id} — retrying...')
+                    await asyncio.sleep(1.5)
+                    continue  # retry
+                raise  # other errors: propagate immediately
+        if _last_err is not None:
+            print(f'❌ Call failed after 3 attempts for {body.tg_id}: {_last_err}')
+            raise HTTPException(500, f'Call failed after 3 attempts: {_last_err}')
         now_ts = datetime.now().isoformat()
         active_calls[body.tg_id] = {
             'file': label,
