@@ -610,6 +610,8 @@
   .tier-tw2     { background: rgba(255,80,0,.12);    border: 1px solid rgba(255,80,0,.4);     color: #ff5000; }
   .tier-tw3     { background: rgba(220,30,30,.13);   border: 1px solid rgba(220,30,30,.4);    color: #e03030; }
   .tier-tw4     { background: rgba(150,0,0,.18);     border: 1px solid rgba(180,0,0,.5);      color: #ff2020; box-shadow: 0 0 8px rgba(200,0,0,.2); }
+  .tier-muted   { background: rgba(100,100,100,.18); border: 1px solid rgba(150,150,150,.4);  color: #888; }
+  .conv-item.is-muted { opacity: .65; filter: grayscale(.4); }
 
   /* tier filter bar */
   .tier-filter-bar {
@@ -1995,6 +1997,7 @@
           <button class="tier-filter-btn" onclick="filterByTier('low')">🌱 Low</button>
           <button class="tier-filter-btn" onclick="filterByTier('new')">🆕 New</button>
           <button class="tier-filter-btn" onclick="filterByTier('tw')">🗑️ Time Waster</button>
+          <button class="tier-filter-btn" onclick="filterByTier('muted')" style="color:#888;border-color:rgba(150,150,150,0.35);">🔇 Muted</button>
         </div>
         <div id="conv-list-body">
           <div class="chat-empty" style="height:200px;">No conversations</div>
@@ -2013,6 +2016,10 @@
           <!-- Media Gallery Button -->
           <button id="media-gallery-btn" onclick="openMediaGallery()" style="display:none;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.35);border-radius:8px;color:#4a9eff;padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;" title="Subscriber-Medien anzeigen">
             📷
+          </button>
+          <!-- Mute Button -->
+          <button id="mute-sub-btn" onclick="toggleMuteSub()" style="display:none;background:rgba(120,120,120,.12);border:1px solid rgba(150,150,150,.3);border-radius:8px;color:#888;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" title="Subscriber muten / entmuten">
+            🔇
           </button>
           <!-- Fake Call Button — shown when conversation is open -->
           <button id="fake-call-btn" onclick="openFakeCallModal()" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:8px;color:#22c55e;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;gap:5px;align-items:center;white-space:nowrap;" title="Start pre-recorded call">
@@ -3988,6 +3995,7 @@ if (checkAuth()) {
     if (activeTierFilter !== 'all') {
       filtered = filtered.filter(c => {
         if (activeTierFilter === 'tw')     return !!c.time_waster;
+        if (activeTierFilter === 'muted')  return !!c.is_muted;
         if (activeTierFilter === 'online') return !!c.is_online;
         if (activeTierFilter === 'unread') return (c.unread || 0) > 0;
         return getSpendingTier(getSubscriberSpending(c.tg_id)).key === activeTierFilter;
@@ -4054,11 +4062,12 @@ if (checkAuth()) {
         : '—';
       const twTier = getTimeWasterBadge(c.time_waster);
       const twBadge = twTier ? `<span class="tier-badge ${twTier.cls}" style="font-size:9px;padding:1px 5px;margin-left:3px;">${twTier.label}</span>` : '';
+      const mutedBadge = c.is_muted ? `<span class="tier-badge tier-muted" style="font-size:9px;padding:1px 5px;margin-left:3px;">🔇 Muted</span>` : '';
       const followupBadge = '';
       const onlineDot = c.is_online
         ? `<span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border:2px solid var(--bg2);border-radius:50%;"></span>`
         : '';
-      // Tab color based on tier — stronger background
+      // Tab color based on tier — muted overrides everything
       const tierColorMap = {
         whale: { border: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
         big:   { border: '#00d4aa', bg: 'rgba(0,212,170,0.10)' },
@@ -4067,14 +4076,17 @@ if (checkAuth()) {
         new:   { border: 'var(--border)', bg: '' },
         tw4:   { border: '#ff5c7a', bg: 'rgba(255,92,122,0.10)' },
       };
-      const tc = tierColorMap[tier.key] || tierColorMap.new;
-      return `<div class="conv-item ${active}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;border-left:4px solid ${tc.border};${tc.bg?`background:${tc.bg};`:''}">
+      const tc = c.is_muted
+        ? { border: '#555', bg: 'rgba(80,80,80,0.10)' }
+        : (tierColorMap[tier.key] || tierColorMap.new);
+      const mutedClass = c.is_muted ? ' is-muted' : '';
+      return `<div class="conv-item ${active}${mutedClass}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;border-left:4px solid ${tc.border};${tc.bg?`background:${tc.bg};`:''}">
         <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;margin-right:10px;">
           <div class="conv-avatar" style="margin:0;position:relative;">${avatarImg(c.tg_id, letter)}${onlineDot}</div>
           <div class="spend-pill ${pillCls}">${pillAmt}</div>
         </div>
         <div class="conv-info">
-          <div class="conv-name">${c.internal_name || c.anon_id}${twBadge}${followupBadge}</div>
+          <div class="conv-name">${c.internal_name || c.anon_id}${mutedBadge}${twBadge}${followupBadge}</div>
           ${c.internal_name ? `<div class="conv-iname">${c.anon_id}</div>` : ''}
           <div class="conv-preview">${c.last_msg || '—'}</div>
         </div>
@@ -4130,9 +4142,48 @@ if (checkAuth()) {
     if (callBtn) callBtn.style.display = 'inline-flex';
     const mediaBtn = document.getElementById('media-gallery-btn');
     if (mediaBtn) mediaBtn.style.display = 'inline-flex';
+    // Mute button — reflect current muted state
+    updateMuteBtn(tgId);
     // Sync call bar with current active call state
     checkActiveCallForConv(tgId);
   }
+
+  function updateMuteBtn(tgId) {
+    const btn = document.getElementById('mute-sub-btn');
+    if (!btn) return;
+    const conv = allConvs.find(c => c.tg_id === tgId);
+    const isMuted = conv?.is_muted;
+    btn.style.display = 'inline-flex';
+    btn.style.alignItems = 'center';
+    if (isMuted) {
+      btn.textContent = '🔇 Muted';
+      btn.style.background = 'rgba(120,120,120,.22)';
+      btn.style.borderColor = 'rgba(150,150,150,.5)';
+      btn.style.color = '#aaa';
+      btn.title = 'Subscriber ist gemutet — klicken zum Entmuten';
+    } else {
+      btn.textContent = '🔇';
+      btn.style.background = 'rgba(120,120,120,.08)';
+      btn.style.borderColor = 'rgba(150,150,150,.25)';
+      btn.style.color = '#666';
+      btn.title = 'Subscriber muten';
+    }
+  }
+
+  window.toggleMuteSub = async function() {
+    if (!currentChatTgId) return;
+    const conv = allConvs.find(c => c.tg_id === currentChatTgId);
+    const newMuted = !(conv?.is_muted);
+    try {
+      await chatApiPost(`/subscriber/${currentChatTgId}`, { is_muted: newMuted });
+      // Update local cache immediately
+      if (conv) conv.is_muted = newMuted;
+      updateMuteBtn(currentChatTgId);
+      renderConvList(applyConvFilters(allConvs));
+    } catch(e) {
+      console.warn('toggleMuteSub failed', e);
+    }
+  };
 
   // ── Profile photo avatar helper ───────────────────────────────────────────
   const TG_COLORS = ['#e17076','#e5985a','#a695e7','#68d187','#6ec9cb','#40a7e3','#ee7aae'];
@@ -5130,10 +5181,12 @@ if (checkAuth()) {
         break;
       }
       case 'call_started':
-        if (msg.tg_id === currentChatTgId) showActiveCallBar(msg);
+        // Always show bar regardless of which chat is open — pass tg_id so _activeCallTgId is set
+        showActiveCallBar(msg, msg.tg_id);
         break;
       case 'call_ended':
-        if (msg.tg_id === currentChatTgId) hideActiveCallBar();
+        // Only hide if the call that ended is the one we're tracking
+        if (msg.tg_id === _activeCallTgId || msg.tg_id === currentChatTgId) hideActiveCallBar();
         break;
     }
   }
@@ -5143,13 +5196,22 @@ if (checkAuth()) {
   let _callStartTs = null;
 
   let _callStatusPollInterval = null;
+  let _activeCallTgId = null; // tgId of the subscriber currently being called (independent of which chat is open)
 
-  function showActiveCallBar(msg) {
+  function showActiveCallBar(msg, forTgId) {
     const bar = document.getElementById('active-call-bar');
     const txt = document.getElementById('active-call-text');
     if (!bar) return;
     _callStartTs = Date.now();
-    txt.textContent = `📞 Pre-recorded ${msg.call_type === 'video' ? 'Video' : 'Audio'} Call — ${msg.filename || ''}`;
+    if (forTgId) _activeCallTgId = forTgId;
+    // Build label — if call is for a different chat than the one currently open, show who
+    let label = `📞 ${msg.call_type === 'video' ? 'Video' : 'Audio'} Call — ${msg.filename || ''}`;
+    if (_activeCallTgId && _activeCallTgId !== currentChatTgId) {
+      const callConv = allConvs.find(c => c.tg_id === _activeCallTgId);
+      const callName = callConv?.internal_name || callConv?.tg_username || ('User #' + _activeCallTgId);
+      label = `📞 Call läuft: ${callName}`;
+    }
+    txt.textContent = label;
     bar.style.display = 'block';
     if (_callTimerInterval) clearInterval(_callTimerInterval);
     _callTimerInterval = setInterval(() => {
@@ -5158,6 +5220,13 @@ if (checkAuth()) {
       const s = String(elapsed % 60).padStart(2, '0');
       const timerEl = document.getElementById('active-call-timer');
       if (timerEl) timerEl.textContent = m + ':' + s;
+      // Update label in case chat was switched after call started
+      const txt2 = document.getElementById('active-call-text');
+      if (txt2 && _activeCallTgId && _activeCallTgId !== currentChatTgId) {
+        const callConv2 = allConvs.find(c => c.tg_id === _activeCallTgId);
+        const callName2 = callConv2?.internal_name || callConv2?.tg_username || ('User #' + _activeCallTgId);
+        txt2.textContent = `📞 Call läuft: ${callName2}`;
+      }
     }, 1000);
     // Poll every 4s as safety-net: if subscriber hung up and WS event was missed, hide the bar
     if (_callStatusPollInterval) clearInterval(_callStatusPollInterval);
@@ -5166,7 +5235,8 @@ if (checkAuth()) {
         const res = await chatApiGet('/call/status');
         if (!res) return;
         const ac = res.active_calls || {};
-        if (!ac[currentChatTgId]) hideActiveCallBar();
+        // Check the call-subscriber specifically (not the currently viewed chat)
+        if (_activeCallTgId && !ac[_activeCallTgId]) hideActiveCallBar();
       } catch(e) {}
     }, 4000);
   }
@@ -5177,6 +5247,7 @@ if (checkAuth()) {
     if (_callTimerInterval) { clearInterval(_callTimerInterval); _callTimerInterval = null; }
     if (_callStatusPollInterval) { clearInterval(_callStatusPollInterval); _callStatusPollInterval = null; }
     _callStartTs = null;
+    _activeCallTgId = null;
   }
 
   async function checkActiveCallForConv(tgId) {
@@ -5185,17 +5256,23 @@ if (checkAuth()) {
       if (!res) return;
       const ac = res.active_calls || {};
       if (ac[tgId]) {
-        showActiveCallBar({ call_type: ac[tgId].type, filename: ac[tgId].file });
-      } else {
+        // This conv has an active call
+        showActiveCallBar({ call_type: ac[tgId].type, filename: ac[tgId].file }, tgId);
+      } else if (_activeCallTgId && ac[_activeCallTgId]) {
+        // A call is still running for a DIFFERENT subscriber — keep bar visible, don't hide
+        showActiveCallBar({ call_type: ac[_activeCallTgId].type, filename: ac[_activeCallTgId].file }, _activeCallTgId);
+      } else if (!_activeCallTgId || !ac[_activeCallTgId]) {
+        // Truly no active call anywhere
         hideActiveCallBar();
       }
     } catch(e) {}
   }
 
   window.hangUpCall = async function() {
-    if (!currentChatTgId) return;
+    const targetId = _activeCallTgId || currentChatTgId;
+    if (!targetId) return;
     try {
-      await chatApiFetch('/call/stop?tg_id=' + currentChatTgId, { method: 'POST' });
+      await chatApiFetch('/call/stop?tg_id=' + targetId, { method: 'POST' });
       hideActiveCallBar();
     } catch(e) { alert('Error hanging up: ' + e.message); }
   };
@@ -5363,7 +5440,7 @@ if (checkAuth()) {
       statusEl.textContent = '✅ Call started!';
       statusEl.style.color = '#22c55e';
       closeFakeCallModal();
-      showActiveCallBar({ call_type: filename.match(/\.(mp4|mov|mkv)$/i) ? 'video' : 'audio', filename });
+      showActiveCallBar({ call_type: filename.match(/\.(mp4|mov|mkv)$/i) ? 'video' : 'audio', filename }, currentChatTgId);
     } catch(e) {
       statusEl.textContent = '❌ ' + e.message;
       statusEl.style.color = '#ff5c7a';
@@ -5401,7 +5478,7 @@ if (checkAuth()) {
       statusEl.style.color = '#22c55e';
       if (urlEl) urlEl.value = '';
       closeFakeCallModal();
-      showActiveCallBar({ call_type: data.type || 'video', filename: url });
+      showActiveCallBar({ call_type: data.type || 'video', filename: url }, currentChatTgId);
     } catch(e) {
       statusEl.textContent = '❌ ' + e.message;
       statusEl.style.color = '#ff5c7a';
@@ -7431,15 +7508,20 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadMembers() {
   const list = document.getElementById('members-list');
   if (!list) return;
+  list.innerHTML = '<div style="color:var(--text3);font-size:13px;">Loading...</div>';
   try {
-    const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+    const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || 'https://worker-production-806f.up.railway.app').replace(/\/$/, '');
     let users = null;
-    const urls = ['/api/auth/users'];
-    if (base) urls.push(base + '/auth/users');
+    // Try Vercel proxy first, then direct Railway URL as fallback
+    const urls = ['/api/auth/users', base + '/auth/users'];
     for (const url of urls) {
-      try { const r = await _fetchT(url, {}, 8000); if (r.ok) { users = await r.json(); break; } } catch(_) {}
+      try {
+        const r = await _fetchT(url, {}, 8000);
+        if (r.ok) { users = await r.json(); break; }
+        console.warn('[loadMembers] non-ok from', url, r.status);
+      } catch(err) { console.warn('[loadMembers] fetch error for', url, err.message); }
     }
-    if (!users) throw new Error('failed');
+    if (!users) throw new Error('Kein User-Response von beiden URLs');
     const currentUser = localStorage.getItem('crm_user');
     list.innerHTML = users.map(u => `
       <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">
@@ -7454,7 +7536,7 @@ async function loadMembers() {
         </select>
         ${u.username !== currentUser ? `<button onclick="deleteMember(${u.id},'${u.username}')" style="background:rgba(255,92,122,0.15);border:1px solid rgba(255,92,122,0.3);color:#ff5c7a;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:11px;">✕</button>` : '<div style="width:34px;"></div>'}
       </div>`).join('');
-  } catch(e) { list.innerHTML = '<div style="color:var(--red)">Error loading</div>'; }
+  } catch(e) { console.error('[loadMembers] Error:', e); list.innerHTML = `<div style="color:var(--red);font-size:12px;">❌ ${e.message}</div>`; }
 }
 
 async function createMember() {
