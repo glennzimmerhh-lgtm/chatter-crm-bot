@@ -5238,6 +5238,9 @@ if (checkAuth()) {
       btn.style.color = active ? 'var(--text)' : 'var(--dim)';
       btn.style.fontWeight = active ? '700' : '600';
     });
+    // Keep hidden folder select in sync so uploadCallRecording uses the active tab
+    const sel = document.getElementById('fc-upload-folder');
+    if (sel) sel.value = folder || 'fake_checks';
     loadCallFiles();
   };
 
@@ -6086,63 +6089,62 @@ window.showPage = function(page) {
 </div>
 
 <!-- FAKE CALL MODAL -->
-<div id="fake-call-modal-overlay" onclick="if(event.target===this)closeFakeCallModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:600;align-items:center;justify-content:center;flex-direction:column;">
-  <div style="background:var(--sidebar);border:1px solid rgba(255,255,255,.1);border-radius:14px;width:460px;max-width:94vw;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">
+<div id="fake-call-modal-overlay" onclick="if(event.target===this)closeFakeCallModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;flex-direction:column;">
+  <div style="background:var(--sidebar);border:1px solid rgba(255,255,255,.1);border-radius:16px;width:500px;max-width:96vw;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;">
+
     <!-- Header -->
-    <div style="padding:18px 20px 14px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:10px;">
-      <span style="font-size:22px;">📞</span>
+    <div style="padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:12px;flex-shrink:0;">
+      <span style="font-size:20px;">📞</span>
       <div style="flex:1;">
-        <div style="font-weight:800;font-size:15px;">Start pre-recorded call</div>
-        <div id="fc-backend-status" style="font-size:12px;color:var(--dim);margin-top:2px;">Checking status...</div>
+        <div style="font-weight:800;font-size:15px;">Pre-recorded Call</div>
+        <div id="fc-backend-status" style="font-size:11px;color:var(--dim);margin-top:1px;">Checking status...</div>
       </div>
-      <button onclick="closeFakeCallModal()" style="background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer;padding:0 4px;">✕</button>
+      <button onclick="closeFakeCallModal()" style="background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:2px 6px;line-height:1;">✕</button>
     </div>
-    <!-- Upload section -->
-    <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.07);">
-      <div style="font-size:12px;color:var(--dim);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Upload recording</div>
-      <!-- Folder selector (shared by both methods) -->
-      <select id="fc-upload-folder" style="width:100%;font-size:12px;color:var(--text);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:7px;padding:7px 10px;cursor:pointer;margin-bottom:8px;box-sizing:border-box;">
-        <option value="fake_checks">✅ Fake Checks</option>
-        <option value="paid_calls">💰 Paid Calls</option>
+
+    <!-- Folder tabs — also controls upload destination -->
+    <div style="display:flex;border-bottom:1px solid rgba(255,255,255,.06);padding:0 20px;flex-shrink:0;background:rgba(255,255,255,.02);">
+      <button id="fc-tab-all" onclick="switchCallFolder('')" style="background:none;border:none;border-bottom:2px solid var(--teal);color:var(--text);padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">Alle</button>
+      <button id="fc-tab-fake_checks" onclick="switchCallFolder('fake_checks')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">✅ Fake Checks</button>
+      <button id="fc-tab-paid_calls" onclick="switchCallFolder('paid_calls')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">💰 Paid Calls</button>
+      <!-- hidden folder selector kept in sync with active tab for JS compat -->
+      <select id="fc-upload-folder" style="display:none;">
+        <option value="fake_checks">fake_checks</option>
+        <option value="paid_calls">paid_calls</option>
       </select>
+    </div>
+
+    <!-- File list -->
+    <div style="flex:1;overflow-y:auto;padding:12px 20px;">
+      <div id="fc-files-list"></div>
+    </div>
+
+    <!-- Add new — compact bottom panel -->
+    <div style="border-top:1px solid rgba(255,255,255,.07);padding:12px 20px;background:rgba(255,255,255,.02);flex-shrink:0;">
       <!-- File upload row -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
         <input id="fc-upload-input" type="file" accept="audio/*,video/*,.mp3,.mp4,.wav,.ogg,.aac,.m4a,.mov,.mkv,.flac"
-          style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;cursor:pointer;">
-        <button onclick="uploadCallRecording()" style="background:var(--teal);border:none;border-radius:7px;color:#000;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">⬆ Upload</button>
+          style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:7px 10px;cursor:pointer;box-sizing:border-box;">
+        <button onclick="uploadCallRecording()" style="background:var(--teal);border:none;border-radius:8px;color:#000;padding:8px 16px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0;">⬆ Upload</button>
       </div>
       <!-- URL import row -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-        <input id="fc-url-input" type="url" placeholder="Google Drive link oder direkte MP4-URL…"
-          style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;outline:none;">
-        <button onclick="startFakeCallFromUrl()" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.5);border-radius:7px;color:#22c55e;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">📞 Call</button>
-        <button onclick="importCallFromUrl()" style="background:rgba(74,158,255,.2);border:1px solid rgba(74,158,255,.4);border-radius:7px;color:#4a9eff;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">⬇ Save</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="fc-url-input" type="url" placeholder="Google Drive oder MP4-URL…"
+          style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 10px;outline:none;box-sizing:border-box;">
+        <button onclick="startFakeCallFromUrl()" style="background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.4);border-radius:8px;color:#22c55e;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0;">📞 Call</button>
+        <button onclick="importCallFromUrl()" style="background:rgba(74,158,255,.18);border:1px solid rgba(74,158,255,.35);border-radius:8px;color:#4a9eff;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0;">⬇ Save</button>
       </div>
-      <div id="fc-upload-status" style="font-size:12px;min-height:16px;"></div>
-      <!-- Import progress bar -->
+      <!-- Status + progress -->
+      <div id="fc-upload-status" style="font-size:12px;min-height:14px;margin-top:6px;"></div>
       <div id="fc-import-progress-wrap" style="display:none;margin-top:6px;">
-        <div style="height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;">
-          <div id="fc-import-progress-bar" style="height:100%;background:var(--teal);width:0%;transition:width .3s;border-radius:3px;"></div>
+        <div style="height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;">
+          <div id="fc-import-progress-bar" style="height:100%;background:var(--teal);width:0%;transition:width .3s;border-radius:2px;"></div>
         </div>
         <div id="fc-import-progress-label" style="font-size:11px;color:var(--text3);margin-top:3px;"></div>
       </div>
+      <div id="fc-status" style="font-size:12px;min-height:14px;text-align:center;margin-top:4px;"></div>
     </div>
-    <!-- Folder tabs + Files list -->
-    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;">
-      <!-- Folder tabs -->
-      <div style="display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.07);padding:0 20px;flex-shrink:0;">
-        <button id="fc-tab-all" onclick="switchCallFolder('')" style="background:none;border:none;border-bottom:2px solid var(--teal);color:var(--text);padding:10px 14px;font-size:12px;font-weight:700;cursor:pointer;">Alle</button>
-        <button id="fc-tab-fake_checks" onclick="switchCallFolder('fake_checks')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:10px 14px;font-size:12px;font-weight:600;cursor:pointer;">✅ Fake Checks</button>
-        <button id="fc-tab-paid_calls" onclick="switchCallFolder('paid_calls')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:10px 14px;font-size:12px;font-weight:600;cursor:pointer;">💰 Paid Calls</button>
-      </div>
-      <div style="padding:14px 20px;flex:1;overflow-y:auto;">
-        <div id="fc-files-list"></div>
-      </div>
-    </div>
-    <!-- Status / footer -->
-    <div style="padding:10px 20px 14px;border-top:1px solid rgba(255,255,255,.07);">
-      <div id="fc-status" style="font-size:13px;min-height:18px;text-align:center;"></div>
-    </div>
+
   </div>
 </div>
 
