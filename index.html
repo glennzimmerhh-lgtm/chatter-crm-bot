@@ -5142,6 +5142,8 @@ if (checkAuth()) {
   let _callTimerInterval = null;
   let _callStartTs = null;
 
+  let _callStatusPollInterval = null;
+
   function showActiveCallBar(msg) {
     const bar = document.getElementById('active-call-bar');
     const txt = document.getElementById('active-call-text');
@@ -5157,12 +5159,23 @@ if (checkAuth()) {
       const timerEl = document.getElementById('active-call-timer');
       if (timerEl) timerEl.textContent = m + ':' + s;
     }, 1000);
+    // Poll every 4s as safety-net: if subscriber hung up and WS event was missed, hide the bar
+    if (_callStatusPollInterval) clearInterval(_callStatusPollInterval);
+    _callStatusPollInterval = setInterval(async () => {
+      try {
+        const res = await chatApiGet('/call/status');
+        if (!res) return;
+        const ac = res.active_calls || {};
+        if (!ac[currentChatTgId]) hideActiveCallBar();
+      } catch(e) {}
+    }, 4000);
   }
 
   function hideActiveCallBar() {
     const bar = document.getElementById('active-call-bar');
     if (bar) bar.style.display = 'none';
     if (_callTimerInterval) { clearInterval(_callTimerInterval); _callTimerInterval = null; }
+    if (_callStatusPollInterval) { clearInterval(_callStatusPollInterval); _callStatusPollInterval = null; }
     _callStartTs = null;
   }
 
@@ -5404,8 +5417,9 @@ if (checkAuth()) {
     const inp = document.getElementById('fc-upload-input');
     if (!inp || !inp.files.length) return;
     const file = inp.files[0];
-    const folderSel = document.getElementById('fc-upload-folder');
-    const folder = folderSel ? folderSel.value : '';
+    // Use _currentCallFolder directly (source of truth from the active tab).
+    // Falls back to 'fake_checks' when "Alle" tab is active.
+    const folder = _currentCallFolder || 'fake_checks';
     const statusEl = document.getElementById('fc-upload-status');
     statusEl.textContent = '⏳ Uploading...';
     statusEl.style.color = '#fbbf24';
@@ -5441,7 +5455,7 @@ if (checkAuth()) {
   window.importCallFromUrl = async function() {
     const urlEl    = document.getElementById('fc-url-input');
     const url      = urlEl?.value.trim();
-    const folder   = document.getElementById('fc-upload-folder')?.value || '';
+    const folder   = _currentCallFolder || 'fake_checks';
     const statusEl = document.getElementById('fc-upload-status');
     const wrapEl   = document.getElementById('fc-import-progress-wrap');
     const barEl    = document.getElementById('fc-import-progress-bar');

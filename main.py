@@ -71,7 +71,8 @@ from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 from telethon.tl.types import (User, InputPeerUser, UpdateReadHistoryOutbox, PeerUser,
                                UpdateUserStatus, UserStatusOnline, UserStatusOffline,
-                               UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth)
+                               UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth,
+                               UpdatePhoneCall, PhoneCallDiscarded)
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 TG_API_ID   = os.environ.get('TG_API_ID', '')
@@ -489,6 +490,28 @@ async def start_userbot():
                     asyncio.create_task(ws_manager.broadcast({
                         'type': 'read_receipt', 'tg_id': tg_id, 'max_id': max_id
                     }))
+
+            @tg_client.on(events.Raw(UpdatePhoneCall))
+            async def on_phone_call_update(update):
+                """Fires when subscriber hangs up or a call is discarded."""
+                try:
+                    if isinstance(update.phone_call, PhoneCallDiscarded):
+                        print(f'📵 Telethon: PhoneCallDiscarded — ending active calls')
+                        for tg_id_str in list(active_calls.keys()):
+                            active_calls.pop(tg_id_str, None)
+                            asyncio.create_task(ws_manager.broadcast({
+                                'type': 'call_ended', 'tg_id': tg_id_str
+                            }))
+                        # Also try to cleanly leave via pytgcalls
+                        if calls_client:
+                            for tg_id_str in list(active_calls.keys()):
+                                try:
+                                    if hasattr(calls_client, 'leave_call'):
+                                        await calls_client.leave_call(int(tg_id_str))
+                                except Exception:
+                                    pass
+                except Exception as e:
+                    print(f'⚠️ on_phone_call_update: {e}')
 
             @tg_client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
             async def on_dm(event):
