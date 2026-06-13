@@ -56,6 +56,7 @@ except Exception as _e:
 
 calls_client: Optional[object] = None
 active_calls: dict = {}   # tg_id → {file, chatter, started_at}
+_tg_priority: int = 0    # >0 = broadcast pauses (reply/call in progress)
 
 import sqlite3 as _sqlite3
 
@@ -1258,6 +1259,8 @@ async def post_reply(body: ReplyIn, background_tasks: BackgroundTasks):
 
 async def _send_reply_bg(body: ReplyIn, peer):
     """Send a chat reply in the background — keeps /reply endpoint instant."""
+    global _tg_priority
+    _tg_priority += 1  # pause broadcast while this send is in flight
     try:
         sent_msg = await tg_client.send_message(peer, body.text)
         tg_msg_id = sent_msg.id
@@ -1276,6 +1279,8 @@ async def _send_reply_bg(body: ReplyIn, peer):
         print(f'⏳ /reply FloodWait {e.seconds}s for {body.tg_id}')
     except Exception as e:
         print(f'❌ /reply bg error for {body.tg_id}: {e}')
+    finally:
+        _tg_priority = max(0, _tg_priority - 1)  # resume broadcast
 
 # ── AUTH & USERS ─────────────────────────────────────────────────────────────
 import hashlib as _hashlib
@@ -2103,6 +2108,9 @@ async def _run_broadcast_bg(body: BroadcastIn, recipients: list):
     sent_ok, sent_fail = 0, 0
     total = len(recipients)
     for i, r in enumerate(recipients):
+        # Pause if a chat reply or call has priority — yield Telethon connection
+        while _tg_priority > 0:
+            await asyncio.sleep(0.1)
         try:
             ah = int(r['tg_access_hash']) if r['tg_access_hash'] else 0
             peer = InputPeerUser(int(r['tg_id']), ah) if ah else int(r['tg_id'])
@@ -3052,6 +3060,8 @@ async def start_fake_call(body: CallStartIn):
         # Retry loop: DH_G_A_HASH_INVALID is a Telegram DH key-exchange error.
         # After each failure we do a fast calls_client reinit (new PyTgCalls instance
         # generates fresh DH params) and retry up to 2 more times.
+        global _tg_priority
+        _tg_priority += 1  # pause broadcast during call setup
         _last_err = None
         for _attempt in range(3):
             try:
@@ -3088,6 +3098,7 @@ async def start_fake_call(body: CallStartIn):
                     await asyncio.sleep(2)
                     continue  # retry with fresh client
                 raise  # other errors or final attempt: propagate immediately
+        _tg_priority = max(0, _tg_priority - 1)  # resume broadcast
         if _last_err is not None:
             print(f'❌ Call failed after 3 attempts for {body.tg_id}: {_last_err}')
             raise HTTPException(500, f'Call failed after 3 attempts: {_last_err}')
