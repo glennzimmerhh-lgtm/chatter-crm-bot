@@ -3078,14 +3078,20 @@ async def start_fake_call(body: CallStartIn):
         _last_err = None
         for _attempt in range(3):
             try:
-                await asyncio.wait_for(_do_play(), timeout=25)
+                await asyncio.wait_for(_do_play(), timeout=50)
                 _last_err = None
                 break  # success
             except asyncio.TimeoutError:
-                print(f'⏰ calls_client.play() timed out for {body.tg_id} — triggering reinit')
+                print(f'⏰ calls_client.play() timed out for {body.tg_id} — cleaning up and reiniting')
+                # Clean up the dangling call on Telegram's side before reinit
+                try:
+                    if calls_client and hasattr(calls_client, 'leave_call'):
+                        await asyncio.wait_for(calls_client.leave_call(peer), timeout=5)
+                except Exception:
+                    pass
                 if tg_client:
                     asyncio.create_task(_reinit_calls(tg_client))
-                raise HTTPException(503, 'Call timed out — PyTgCalls client was stuck. It is being restarted automatically. Please try again in 5 seconds.')
+                raise HTTPException(503, 'Kein Anruf angenommen (Timeout nach 50s). Subscriber hat nicht abgehoben.')
             except Exception as _e:
                 _last_err = _e
                 err_str = str(_e)
