@@ -1239,49 +1239,26 @@ class ReplyIn(BaseModel):
     chatter: str = 'Chatter'
 
 @app.post('/reply')
-async def post_reply(body: ReplyIn):
+async def post_reply(body: ReplyIn, background_tasks: BackgroundTasks):
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
+    # Look up access_hash from DB (no extra Telegram roundtrip needed)
+    peer_int = int(body.tg_id)
+    access_hash = 0
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
+            row = c.fetchone()
+            if row and row['tg_access_hash']:
+                access_hash = int(row['tg_access_hash'])
+    peer = InputPeerUser(peer_int, access_hash) if access_hash else peer_int
+    # Fire-and-forget: send in background so reply returns instantly
+    background_tasks.add_task(_send_reply_bg, body, peer)
+    return {'ok': True}
+
+async def _send_reply_bg(body: ReplyIn, peer):
+    """Send a chat reply in the background — keeps /reply endpoint instant."""
     try:
-        # Look up access_hash for reliable entity resolution
-        peer_int = int(body.tg_id)
-        access_hash = 0
-        with db() as conn:
-            with conn.cursor() as c:
-                c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
-                row = c.fetchone()
-                if row and row['tg_access_hash']:
-                    access_hash = int(row['tg_access_hash'])
-
-        # ── Entity pre-resolution (same as call endpoint) ──────────────────────
-        # Ensures Telethon session cache has this user, preventing PeerIdInvalidError
-        resolved = False
-        if access_hash:
-            try:
-                from telethon.tl.types import InputUser as _IU
-                from telethon.tl.functions.users import GetUsersRequest as _GUR
-                users = await tg_client(_GUR(id=[_IU(user_id=peer_int, access_hash=access_hash)]))
-                if users:
-                    await tg_client.get_input_entity(users[0])
-                    resolved = True
-            except Exception as _e:
-                print(f'⚠️ reply GetUsers failed: {_e}')
-        if not resolved:
-            try:
-                async for _dlg in tg_client.iter_dialogs(limit=200):
-                    if getattr(_dlg.entity, 'id', None) == peer_int:
-                        await tg_client.get_input_entity(_dlg.entity)
-                        resolved = True
-                        break
-            except Exception as _e:
-                print(f'⚠️ reply dialog scan failed: {_e}')
-
-        # Build peer — prefer resolved InputPeerUser, fall back to int
-        if access_hash:
-            peer = InputPeerUser(peer_int, access_hash)
-        else:
-            peer = peer_int
-
         sent_msg = await tg_client.send_message(peer, body.text)
         tg_msg_id = sent_msg.id
         loop = asyncio.get_event_loop()
@@ -1295,12 +1272,10 @@ async def post_reply(body: ReplyIn):
             'timestamp': datetime.now().isoformat(),
             'tg_msg_id': tg_msg_id,
         }))
-        return {'ok': True}
     except FloodWaitError as e:
-        raise HTTPException(429, f'Telegram Flood Wait: {e.seconds}s warten')
+        print(f'⏳ /reply FloodWait {e.seconds}s for {body.tg_id}')
     except Exception as e:
-        print(f'❌ /reply error for {body.tg_id}: {e}')
-        raise HTTPException(500, str(e))
+        print(f'❌ /reply bg error for {body.tg_id}: {e}')
 
 # ── AUTH & USERS ─────────────────────────────────────────────────────────────
 import hashlib as _hashlib
