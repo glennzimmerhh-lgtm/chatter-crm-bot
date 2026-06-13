@@ -2093,7 +2093,7 @@ class BroadcastIn(BaseModel):
     exclude_stages: Optional[list] = None    # exclude by funnel stage
 
 @app.post('/broadcast')
-async def post_broadcast(body: BroadcastIn):
+async def post_broadcast(body: BroadcastIn, background_tasks: BackgroundTasks):
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
     if not body.text.strip():
@@ -2118,8 +2118,16 @@ async def post_broadcast(body: BroadcastIn):
                   if r['tg_id'] not in exclude_set
                   and (not exclude_stages or r.get('funnel_stage','') not in exclude_stages)]
 
+    # Start background task — return immediately so Railway doesn't time out
+    background_tasks.add_task(_run_broadcast_bg, body, recipients)
+    return {'ok': True, 'started': True, 'total': len(recipients)}
+
+
+async def _run_broadcast_bg(body: BroadcastIn, recipients: list):
+    """Runs broadcast in background, pushes progress via WebSocket every 10 msgs."""
     sent_ok, sent_fail = 0, 0
-    for r in recipients:
+    total = len(recipients)
+    for i, r in enumerate(recipients):
         try:
             ah = int(r['tg_access_hash']) if r['tg_access_hash'] else 0
             peer = InputPeerUser(int(r['tg_id']), ah) if ah else int(r['tg_id'])
@@ -2128,12 +2136,24 @@ async def post_broadcast(body: BroadcastIn):
             sent_ok += 1
             await asyncio.sleep(1.2)   # ~50 msg/min — safe for Telegram
         except FloodWaitError as e:
-            await asyncio.sleep(e.seconds + 5)
+            wait = e.seconds + 5
+            print(f'Broadcast FloodWait {wait}s')
+            await asyncio.sleep(wait)
         except Exception as ex:
             print(f'Broadcast skip {r["tg_id"]}: {ex}')
             sent_fail += 1
-
-    return {'ok': True, 'sent': sent_ok, 'failed': sent_fail, 'total': len(recipients)}
+        # Push progress every 10 messages and at the end
+        if (i + 1) % 10 == 0 or (i + 1) == total:
+            await ws_manager.broadcast({
+                'type': 'broadcast_progress',
+                'sent': sent_ok, 'failed': sent_fail,
+                'total': total, 'current': i + 1
+            })
+    await ws_manager.broadcast({
+        'type': 'broadcast_done',
+        'sent': sent_ok, 'failed': sent_fail, 'total': total
+    })
+    print(f'✅ Broadcast done: {sent_ok}/{total} sent, {sent_fail} failed')
 
 # ── SCHEDULED BROADCAST ──────────────────────────────────────────────────────
 class ScheduledBroadcastIn(BaseModel):

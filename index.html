@@ -5188,6 +5188,27 @@ if (checkAuth()) {
         // Only hide if the call that ended is the one we're tracking
         if (msg.tg_id === _activeCallTgId || msg.tg_id === currentChatTgId) hideActiveCallBar();
         break;
+      case 'broadcast_progress': {
+        const bcStatus = document.getElementById('bc-status');
+        if (bcStatus) {
+          bcStatus.style.color = 'var(--text2)';
+          bcStatus.textContent = `⏳ Sending... ${msg.sent}/${msg.total}`;
+        }
+        break;
+      }
+      case 'broadcast_done': {
+        const bcStatus = document.getElementById('bc-status');
+        if (bcStatus) {
+          bcStatus.style.color = 'var(--teal)';
+          bcStatus.textContent = `✅ Done: ${msg.sent} sent${msg.failed ? `, ${msg.failed} failed` : ''} (${msg.total} total)`;
+        }
+        const bcText = document.getElementById('bc-text');
+        if (bcText && msg.sent > 0) bcText.value = '';
+        _bcSending = false;
+        const sendBtn = document.querySelector('button[onclick="startBroadcast()"]');
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📣 Send'; }
+        break;
+      }
     }
   }
 
@@ -6040,7 +6061,14 @@ async function startBroadcast() {
       body: JSON.stringify(body)
     });
     const data = await r.json();
-    if (data.ok) {
+    if (data.started) {
+      // Background mode — progress comes via WebSocket broadcast_progress / broadcast_done
+      status.style.color = 'var(--text2)';
+      status.textContent = `⏳ Sending... 0/${data.total}`;
+      _bcTotal = data.total;
+      // Keep button disabled until broadcast_done arrives via WebSocket
+      return; // skip finally-reset; WS handler will re-enable button
+    } else if (data.ok) {
       status.style.color = 'var(--teal)';
       status.textContent = `✅ Done: ${data.sent} sent (${data.total} total)`;
       document.getElementById('bc-text').value = '';
