@@ -5031,7 +5031,9 @@ if (checkAuth()) {
       });
       const res = await r.json().catch(() => ({}));
       if (r.ok && res.ok) {
-        await loadMsgs();
+        // Re-enable button immediately — don't block on loadMsgs
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send ↑'; }
+        loadMsgs(); // fire-and-forget, runs in background
       } else {
         input.value = text;
         const detail = res?.detail || `HTTP ${r.status}`;

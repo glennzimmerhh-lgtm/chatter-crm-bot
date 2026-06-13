@@ -2132,8 +2132,10 @@ async def _run_broadcast_bg(body: BroadcastIn, recipients: list):
             ah = int(r['tg_access_hash']) if r['tg_access_hash'] else 0
             peer = InputPeerUser(int(r['tg_id']), ah) if ah else int(r['tg_id'])
             sent_msg = await tg_client.send_message(peer, body.text)
-            save_msg(r['tg_id'], body.text, 'out', body.chatter, sent_msg.id)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: save_msg(r['tg_id'], body.text, 'out', body.chatter, sent_msg.id))
             sent_ok += 1
+            await asyncio.sleep(0)  # yield event loop for pending chat requests
             await asyncio.sleep(1.2)   # ~50 msg/min — safe for Telegram
         except FloodWaitError as e:
             wait = e.seconds + 5
