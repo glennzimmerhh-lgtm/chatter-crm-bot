@@ -5198,6 +5198,12 @@ if (checkAuth()) {
       case 'call_ended':
         // Only hide if the call that ended is the one we're tracking
         if (msg.tg_id === _activeCallTgId || msg.tg_id === currentChatTgId) hideActiveCallBar();
+        // Alert chatter if subscriber didn't answer or call errored
+        if (msg.reason === 'unanswered') {
+          setTimeout(() => alert('📞 Kein Anruf angenommen — Subscriber hat nicht abgehoben (60s Timeout).'), 100);
+        } else if (msg.reason === 'error') {
+          setTimeout(() => alert('❌ Call-Fehler: ' + (msg.msg || 'Unbekannter Fehler')), 100);
+        }
         break;
       case 'broadcast_progress': {
         const bcStatus = document.getElementById('bc-status');
@@ -6586,29 +6592,38 @@ let _lastNotifTs = '';
 
 async function loadNotifications() {
   const feed = document.getElementById('notif-feed');
-  try {
-    // Try Vercel proxy first, fall back to Railway direct (with timeout to prevent infinite hang)
-    const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
-    let data = null;
-    const urls = ['/api/notifications'];
-    if (base) urls.push(base + '/notifications');
-    for (const url of urls) {
-      try {
-        const r = await _fetchT(url, {}, 8000);
-        if (r.ok) { data = await r.json(); break; }
-      } catch(_) {}
+  if (feed && (feed.innerHTML.includes('Loading') || feed.innerHTML.includes('⚠️') || feed.innerHTML.includes('❌'))) {
+    feed.innerHTML = '<div class="empty" style="color:var(--text3);">⏳ Loading...</div>';
+  }
+  const RAILWAY = 'https://worker-production-806f.up.railway.app';
+  const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || RAILWAY).replace(/\/$/, '');
+  let data = null;
+  let lastErr = '';
+  const urls = ['/api/notifications'];
+  if (base && !base.startsWith('/')) urls.push(base + '/notifications');
+  for (const url of urls) {
+    try {
+      const r = await _fetchT(url, {}, 15000);
+      if (r.ok) { data = await r.json(); break; }
+      let body = ''; try { body = await r.text(); } catch(_) {}
+      lastErr = `HTTP ${r.status}: ${body.slice(0,100)}`;
+    } catch(err) {
+      lastErr = `${err.name}: ${err.message}`;
     }
-    if (data === null) throw new Error('All URLs failed');
-    _allNotifs = data;
-    renderNotifications();
-    // Update badge with new unread count
-    const newCount = data.filter(n => n.ts > _lastNotifTs && n.type !== 'message').length;
-    const badge = document.getElementById('notif-badge');
-    if (badge && newCount > 0 && _lastNotifTs) {
-      badge.textContent = newCount; badge.style.display = 'inline';
-    }
-  } catch(e) {
-    if (feed) feed.innerHTML = '<div class="empty" style="color:#ff5c7a;">⚠️ Could not load notifications — click ↻ to retry</div>';
+  }
+  if (data === null) {
+    if (feed) feed.innerHTML = `<div class="empty" style="color:#ff5c7a;">
+      ❌ Notifications konnten nicht geladen werden.<br>
+      <span style="font-size:11px;color:var(--text3);">${lastErr}</span>
+    </div>`;
+    return;
+  }
+  _allNotifs = data;
+  renderNotifications();
+  const newCount = data.filter(n => n.ts > _lastNotifTs && n.type !== 'message').length;
+  const badge = document.getElementById('notif-badge');
+  if (badge && newCount > 0 && _lastNotifTs) {
+    badge.textContent = newCount; badge.style.display = 'inline';
   }
 }
 
@@ -7547,24 +7562,46 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadMembers() {
   const list = document.getElementById('members-list');
   if (!list) return;
-  list.innerHTML = '<div style="color:var(--text3);font-size:13px;">Loading...</div>';
-  try {
-    const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || 'https://worker-production-806f.up.railway.app').replace(/\/$/, '');
-    let users = null;
-    // Try Vercel proxy first, then direct Railway URL as fallback
-    const urls = ['/api/auth/users', base + '/auth/users'];
-    for (const url of urls) {
-      try {
-        const r = await _fetchT(url, {}, 8000);
-        if (r.ok) { users = await r.json(); break; }
-        console.warn('[loadMembers] non-ok from', url, r.status);
-      } catch(err) { console.warn('[loadMembers] fetch error for', url, err.message); }
+  list.innerHTML = '<div style="color:var(--text3);font-size:13px;">⏳ Loading...</div>';
+  // Always include hardcoded Railway URL so fallback works even without crm_backend_url
+  const RAILWAY = 'https://worker-production-806f.up.railway.app';
+  const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || RAILWAY).replace(/\/$/, '');
+  let users = null;
+  let lastErr = '';
+  // Try Vercel proxy first, then direct Railway as fallback
+  const urls = ['/api/auth/users'];
+  if (!base.startsWith('/')) urls.push(base + '/auth/users');  // only add if it's an absolute URL
+  for (const url of urls) {
+    try {
+      const r = await _fetchT(url, {}, 12000);
+      if (r.ok) {
+        users = await r.json();
+        break;
+      }
+      // Show HTTP error clearly
+      let body = '';
+      try { body = await r.text(); } catch(_) {}
+      lastErr = `HTTP ${r.status} from ${url}: ${body.slice(0,120)}`;
+      console.warn('[loadMembers]', lastErr);
+    } catch(err) {
+      lastErr = `${err.name}: ${err.message} (${url})`;
+      console.warn('[loadMembers] fetch error:', lastErr);
     }
-    if (!users) throw new Error('Kein User-Response von beiden URLs');
-    const currentUser = localStorage.getItem('crm_user');
-    list.innerHTML = users.map(u => `
+  }
+  if (!users) {
+    list.innerHTML = `<div style="color:var(--red);font-size:12px;line-height:1.6;">
+      ❌ Members konnten nicht geladen werden.<br>
+      <span style="color:var(--text3);font-size:11px;">${lastErr}</span><br>
+      <button onclick="loadMembers()" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:11px;">↻ Retry</button>
+    </div>`;
+    return;
+  }
+  const currentUser = localStorage.getItem('crm_user');
+  list.innerHTML = users.length === 0
+    ? '<div style="color:var(--text3);font-size:13px;">Keine Members gefunden.</div>'
+    : users.map(u => `
       <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">
-        <div style="width:36px;height:36px;border-radius:50%;background:${u.role==='admin'?'rgba(0,212,170,0.2)':'rgba(74,158,255,0.15)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:${u.role==='admin'?'var(--teal)':'var(--blue)'};">${(u.display_name||u.username)[0].toUpperCase()}</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:${u.role==='admin'?'rgba(0,212,170,0.2)':'rgba(74,158,255,0.15)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:${u.role==='admin'?'var(--teal)':'var(--blue)'};">${(u.display_name||u.username||'?')[0].toUpperCase()}</div>
         <div style="flex:1;">
           <div style="font-size:13px;font-weight:600;color:var(--text);">${u.display_name || u.username}</div>
           <div style="font-size:11px;color:var(--text3);">${u.role === 'admin' ? '👑 Admin' : '💬 Chatter'} · ${u.username}</div>
@@ -7575,7 +7612,6 @@ async function loadMembers() {
         </select>
         ${u.username !== currentUser ? `<button onclick="deleteMember(${u.id},'${u.username}')" style="background:rgba(255,92,122,0.15);border:1px solid rgba(255,92,122,0.3);color:#ff5c7a;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:11px;">✕</button>` : '<div style="width:34px;"></div>'}
       </div>`).join('');
-  } catch(e) { console.error('[loadMembers] Error:', e); list.innerHTML = `<div style="color:var(--red);font-size:12px;">❌ ${e.message}</div>`; }
 }
 
 async function createMember() {
