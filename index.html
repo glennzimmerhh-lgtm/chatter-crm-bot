@@ -6591,33 +6591,55 @@ let _lastNotifTs = '';
 async function loadNotifications() {
   const feed = document.getElementById('notif-feed');
   if (!feed) return;
-  feed.innerHTML = '<div class="empty" style="color:var(--text3);">⏳ Laden...</div>';
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12000);
-  try {
-    const r = await fetch('https://worker-production-806f.up.railway.app/notifications', { signal: ctrl.signal });
-    clearTimeout(timer);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const raw = await r.json();
-    // Only Sales & New Subscribers
-    _allNotifs = raw.filter(n => n.type === 'sale' || n.type === 'new_sub');
+  // Show cached data immediately so tab is never blank; spinner only on first load
+  if (_allNotifs && _allNotifs.length > 0) {
     renderNotifications();
-    // Badge: count new entries since last check
-    const newCount = _allNotifs.filter(n => n.ts > _lastNotifTs).length;
-    const badge = document.getElementById('notif-badge');
-    if (badge && newCount > 0 && _lastNotifTs) {
-      badge.textContent = newCount; badge.style.display = 'inline';
-    }
-    if (_allNotifs.length) _lastNotifTs = _allNotifs[0].ts;
-  } catch(e) {
-    clearTimeout(timer);
-    const msg = e.name === 'AbortError' ? 'Timeout (12s) — Railway nicht erreichbar' : e.message;
-    if (feed) feed.innerHTML = `<div class="empty" style="color:#ff5c7a;">
-      ❌ ${msg}<br>
-      <button onclick="loadNotifications()" class="period-btn" style="margin-top:10px;">↻ Nochmal versuchen</button>
-    </div>`;
+  } else {
+    feed.innerHTML = '<div class="empty" style="color:var(--text3);">⏳ Laden...</div>';
   }
+
+  // Try Vercel proxy first (no CORS issues), fall back to Railway direct
+  const URLS = [
+    '/api/notifications',
+    'https://worker-production-806f.up.railway.app/notifications'
+  ];
+  let raw = null;
+  let lastErr = '';
+  for (const url of URLS) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    try {
+      const r = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (r.ok) { raw = await r.json(); break; }
+      lastErr = 'HTTP ' + r.status + ' (' + url + ')';
+    } catch(e) {
+      clearTimeout(timer);
+      lastErr = (e.name === 'AbortError' ? 'Timeout' : e.message) + ' (' + url + ')';
+    }
+  }
+
+  if (!raw) {
+    feed.innerHTML = `<div class="empty" style="color:#ff5c7a;">
+      ❌ Konnte nicht laden<br>
+      <span style="font-size:11px;color:var(--text3);">${lastErr}</span><br>
+      <button onclick="loadNotifications()" class="period-btn" style="margin-top:10px;">↻ Retry</button>
+    </div>`;
+    return;
+  }
+
+  // Only Sales & New Subscribers
+  _allNotifs = raw.filter(n => n.type === 'sale' || n.type === 'new_sub');
+
+  renderNotifications();
+
+  // Badge: count new entries since last check
+  const newCount = _allNotifs.filter(n => n.ts > _lastNotifTs).length;
+  const badge = document.getElementById('notif-badge');
+  if (badge && newCount > 0 && _lastNotifTs) {
+    badge.textContent = newCount; badge.style.display = 'inline';
+  }
+  if (_allNotifs.length) _lastNotifTs = _allNotifs[0].ts;
 }
 
 function filterNotifs(type) {
