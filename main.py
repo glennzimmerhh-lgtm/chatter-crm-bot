@@ -98,6 +98,20 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 SUBSCRIBER_BACKUP_WEBHOOK = os.environ.get('SUBSCRIBER_BACKUP_WEBHOOK', '')
 
+# ── PostgreSQL health check at startup ───────────────────────────────────────
+# If DATABASE_URL is set but PostgreSQL is down/red, fall back to SQLite.
+_PG_AVAILABLE = False
+if DATABASE_URL and _PSYCOPG2_OK:
+    try:
+        import psycopg2 as _pg_test
+        _test_conn = _pg_test.connect(DATABASE_URL)
+        _test_conn.close()
+        _PG_AVAILABLE = True
+        print('✅ PostgreSQL reachable — using PostgreSQL')
+    except Exception as _pg_err:
+        print(f'⚠️ PostgreSQL unreachable ({_pg_err}) — falling back to SQLite')
+        _PG_AVAILABLE = False
+
 # ── WEBSOCKET MANAGER ────────────────────────────────────────────────────────
 class WSManager:
     def __init__(self):
@@ -133,7 +147,8 @@ setup_phone: str = ''
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
 DB_PATH = os.environ.get('DB_PATH', '/data/chatter_crm.db')
-USE_SQLITE = not DATABASE_URL or not _PSYCOPG2_OK
+# Use SQLite if: no DATABASE_URL, psycopg2 not installed, OR PostgreSQL is down
+USE_SQLITE = not _PG_AVAILABLE
 
 if USE_SQLITE:
     print(f'📂 Using SQLite: {DB_PATH}')
@@ -366,8 +381,11 @@ def init_db():
                 password_hash TEXT NOT NULL,
                 role          TEXT DEFAULT 'chatter'
             )''')
-            # Add display_name column if missing
-            c.execute("ALTER TABLE crm_users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT ''")
+            # Add display_name column if missing (safe — ignore if already exists)
+            try:
+                c.execute("ALTER TABLE crm_users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT ''")
+            except Exception:
+                pass  # column already exists from previous deployment
             # Seed default admin if no users exist
             c.execute('SELECT COUNT(*) as n FROM crm_users')
             if c.fetchone()['n'] == 0:
@@ -866,7 +884,12 @@ async def start_userbot():
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    try:
+        init_db()
+    except Exception as _ie:
+        # Non-fatal: tables may already exist from previous deployment.
+        # Log and continue — userbot MUST still start.
+        print(f'⚠️ init_db() warning (non-fatal): {_ie}')
     asyncio.create_task(start_userbot())
     asyncio.create_task(_run_scheduled_broadcasts())
     # PyTgCalls is now initialized inside start_userbot() on every connect cycle
@@ -2934,6 +2957,122 @@ class CallStartIn(BaseModel):
     chatter: str = 'Chatter'
     url: str = ''      # Google Drive or direct URL — skips local file lookup
 
+
+async def _call_timed_hangup(tg_id_str: str, media_src: str):
+    """Auto-hang up after the media duration + 3s buffer."""
+    try:
+        import subprocess, json as _json
+        result = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', media_src],
+            capture_output=True, text=True, timeout=10
+        )
+        info = _json.loads(result.stdout)
+        duration = float(info['format']['duration'])
+        print(f'⏱ Auto-hangup in {duration:.1f}s for {tg_id_str}')
+    except Exception as _e:
+        print(f'⚠️ ffprobe failed ({_e}) — using 300s fallback')
+        duration = 300.0
+    await asyncio.sleep(duration + 3)
+    if tg_id_str not in active_calls:
+        return  # already hung up
+    print(f'⏰ Auto-hanging up {tg_id_str}')
+    try:
+        if hasattr(calls_client, 'leave_call'):
+            await calls_client.leave_call(int(tg_id_str))
+        elif hasattr(calls_client, 'leave'):
+            await calls_client.leave(int(tg_id_str))
+    except Exception as _e:
+        print(f'⚠️ Auto-hangup leave_call error: {_e}')
+    active_calls.pop(tg_id_str, None)
+    await ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str})
+
+
+async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str):
+    """Background task: actually connect the call via py-tgcalls.
+    Returns immediately so /call/start responds in <1s.
+    On failure sends call_ended WS so frontend can alert the chatter."""
+    global calls_client, _tg_priority
+    _tg_priority += 1  # pause broadcast while call is connecting
+    try:
+        async def _do_play():
+            if hasattr(calls_client, 'play'):
+                await calls_client.play(peer, stream)
+            elif hasattr(calls_client, 'call'):
+                await calls_client.call(peer, stream)
+            else:
+                raise RuntimeError(
+                    f'No play/call method. Available: '
+                    f'{[m for m in dir(calls_client) if not m.startswith("_")]}'
+                )
+
+        _last_err = None
+        for _attempt in range(3):
+            try:
+                # 60s: enough time for subscriber to see ring and pick up
+                await asyncio.wait_for(_do_play(), timeout=60)
+                _last_err = None
+                break  # success
+            except asyncio.TimeoutError:
+                print(f'⏰ play() timed out for {tg_id_str} — subscriber did not answer')
+                try:
+                    if calls_client and hasattr(calls_client, 'leave_call'):
+                        await asyncio.wait_for(calls_client.leave_call(peer), timeout=5)
+                except Exception:
+                    pass
+                if tg_client:
+                    asyncio.create_task(_reinit_calls(tg_client))
+                active_calls.pop(tg_id_str, None)
+                await ws_manager.broadcast({
+                    'type': 'call_ended', 'tg_id': tg_id_str,
+                    'reason': 'unanswered',
+                    'msg': 'Subscriber hat nicht abgehoben (60s).',
+                })
+                return
+            except Exception as _e:
+                _last_err = _e
+                err_str = str(_e)
+                if ('DH_G_A_HASH_INVALID' in err_str or 'HASH_INVALID' in err_str) and _attempt < 2:
+                    print(f'🔄 DH error attempt {_attempt+1} — reiniting calls_client')
+                    if tg_client and _PYTGCALLS_OK:
+                        try:
+                            if calls_client:
+                                try: await calls_client.stop()
+                                except Exception: pass
+                            calls_client = PyTgCalls(tg_client)
+                            await calls_client.start()
+                            print(f'✅ calls_client restarted for retry {_attempt+2}')
+                        except Exception as _re:
+                            print(f'⚠️ reinit failed: {_re}')
+                    await asyncio.sleep(2)
+                    continue
+                break  # non-DH error or exhausted retries
+
+        if _last_err is not None:
+            print(f'❌ Call failed after retries for {tg_id_str}: {_last_err}')
+            active_calls.pop(tg_id_str, None)
+            await ws_manager.broadcast({
+                'type': 'call_ended', 'tg_id': tg_id_str,
+                'reason': 'error',
+                'msg': str(_last_err),
+            })
+            return
+
+        # ── Call connected ──────────────────────────────────────────────────
+        print(f'✅ Call connected for {tg_id_str}')
+        asyncio.create_task(_call_timed_hangup(tg_id_str, media_src))
+
+    except Exception as _outer:
+        import traceback
+        print(f'❌ _run_call_play error for {tg_id_str}: {traceback.format_exc()}')
+        active_calls.pop(tg_id_str, None)
+        await ws_manager.broadcast({
+            'type': 'call_ended', 'tg_id': tg_id_str,
+            'reason': 'error', 'msg': str(_outer),
+        })
+    finally:
+        _tg_priority = max(0, _tg_priority - 1)  # always resume broadcast
+
+
 @app.post('/call/start')
 async def start_fake_call(body: CallStartIn):
     """Initiate a pre-recorded call to a subscriber via Telegram."""
@@ -3028,12 +3167,11 @@ async def start_fake_call(body: CallStartIn):
     if stream_url and not ext:
         is_video = True
 
+    # ── Build stream object (synchronous, fast) ──────────────────────────────
     try:
         if is_video:
             try:
                 from pytgcalls.types import VideoQuality
-                # Always include BOTH audio + video — required for proper video call setup
-                # Use SD_480p: more compatible and lighter on Railway CPU than HD_720p
                 stream = MediaStream(
                     media_source,
                     audio_parameters=AudioQuality.HIGH,
@@ -3041,127 +3179,37 @@ async def start_fake_call(body: CallStartIn):
                 )
                 print(f'🎬 Video stream: {media_source} HD_720p+audio')
             except Exception as _vq_e:
-                # Fallback: try without explicit VideoQuality (let pytgcalls auto-detect)
-                print(f'⚠️ VideoQuality.SD_480p failed ({_vq_e}), trying auto-detect')
+                print(f'⚠️ VideoQuality.HD_720p failed ({_vq_e}), falling back to audio-only')
                 stream = MediaStream(media_source, audio_parameters=AudioQuality.HIGH)
         else:
             stream = MediaStream(media_source, audio_parameters=AudioQuality.HIGH)
-        # py-tgcalls 2.x uses play(), older versions used call()
-        # Wrap with timeout — play() can hang indefinitely if PyTgCalls is in a bad state.
-        # If it times out, trigger a reinit so the next call attempt will work.
-        async def _do_play():
-            if hasattr(calls_client, 'play'):
-                await calls_client.play(peer, stream)
-            elif hasattr(calls_client, 'call'):
-                await calls_client.call(peer, stream)
-            else:
-                raise RuntimeError(f'No play/call method on calls_client. Available: {[m for m in dir(calls_client) if not m.startswith("_")]}')
-
-        # Retry loop: DH_G_A_HASH_INVALID is a Telegram DH key-exchange error.
-        # After each failure we do a fast calls_client reinit (new PyTgCalls instance
-        # generates fresh DH params) and retry up to 2 more times.
-        global _tg_priority
-        _tg_priority += 1  # pause broadcast during call setup
-        _last_err = None
-        for _attempt in range(3):
-            try:
-                await asyncio.wait_for(_do_play(), timeout=50)
-                _last_err = None
-                break  # success
-            except asyncio.TimeoutError:
-                print(f'⏰ calls_client.play() timed out for {body.tg_id} — cleaning up and reiniting')
-                # Clean up the dangling call on Telegram's side before reinit
-                try:
-                    if calls_client and hasattr(calls_client, 'leave_call'):
-                        await asyncio.wait_for(calls_client.leave_call(peer), timeout=5)
-                except Exception:
-                    pass
-                if tg_client:
-                    asyncio.create_task(_reinit_calls(tg_client))
-                raise HTTPException(503, 'Kein Anruf angenommen (Timeout nach 50s). Subscriber hat nicht abgehoben.')
-            except Exception as _e:
-                _last_err = _e
-                err_str = str(_e)
-                if ('DH_G_A_HASH_INVALID' in err_str or 'HASH_INVALID' in err_str) and _attempt < 2:
-                    print(f'🔄 DH_G_A_HASH_INVALID on attempt {_attempt+1} for {body.tg_id} — reiniting calls_client and retrying...')
-                    # Fast reinit: create a fresh PyTgCalls instance so new DH params are generated
-                    if tg_client and _PYTGCALLS_OK:
-                        try:
-                            if calls_client:
-                                try: await calls_client.stop()
-                                except Exception: pass
-                            calls_client = PyTgCalls(tg_client)
-                            await calls_client.start()
-                            print(f'✅ calls_client restarted for retry {_attempt+2}')
-                        except Exception as _re:
-                            print(f'⚠️ reinit failed: {_re}')
-                    await asyncio.sleep(2)
-                    continue  # retry with fresh client
-                raise  # other errors or final attempt: propagate immediately
-        _tg_priority = max(0, _tg_priority - 1)  # resume broadcast
-        if _last_err is not None:
-            print(f'❌ Call failed after 3 attempts for {body.tg_id}: {_last_err}')
-            raise HTTPException(500, f'Call failed after 3 attempts: {_last_err}')
-        now_ts = datetime.now().isoformat()
-        active_calls[body.tg_id] = {
-            'file': label,
-            'chatter': body.chatter,
-            'started_at': now_ts,
-            'type': 'video' if is_video else 'audio',
-        }
-        save_msg(body.tg_id, f'[📞 Pre-recorded {"Video" if is_video else "Audio"} Call – {label}]', 'out', body.chatter)
-        asyncio.create_task(ws_manager.broadcast({
-            'type': 'call_started',
-            'tg_id': body.tg_id,
-            'file': label,
-            'call_type': 'video' if is_video else 'audio',
-            'chatter': body.chatter,
-        }))
-
-        # ── Timer-based auto-hangup ──────────────────────────────────────────
-        # Get media duration via ffprobe, then hang up after duration + 3s buffer.
-        # This is the most reliable fallback since StreamEnded events are unreliable
-        # for private calls in py-tgcalls.
-        async def _timed_hangup(tg_id_str: str, filepath: str):
-            try:
-                import subprocess, json as _json
-                result = subprocess.run(
-                    ['ffprobe', '-v', 'quiet', '-print_format', 'json',
-                     '-show_format', filepath],
-                    capture_output=True, text=True, timeout=10
-                )
-                info = _json.loads(result.stdout)
-                duration = float(info['format']['duration'])
-                print(f'⏱ Auto-hangup scheduled in {duration:.1f}s for {tg_id_str}')
-            except Exception as _e:
-                print(f'⚠️ ffprobe duration failed: {_e} — using 300s fallback')
-                duration = 300.0  # 5 min safety fallback
-
-            await asyncio.sleep(duration + 3)
-
-            if tg_id_str not in active_calls:
-                return  # Already hung up (by event or manual)
-
-            print(f'⏰ Auto-hanging up {tg_id_str} after stream duration')
-            try:
-                if hasattr(calls_client, 'leave_call'):
-                    await calls_client.leave_call(int(tg_id_str))
-                elif hasattr(calls_client, 'leave'):
-                    await calls_client.leave(int(tg_id_str))
-            except Exception as _e:
-                print(f'⚠️ Auto-hangup leave_call error: {_e}')
-            active_calls.pop(tg_id_str, None)
-            await ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str})
-
-        asyncio.create_task(_timed_hangup(body.tg_id, media_source))
-        # ── End auto-hangup ──────────────────────────────────────────────────
-
-        return {'ok': True, 'type': 'video' if is_video else 'audio'}
     except Exception as e:
-        import traceback
-        full_err = f'{type(e).__name__}: {e}'
-        print(f'❌ Call failed — {full_err}\n{traceback.format_exc()}')
-        raise HTTPException(500, f'Call failed: {full_err}')
+        raise HTTPException(500, f'Stream build error: {e}')
+
+    # ── Register call immediately so duplicate-call check works ──────────────
+    now_ts = datetime.now().isoformat()
+    active_calls[body.tg_id] = {
+        'file': label,
+        'chatter': body.chatter,
+        'started_at': now_ts,
+        'type': 'video' if is_video else 'audio',
+    }
+    save_msg(body.tg_id, f'[📞 Pre-recorded {"Video" if is_video else "Audio"} Call – {label}]', 'out', body.chatter)
+    asyncio.create_task(ws_manager.broadcast({
+        'type': 'call_started',
+        'tg_id': body.tg_id,
+        'file': label,
+        'call_type': 'video' if is_video else 'audio',
+        'chatter': body.chatter,
+    }))
+
+    # ── Fire-and-forget: play() in background ────────────────────────────────
+    # play() blocks until subscriber answers (can take 30–60s).
+    # Running it in background lets this endpoint return in <1s so the chatter
+    # sees the call ring immediately without waiting.
+    asyncio.create_task(_run_call_play(body.tg_id, peer, stream, media_source))
+
+    return {'ok': True, 'type': 'video' if is_video else 'audio'}
 
 @app.post('/call/stop')
 async def stop_fake_call(tg_id: str):
