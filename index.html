@@ -4238,6 +4238,33 @@ if (checkAuth()) {
     inp.focus();
   };
 
+  window.insertPricelistCalls = function() {
+    const inp = document.getElementById('chat-input');
+    if (!inp) return;
+    inp.value = `oki, also hier sind einmal die Preise, die ich für Cam Sex & C2C verlange 😅\n\n👀 6 Min. – 15 €\n🫦 11 Min. – 25 €\n👅 16 Min. – 30 €\n💦 25 Min. – 35 €\n🥵 1 Std. – 50 €\n\n✨ Zahlungsmethoden ✨\n• PayPal (Freunde & Familie)\n• Banküberweisung & Apple Pay\n• Kreditkarte\n• Amazon & Paysafecard\n\n✅ fake check ✅ wenn du vorher sicher gehen möchtest, dass ich echt bin:\n\n• kurzer videoanruf von mir \n• persönliche sprachnachricht\n\nwichtig: mache nur einen fake check🙈`;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
+    inp.focus();
+  };
+
+  window.insertPricelistSexchat = function() {
+    const inp = document.getElementById('chat-input');
+    if (!inp) return;
+    inp.value = `noch einmal für dich.. hier findest du meine aktuelle preisliste fürs sex chatting (inkl. heiße bilder und videos) :\n\n⏳ 20 minuten – 20 €\n💕 30 minuten – 25 €\n🔥 1 Stunde – 35 €\n✨ 2 Stunden – 50 €\n🌶️ 1 Ganzer Tag – 90 €\n\n✨ Zahlungsmethoden ✨\n• PayPal (Freunde & Familie)\n• Banküberweisung & Apple Pay\n• Kreditkarte\n• Amazon & Paysafecard\n\n✅ fake check ✅ wenn du vorher sicher gehen möchtest, dass ich echt bin:\n\n• kurzer videoanruf von mir\n• persönliche sprachnachricht\n\nwichtig: mache nur einen fake check🙈`;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
+    inp.focus();
+  };
+
+  window.insertPricelistContent = function() {
+    const inp = document.getElementById('chat-input');
+    if (!inp) return;
+    inp.value = `falls du interesse an bildern oder videos hast, hier eine kleine übersicht:\n\nMeine bilder/videos bekommst du als dropbox:\n\n🍒Boobies Bilder/Videos🍒\n20x - 15€\n50x - 25€\n100x - 35€\n\n🐱Pussy/Fingern/Dildo🐱\n10x - 25€\n50x - 35€\n20x - 30€ \n\nNUR VIDEOS🍑Arsch Bilder/Videos🍑\n10x - 15€\n30x - 20€\n50x - 25€\n\n😍Gemischtes Paket😍\n20x - 20€\n50x - 30€\n100x - 45€\n\n🆘Dildo Maschinen Videos🆘\n1x 2min - 20€\n2x 2min & 4min - 35€\n\n💦Blowjob Video + Cumshot💦\n1x 4min 40€\n\n🥵Anal Sextape + Creampie🥵\n1x 15min - 50€\n\n📸 personalisierte bilder und videowünsche sind möglich ab 100€+\n\n✨ Zahlungsmethoden ✨\n• PayPal (Freunde & Familie)\n• Banküberweisung & Apple Pay\n• Kreditkarte\n• Amazon & Paysafecard\n\n✅ fake check ✅ wenn du vorher sicher gehen möchtest, dass ich echt bin:\n\n• kurzer videoanruf von mir \n• persönliche sprachnachricht\n\nwichtig: mache nur einen fake check🙈\n\nschreib mir einfach, wonach du suchst, dann sage ich dir den preis 💕`;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
+    inp.focus();
+  };
+
   window.saveGiftCardNote = async function(tgId) {
     const type   = document.getElementById('gc-type')?.value || 'amazon';
     const amount = document.getElementById('gc-amount')?.value.trim();
@@ -4307,17 +4334,14 @@ if (checkAuth()) {
         <input class="profile-input" id="prof-iname" type="text" placeholder="e.g. John – likes sports" value="${(p.internal_name||'').replace(/"/g,'&quot;')}">
       </div>
 
-      ${p.payment_ref ? `<div class="profile-section">
-        <div class="profile-label">💳 Payment Reference</div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <code style="flex:1;background:var(--bg3);border:1px solid rgba(74,158,255,.3);border-radius:8px;padding:8px 12px;font-size:14px;font-weight:700;color:#4a9eff;letter-spacing:.05em;">${p.payment_ref}</code>
-          <button onclick="navigator.clipboard.writeText('${p.payment_ref}');this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)"
-            style="padding:7px 12px;border-radius:8px;border:1px solid rgba(74,158,255,.3);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">Copy</button>
-        </div>
-        <button onclick="insertPayPal()" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">💙 Insert PayPal</button>
-        <button onclick="insertPaymentLink()" style="width:100%;margin-top:6px;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">Subscriber uses this as transfer reference</div>
-      </div>` : ''}
+      <div class="profile-section">
+        <div class="profile-label">📋 Pricelist</div>
+        <button onclick="insertPricelistCalls()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,209,102,.35);background:rgba(255,209,102,.08);color:#ffd166;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">📞 Pricelist Calls</button>
+        <button onclick="insertPricelistSexchat()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,92,122,.35);background:rgba(255,92,122,.08);color:#ff5c7a;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💬 Pricelist Sexchat</button>
+        <button onclick="insertPricelistContent()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:10px;">🎬 Pricelist Content</button>
+        <button onclick="insertPayPal()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💙 Insert PayPal</button>
+        <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
+      </div>
 
       <div class="profile-section">
         <div class="profile-label">
