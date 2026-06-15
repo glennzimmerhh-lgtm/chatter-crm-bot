@@ -1749,6 +1749,7 @@
         <button class="period-btn" onclick="loadNotifications()" title="Refresh">↻</button>
       </div>
     </div>
+    <div id="notif-diag" style="display:none;margin-bottom:10px;padding:10px 14px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);border-radius:10px;font-size:12px;color:var(--text2);font-family:monospace;white-space:pre-wrap;"></div>
     <div id="notif-feed" style="display:flex;flex-direction:column;gap:8px;max-width:800px;"></div>
   </div>
 
@@ -1908,9 +1909,12 @@
       </div>
       <!-- Member list -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;">Aktive Members</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;">Aktive Members</div>
+          <button onclick="loadMembers()" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:3px 8px;cursor:pointer;">↻ Reload</button>
+        </div>
+        <div id="members-diag" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);border-radius:8px;font-size:11px;color:var(--text2);font-family:monospace;white-space:pre-wrap;"></div>
         <div id="members-list" style="display:flex;flex-direction:column;gap:10px;">
-          <div style="color:var(--text3);font-size:13px;">Loading...</div>
         </div>
       </div>
     </div>
@@ -4216,11 +4220,19 @@ if (checkAuth()) {
   }
   window._photoFailed = _photoFailed;
 
-  window.insertBankTransfer = function() {
+  window.insertPayPal = function() {
     const inp = document.getElementById('chat-input');
     if (!inp) return;
-    const ref = currentPaymentRef || '—';
-    inp.value = `Name: Marie Stolle\nIBAN: NL12 YOUR 0322 5530 24\nVerwendungszweck: ${ref}\n\nBitte sende mir einen screenshot von der Überweisung, damit wir starten können <3`;
+    inp.value = `paypal.me/marieboehmer0102\n\nWichtig:\nIch akzeptiere nur per Freunde & Familie\nVerwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
+    inp.focus();
+  };
+
+  window.insertPaymentLink = function() {
+    const inp = document.getElementById('chat-input');
+    if (!inp) return;
+    inp.value = `https://revolut.me/marieofficial\n\nHier kannst du mit Apple Pay / Samsung Pay, Kreditkarte und Revolut bezahlen\n\nWichtig: Verwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\n\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`;
     inp.style.height = 'auto';
     inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
     inp.focus();
@@ -4302,32 +4314,10 @@ if (checkAuth()) {
           <button onclick="navigator.clipboard.writeText('${p.payment_ref}');this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)"
             style="padding:7px 12px;border-radius:8px;border:1px solid rgba(74,158,255,.3);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">Copy</button>
         </div>
-        <button onclick="insertBankTransfer()" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.1);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🏦 Insert bank transfer</button>
+        <button onclick="insertPayPal()" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">💙 Insert PayPal</button>
+        <button onclick="insertPaymentLink()" style="width:100%;margin-top:6px;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
         <div style="font-size:10px;color:var(--text3);margin-top:4px;">Subscriber uses this as transfer reference</div>
       </div>` : ''}
-
-      <div class="profile-section" style="border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:14px;background:rgba(245,158,11,.04);">
-        <div class="profile-label" style="color:#f59e0b;">🎁 Gift Card Note</div>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <select id="gc-type" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:var(--bg2);color:var(--text1);font-size:13px;" onchange="document.getElementById('gc-pin-row').style.display=this.value==='paysafe'?'block':'none'">
-            <option value="amazon">Amazon</option>
-            <option value="paysafe">Paysafe</option>
-          </select>
-          <input type="number" id="gc-amount" placeholder="EUR" min="1" step="0.01"
-            style="width:90px;padding:7px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:var(--bg2);color:var(--text1);font-size:13px;">
-        </div>
-        <input type="text" id="gc-code" placeholder="Code"
-          style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:var(--bg2);color:var(--text1);font-size:13px;margin-bottom:8px;">
-        <div id="gc-pin-row" style="display:none;margin-bottom:8px;">
-          <input type="text" id="gc-pin" placeholder="PIN"
-            style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:var(--bg2);color:var(--text1);font-size:13px;">
-        </div>
-        <button onclick="saveGiftCardNote('${tgId}')"
-          style="width:100%;padding:9px;border-radius:8px;border:1px solid rgba(245,158,11,.5);background:rgba(245,158,11,.15);color:#f59e0b;font-size:13px;font-weight:700;cursor:pointer;">
-          💾 Save to notes
-        </button>
-        <div id="gc-saved-tag" style="margin-top:6px;font-size:11px;color:#4ade80;display:none;">✓ Saved to notes</div>
-      </div>
 
       <div class="profile-section">
         <div class="profile-label">
@@ -6583,17 +6573,47 @@ window.showPage = function(page) {
 </script>
 
 <script>
+// ── GLOBAL ERROR CATCHER ──────────────────────────────────────────────────────
+(function() {
+  function _showGlobalErr(msg, source, line) {
+    const id = 'global-err-toast';
+    let t = document.getElementById(id);
+    if (!t) {
+      t = document.createElement('div');
+      t.id = id;
+      t.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);max-width:90vw;background:#2a0a10;border:1px solid #ff5c7a;border-radius:10px;padding:12px 16px;color:#ff5c7a;font-size:11px;font-family:monospace;z-index:99999;white-space:pre-wrap;word-break:break-all;';
+      document.body.appendChild(t);
+    }
+    t.textContent = '🔴 JS ERROR: ' + msg + (source ? '\nAt: ' + source + ':' + line : '');
+    t.style.display = 'block';
+    clearTimeout(t._hide);
+    t._hide = setTimeout(() => t.style.display = 'none', 15000);
+  }
+  window.addEventListener('error', e => _showGlobalErr(e.message, e.filename?.split('/').pop(), e.lineno));
+  window.addEventListener('unhandledrejection', e => _showGlobalErr('Unhandled Promise: ' + (e.reason?.message || String(e.reason))));
+})();
+
 // ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
 let _allNotifs = [];
 let _notifFilter = 'all';
 let _lastNotifTs = '';
 
+function _notifDiag(msg) {
+  const el = document.getElementById('notif-diag');
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
+}
+
 async function loadNotifications() {
   const feed = document.getElementById('notif-feed');
-  if (!feed) return;
+  if (!feed) { console.warn('[notif] notif-feed not found in DOM'); return; }
+
+  _notifDiag('Starte Laden...');
+
   // Show cached data immediately so tab is never blank; spinner only on first load
   if (_allNotifs && _allNotifs.length > 0) {
-    renderNotifications();
+    try { renderNotifications(); } catch(e) { _notifDiag('renderNotifications Fehler: ' + e.message); }
   } else {
     feed.innerHTML = '<div class="empty" style="color:var(--text3);">⏳ Laden...</div>';
   }
@@ -6606,16 +6626,23 @@ async function loadNotifications() {
   let raw = null;
   let lastErr = '';
   for (const url of URLS) {
+    _notifDiag('Fetching ' + url + '...');
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 10000);
     try {
       const r = await fetch(url, { signal: ctrl.signal });
       clearTimeout(timer);
-      if (r.ok) { raw = await r.json(); break; }
+      if (r.ok) {
+        raw = await r.json();
+        _notifDiag('✅ ' + url + ' → ' + raw.length + ' Einträge');
+        break;
+      }
       lastErr = 'HTTP ' + r.status + ' (' + url + ')';
+      _notifDiag('❌ ' + lastErr);
     } catch(e) {
       clearTimeout(timer);
       lastErr = (e.name === 'AbortError' ? 'Timeout' : e.message) + ' (' + url + ')';
+      _notifDiag('❌ ' + lastErr);
     }
   }
 
@@ -6630,8 +6657,15 @@ async function loadNotifications() {
 
   // Only Sales & New Subscribers
   _allNotifs = raw.filter(n => n.type === 'sale' || n.type === 'new_sub');
+  _notifDiag('✅ Filter: ' + _allNotifs.length + ' sale/new_sub von ' + raw.length + ' gesamt');
 
-  renderNotifications();
+  try {
+    renderNotifications();
+  } catch(e) {
+    _notifDiag('❌ renderNotifications Fehler: ' + e.message + ' | Stack: ' + (e.stack||'').slice(0,150));
+    feed.innerHTML = `<div class="empty" style="color:#ff5c7a;">❌ Render-Fehler: ${e.message}<br><span style="font-size:10px;color:var(--text3);">${(e.stack||'').slice(0,200)}</span></div>`;
+    return;
+  }
 
   // Badge: count new entries since last check
   const newCount = _allNotifs.filter(n => n.ts > _lastNotifTs).length;
@@ -6640,6 +6674,7 @@ async function loadNotifications() {
     badge.textContent = newCount; badge.style.display = 'inline';
   }
   if (_allNotifs.length) _lastNotifTs = _allNotifs[0].ts;
+  _notifDiag('✅ Fertig — ' + _allNotifs.length + ' Karten gerendert');
 }
 
 function filterNotifs(type) {
@@ -7565,9 +7600,17 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── MEMBERS MANAGEMENT ────────────────────────────────────────────────────────
+function _membersDiag(msg) {
+  const el = document.getElementById('members-diag');
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
+}
+
 async function loadMembers() {
   const list = document.getElementById('members-list');
-  if (!list) return;
+  if (!list) { console.warn('[members] members-list not found'); return; }
+  _membersDiag('Starte Laden...');
   list.innerHTML = '<div style="color:var(--text3);font-size:13px;">⏳ Loading...</div>';
   // Always include hardcoded Railway URL so fallback works even without crm_backend_url
   const RAILWAY = 'https://worker-production-806f.up.railway.app';
@@ -7576,21 +7619,24 @@ async function loadMembers() {
   let lastErr = '';
   // Try Vercel proxy first, then direct Railway as fallback
   const urls = ['/api/auth/users'];
-  if (!base.startsWith('/')) urls.push(base + '/auth/users');  // only add if it's an absolute URL
+  if (!base.startsWith('/')) urls.push(base + '/auth/users');
   for (const url of urls) {
+    _membersDiag('Fetching ' + url + '...');
     try {
       const r = await _fetchT(url, {}, 12000);
       if (r.ok) {
         users = await r.json();
+        _membersDiag('✅ ' + url + ' → ' + users.length + ' Users');
         break;
       }
-      // Show HTTP error clearly
       let body = '';
       try { body = await r.text(); } catch(_) {}
       lastErr = `HTTP ${r.status} from ${url}: ${body.slice(0,120)}`;
+      _membersDiag('❌ ' + lastErr);
       console.warn('[loadMembers]', lastErr);
     } catch(err) {
       lastErr = `${err.name}: ${err.message} (${url})`;
+      _membersDiag('❌ ' + lastErr);
       console.warn('[loadMembers] fetch error:', lastErr);
     }
   }
@@ -7603,21 +7649,27 @@ async function loadMembers() {
     return;
   }
   const currentUser = localStorage.getItem('crm_user');
-  list.innerHTML = users.length === 0
-    ? '<div style="color:var(--text3);font-size:13px;">Keine Members gefunden.</div>'
-    : users.map(u => `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">
-        <div style="width:36px;height:36px;border-radius:50%;background:${u.role==='admin'?'rgba(0,212,170,0.2)':'rgba(74,158,255,0.15)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:${u.role==='admin'?'var(--teal)':'var(--blue)'};">${(u.display_name||u.username||'?')[0].toUpperCase()}</div>
-        <div style="flex:1;">
-          <div style="font-size:13px;font-weight:600;color:var(--text);">${u.display_name || u.username}</div>
-          <div style="font-size:11px;color:var(--text3);">${u.role === 'admin' ? '👑 Admin' : '💬 Chatter'} · ${u.username}</div>
-        </div>
-        <select onchange="changeMemberRole(${u.id},this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:4px 6px;outline:none;">
-          <option value="chatter" ${u.role==='chatter'?'selected':''}>Chatter</option>
-          <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-        </select>
-        ${u.username !== currentUser ? `<button onclick="deleteMember(${u.id},'${u.username}')" style="background:rgba(255,92,122,0.15);border:1px solid rgba(255,92,122,0.3);color:#ff5c7a;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:11px;">✕</button>` : '<div style="width:34px;"></div>'}
-      </div>`).join('');
+  try {
+    list.innerHTML = users.length === 0
+      ? '<div style="color:var(--text3);font-size:13px;">Keine Members gefunden.</div>'
+      : users.map(u => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">
+          <div style="width:36px;height:36px;border-radius:50%;background:${u.role==='admin'?'rgba(0,212,170,0.2)':'rgba(74,158,255,0.15)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:${u.role==='admin'?'var(--teal)':'var(--blue)'};">${(u.display_name||u.username||'?')[0].toUpperCase()}</div>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">${u.display_name || u.username}</div>
+            <div style="font-size:11px;color:var(--text3);">${u.role === 'admin' ? '👑 Admin' : '💬 Chatter'} · ${u.username}</div>
+          </div>
+          <select onchange="changeMemberRole(${u.id},this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:4px 6px;outline:none;">
+            <option value="chatter" ${u.role==='chatter'?'selected':''}>Chatter</option>
+            <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+          </select>
+          ${u.username !== currentUser ? `<button onclick="deleteMember(${u.id},'${u.username}')" style="background:rgba(255,92,122,0.15);border:1px solid rgba(255,92,122,0.3);color:#ff5c7a;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:11px;">✕</button>` : '<div style="width:34px;"></div>'}
+        </div>`).join('');
+    _membersDiag('✅ Fertig — ' + users.length + ' Members gerendert');
+  } catch(e) {
+    _membersDiag('❌ Render-Fehler: ' + e.message);
+    list.innerHTML = `<div style="color:var(--red);font-size:12px;">❌ Render-Fehler: ${e.message}</div>`;
+  }
 }
 
 async function createMember() {
