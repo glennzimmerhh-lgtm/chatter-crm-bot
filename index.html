@@ -4265,6 +4265,15 @@ if (checkAuth()) {
     inp.focus();
   };
 
+  window.insertPaysafecard = function() {
+    const inp = document.getElementById('chat-input');
+    if (!inp) return;
+    inp.value = `Du kannst mir bitte einen Paysafe-Gutschein von Guthaben.de holen und mir dann den 16-stelligen Code schicken :)`;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
+    inp.focus();
+  };
+
   window.saveGiftCardNote = async function(tgId) {
     const type   = document.getElementById('gc-type')?.value || 'amazon';
     const amount = document.getElementById('gc-amount')?.value.trim();
@@ -4340,7 +4349,8 @@ if (checkAuth()) {
         <button onclick="insertPricelistSexchat()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,92,122,.35);background:rgba(255,92,122,.08);color:#ff5c7a;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💬 Pricelist Sexchat</button>
         <button onclick="insertPricelistContent()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:10px;">🎬 Pricelist Content</button>
         <button onclick="insertPayPal()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💙 Insert PayPal</button>
-        <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
+        <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
+        <button onclick="insertPaysafecard()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);color:#ffa500;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🎫 Paysafecard</button>
       </div>
 
       <div class="profile-section">
