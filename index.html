@@ -5389,8 +5389,10 @@ if (checkAuth()) {
     const bar = document.getElementById('active-call-bar');
     const txt = document.getElementById('active-call-text');
     if (!bar) return;
-    _callStartTs = Date.now();
+    // Only (re)start the elapsed timer for a NEW call — keep it running across chat/page switches
+    const _sameCall = _activeCallTgId && forTgId && _activeCallTgId === forTgId && _callStartTs;
     if (forTgId) _activeCallTgId = forTgId;
+    if (!_sameCall || !_callStartTs) _callStartTs = Date.now();
     // Build label — if call is for a different chat than the one currently open, show who
     let label = `📞 ${msg.call_type === 'video' ? 'Video' : 'Audio'} Call — ${msg.filename || ''}`;
     if (_activeCallTgId && _activeCallTgId !== currentChatTgId) {
@@ -5458,10 +5460,11 @@ if (checkAuth()) {
   window.hangUpCall = async function() {
     const targetId = _activeCallTgId || currentChatTgId;
     if (!targetId) return;
+    // Hide immediately; stop request is best-effort (plain fetch, no abort, no error popup)
+    hideActiveCallBar();
     try {
-      await chatApiFetch('/call/stop?tg_id=' + targetId, { method: 'POST' });
-      hideActiveCallBar();
-    } catch(e) { alert('Error hanging up: ' + e.message); }
+      await fetch('/api/call/stop?tg_id=' + encodeURIComponent(targetId), { method: 'POST' });
+    } catch(e) { console.warn('hangup:', e && e.message); }
   };
 
   // ── Persistent / background call widget (survives page navigation) ──────────
