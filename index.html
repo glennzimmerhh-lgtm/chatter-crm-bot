@@ -6639,9 +6639,13 @@ function _notifDiag(msg) {
   el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
 
+let _loadNotifsRunning = false;
 async function loadNotifications() {
+  // Guard: skip if already in progress (prevents double-call from stacked showPage wrappers)
+  if (_loadNotifsRunning) { console.log('[notif] already loading, skipping duplicate call'); return; }
+  _loadNotifsRunning = true;
   const feed = document.getElementById('notif-feed');
-  if (!feed) { console.warn('[notif] notif-feed not found in DOM'); return; }
+  if (!feed) { console.warn('[notif] notif-feed not found in DOM'); _loadNotifsRunning = false; return; }
 
   _notifDiag('Starte Laden...');
 
@@ -6686,6 +6690,7 @@ async function loadNotifications() {
       <span style="font-size:11px;color:var(--text3);">${lastErr}</span><br>
       <button onclick="loadNotifications()" class="period-btn" style="margin-top:10px;">↻ Retry</button>
     </div>`;
+    _loadNotifsRunning = false;
     return;
   }
 
@@ -6698,6 +6703,7 @@ async function loadNotifications() {
   } catch(e) {
     _notifDiag('❌ renderNotifications Fehler: ' + e.message + ' | Stack: ' + (e.stack||'').slice(0,150));
     feed.innerHTML = `<div class="empty" style="color:#ff5c7a;">❌ Render-Fehler: ${e.message}<br><span style="font-size:10px;color:var(--text3);">${(e.stack||'').slice(0,200)}</span></div>`;
+    _loadNotifsRunning = false;
     return;
   }
 
@@ -6709,6 +6715,7 @@ async function loadNotifications() {
   }
   if (_allNotifs.length) _lastNotifTs = _allNotifs[0].ts;
   _notifDiag('✅ Fertig — ' + _allNotifs.length + ' Karten gerendert');
+  _loadNotifsRunning = false;
 }
 
 function filterNotifs(type) {
@@ -7641,9 +7648,13 @@ function _membersDiag(msg) {
   el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
 
+let _loadMembersRunning = false;
 async function loadMembers() {
+  // Guard against concurrent calls (e.g., double-calls from stacked showPage wrappers)
+  if (_loadMembersRunning) { console.log('[members] already loading, skipping duplicate call'); return; }
+  _loadMembersRunning = true;
   const list = document.getElementById('members-list');
-  if (!list) { console.warn('[members] members-list not found'); return; }
+  if (!list) { console.warn('[members] members-list not found'); _loadMembersRunning = false; return; }
   _membersDiag('Starte Laden...');
   list.innerHTML = '<div style="color:var(--text3);font-size:13px;">⏳ Loading...</div>';
   // Always include hardcoded Railway URL so fallback works even without crm_backend_url
@@ -7680,6 +7691,7 @@ async function loadMembers() {
       <span style="color:var(--text3);font-size:11px;">${lastErr}</span><br>
       <button onclick="loadMembers()" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:11px;">↻ Retry</button>
     </div>`;
+    _loadMembersRunning = false;
     return;
   }
   const currentUser = localStorage.getItem('crm_user');
@@ -7704,6 +7716,7 @@ async function loadMembers() {
     _membersDiag('❌ Render-Fehler: ' + e.message);
     list.innerHTML = `<div style="color:var(--red);font-size:12px;">❌ Render-Fehler: ${e.message}</div>`;
   }
+  _loadMembersRunning = false;
 }
 
 async function createMember() {
@@ -7793,19 +7806,20 @@ async function saveAutoOnline() {
 
 // Load settings when broadcast page opens
 const _origShowPage = window.showPage || showPage;
-// Hook into showPage for broadcast
+// Hook into showPage for broadcast / performance / mystats
+// NOTE: Do NOT add loadMembers() or loadNotifications() here — the original showPage already
+// calls them (lines ~3862-3863). Adding them here would create duplicate concurrent async calls
+// which causes the "⏳ Loading..." to be re-shown AFTER the data has already rendered.
 document.addEventListener('DOMContentLoaded', () => {
-  // Wrap to load settings on broadcast
   const _sp = window.showPage;
   if (_sp) {
     window.showPage = function(name) {
       _sp(name);
       if (name === 'broadcast') loadAutoOnline();
       if (name === 'performance') loadPerformance('heute');
-      if (name === 'members') loadMembers();
       if (name === 'mystats') loadMyStats('heute');
       if (name === 'notifications') {
-        loadNotifications();
+        // Only clear the badge — loadNotifications() is already called by the original showPage
         const nb = document.getElementById('notif-badge');
         if (nb) nb.style.display = 'none';
       }
