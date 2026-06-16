@@ -5272,7 +5272,7 @@ if (checkAuth()) {
     if (_activeCallTgId && _activeCallTgId !== currentChatTgId) {
       const callConv = allConvs.find(c => c.tg_id === _activeCallTgId);
       const callName = callConv?.internal_name || callConv?.tg_username || ('User #' + _activeCallTgId);
-      label = `📞 Call läuft: ${callName}`;
+      label = `📞 On call: ${callName}`;
     }
     txt.textContent = label;
     bar.style.display = 'block';
@@ -5288,7 +5288,7 @@ if (checkAuth()) {
       if (txt2 && _activeCallTgId && _activeCallTgId !== currentChatTgId) {
         const callConv2 = allConvs.find(c => c.tg_id === _activeCallTgId);
         const callName2 = callConv2?.internal_name || callConv2?.tg_username || ('User #' + _activeCallTgId);
-        txt2.textContent = `📞 Call läuft: ${callName2}`;
+        txt2.textContent = `📞 On call: ${callName2}`;
       }
     }, 1000);
     // Poll every 4s as safety-net: if subscriber hung up and WS event was missed, hide the bar
@@ -5357,18 +5357,14 @@ if (checkAuth()) {
     bar.dataset.promoted = '1';
     const wasVisible = bar.style.display === 'block';
     document.body.appendChild(bar);
-    bar.style.cssText = 'display:' + (wasVisible ? 'block' : 'none') + ';position:fixed;bottom:90px;right:24px;z-index:2000;background:rgba(16,24,20,0.97);border:1px solid #22c55e;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.55);padding:12px 14px;min-width:230px;max-width:320px;';
+    bar.style.cssText = 'display:' + (wasVisible ? 'block' : 'none') + ';position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2000;background:rgba(16,24,20,0.97);border:1px solid #22c55e;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.5);padding:8px 12px;max-width:92vw;';
     bar.innerHTML =
-        '<div style="display:flex;align-items:center;gap:10px;">'
-      +   '<span style="font-size:18px;animation:pulse 1.2s infinite;">' + String.fromCodePoint(0x1F4DE) + '</span>'
-      +   '<div style="flex:1;min-width:0;">'
-      +     '<span id="active-call-text" style="display:block;font-weight:700;color:#22c55e;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Call active...</span>'
-      +     '<span id="active-call-timer" style="font-size:11px;color:#22c55e;opacity:.7;">00:00</span>'
-      +   '</div>'
-      + '</div>'
-      + '<div style="display:flex;gap:8px;margin-top:10px;">'
-      +   '<button onclick="goToActiveCall()" style="flex:1;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.5);border-radius:8px;color:#22c55e;padding:6px 10px;cursor:pointer;font-size:12px;font-weight:700;">' + String.fromCodePoint(0x21AA) + ' Zum Chat</button>'
-      +   '<button onclick="hangUpCall()" style="flex:1;background:rgba(255,92,122,.18);border:1px solid #ff5c7a;border-radius:8px;color:#ff5c7a;padding:6px 10px;cursor:pointer;font-size:12px;font-weight:700;">' + String.fromCodePoint(0x1F4F5) + ' Auflegen</button>'
+        '<div style="display:flex;align-items:center;gap:12px;">'
+      +   '<span style="font-size:16px;animation:pulse 1.2s infinite;">' + String.fromCodePoint(0x1F4DE) + '</span>'
+      +   '<span id="active-call-text" style="font-weight:700;color:#22c55e;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px;">Call active...</span>'
+      +   '<span id="active-call-timer" style="font-size:12px;color:#22c55e;opacity:.7;">00:00</span>'
+      +   '<button onclick="goToActiveCall()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.5);border-radius:8px;color:#22c55e;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">' + String.fromCodePoint(0x21AA) + ' Open chat</button>'
+      +   '<button onclick="hangUpCall()" style="background:rgba(255,92,122,.18);border:1px solid #ff5c7a;border-radius:8px;color:#ff5c7a;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">' + String.fromCodePoint(0x1F4F5) + ' Hang up</button>'
       + '</div>';
   }
   try { if (document.getElementById('active-call-bar')) _promoteCallBar(); else document.addEventListener('DOMContentLoaded', _promoteCallBar); } catch(e){}
