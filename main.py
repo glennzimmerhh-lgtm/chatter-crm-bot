@@ -1834,6 +1834,53 @@ def vault_serve(filepath: str):
         raise HTTPException(404, 'Not found')
     return FileResponse(fpath)
 
+@app.get('/vault/thumb/{filepath:path}')
+def vault_thumb(filepath: str):
+    """Small cached thumbnail for fast, clean picker previews.
+    Images -> resized JPEG (Pillow). Videos -> first frame (ffmpeg). Falls back to original."""
+    if '..' in filepath:
+        raise HTTPException(400, 'Invalid path')
+    src = os.path.join(VAULT_DIR, filepath)
+    if not os.path.isfile(src):
+        raise HTTPException(404, 'Not found')
+    ext = filepath.rsplit('.', 1)[-1].lower() if '.' in filepath else ''
+    THUMBS_DIR = os.path.join(VAULT_DIR, '_thumbs')
+    os.makedirs(THUMBS_DIR, exist_ok=True)
+    key = filepath.replace('/', '__').replace('\\', '__')
+    thumb_path = os.path.join(THUMBS_DIR, key + '.jpg')
+    try:
+        if os.path.isfile(thumb_path) and os.path.getmtime(thumb_path) >= os.path.getmtime(src):
+            return FileResponse(thumb_path, media_type='image/jpeg')
+    except Exception:
+        pass
+    image_exts = ('jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif')
+    video_exts = ('mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
+    if ext in image_exts:
+        try:
+            from PIL import Image
+            im = Image.open(src)
+            im.thumbnail((360, 360))
+            if im.mode not in ('RGB', 'L'):
+                im = im.convert('RGB')
+            im.save(thumb_path, 'JPEG', quality=72)
+            return FileResponse(thumb_path, media_type='image/jpeg')
+        except Exception as e:
+            print(f'thumb(image) {filepath}: {e}')
+            return FileResponse(src)
+    if ext in video_exts:
+        try:
+            import subprocess
+            subprocess.run(
+                ['ffmpeg', '-y', '-ss', '00:00:01', '-i', src, '-vframes', '1', '-vf', 'scale=360:-1', thumb_path],
+                capture_output=True, timeout=25
+            )
+            if os.path.isfile(thumb_path):
+                return FileResponse(thumb_path, media_type='image/jpeg')
+        except Exception as e:
+            print(f'thumb(video) {filepath}: {e}')
+        raise HTTPException(404, 'no thumb')
+    return FileResponse(src)
+
 @app.delete('/vault/file/{filepath:path}')
 def vault_delete(filepath: str):
     """Delete a vault file."""

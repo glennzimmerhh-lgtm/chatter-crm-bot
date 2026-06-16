@@ -1818,7 +1818,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v3</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v4</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
@@ -7168,13 +7168,9 @@ function renderVaultGrid(grid, files, isPicker) {
     const folderTag = (!isPicker && f.folder)
       ? `<div style="font-size:9px;color:var(--teal);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📂 ${f.folder}</div>` : '';
 
-    // Thumbnail — video gets <video> for native first-frame preview
-    const thumb = f.type === 'image'
-      ? `<img src="${src}" loading="lazy" decoding="async" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`
-      : `<video src="${src}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" preload="metadata" muted playsinline
-           onerror="this.onerror=null;this.style.display='none';if(this.parentNode)this.parentNode.innerHTML='<div style=\\'position:absolute;inset:0;font-size:28px;display:flex;align-items:center;justify-content:center;\\'>🎬</div>'"
-           onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0">
-         </video>`;
+    // Thumbnail — small server-generated preview (fast & clean); videos get a frame too
+    const thumbSrc = '/api/vault/thumb/' + f.name.split('/').map(encodeURIComponent).join('/');
+    const thumb = `<img src="${thumbSrc}" loading="lazy" decoding="async" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`;
 
     const clickAction = isPicker
       ? `sendVaultFile('${f.name}')`
