@@ -5340,6 +5340,58 @@ if (checkAuth()) {
     } catch(e) { alert('Error hanging up: ' + e.message); }
   };
 
+  // ── Persistent / background call widget (survives page navigation) ──────────
+  window.goToActiveCall = function() {
+    const id = _activeCallTgId;
+    if (!id) return;
+    try { if (window.showPage) window.showPage('chat'); } catch(e){}
+    try {
+      const conv = (typeof allConvs !== 'undefined' && allConvs) ? allConvs.find(c => c.tg_id === id) : null;
+      if (window.openConv) window.openConv(id, conv ? (conv.anon_id || '') : '');
+    } catch(e){}
+  };
+
+  function _promoteCallBar() {
+    const bar = document.getElementById('active-call-bar');
+    if (!bar || bar.dataset.promoted) return;
+    bar.dataset.promoted = '1';
+    const wasVisible = bar.style.display === 'block';
+    document.body.appendChild(bar);
+    bar.style.cssText = 'display:' + (wasVisible ? 'block' : 'none') + ';position:fixed;bottom:90px;right:24px;z-index:2000;background:rgba(16,24,20,0.97);border:1px solid #22c55e;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.55);padding:12px 14px;min-width:230px;max-width:320px;';
+    bar.innerHTML =
+        '<div style="display:flex;align-items:center;gap:10px;">'
+      +   '<span style="font-size:18px;animation:pulse 1.2s infinite;">' + String.fromCodePoint(0x1F4DE) + '</span>'
+      +   '<div style="flex:1;min-width:0;">'
+      +     '<span id="active-call-text" style="display:block;font-weight:700;color:#22c55e;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Call active...</span>'
+      +     '<span id="active-call-timer" style="font-size:11px;color:#22c55e;opacity:.7;">00:00</span>'
+      +   '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;margin-top:10px;">'
+      +   '<button onclick="goToActiveCall()" style="flex:1;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.5);border-radius:8px;color:#22c55e;padding:6px 10px;cursor:pointer;font-size:12px;font-weight:700;">' + String.fromCodePoint(0x21AA) + ' Zum Chat</button>'
+      +   '<button onclick="hangUpCall()" style="flex:1;background:rgba(255,92,122,.18);border:1px solid #ff5c7a;border-radius:8px;color:#ff5c7a;padding:6px 10px;cursor:pointer;font-size:12px;font-weight:700;">' + String.fromCodePoint(0x1F4F5) + ' Auflegen</button>'
+      + '</div>';
+  }
+  try { if (document.getElementById('active-call-bar')) _promoteCallBar(); else document.addEventListener('DOMContentLoaded', _promoteCallBar); } catch(e){}
+
+  // Restore the widget on any page (after reload or if the call started while away)
+  async function _globalCallCheck() {
+    try {
+      const res = await chatApiGet('/call/status');
+      if (!res) return;
+      const ac = res.active_calls || {};
+      const ids = Object.keys(ac);
+      if (ids.length) {
+        if (!_activeCallTgId) {
+          const id = ids[0];
+          showActiveCallBar({ call_type: ac[id].type, filename: ac[id].file }, id);
+        }
+      } else if (_activeCallTgId) {
+        hideActiveCallBar();
+      }
+    } catch(e){}
+  }
+  try { setTimeout(_globalCallCheck, 2500); setInterval(_globalCallCheck, 8000); } catch(e){}
+
   window.openFakeCallModal = async function() {
     if (!currentChatTgId) return;
     const overlay = document.getElementById('fake-call-modal-overlay');
