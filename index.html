@@ -988,7 +988,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       Shifts
     </div>
-    <div class="nav-item" onclick="showPage('notifications')" id="nav-notifications">
+    <div class="nav-item" onclick="showPage('notifications');if(typeof loadNotifications==='function')loadNotifications();" id="nav-notifications">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       Notifications
       <span id="notif-badge" style="display:none;margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:2px 6px;">0</span>
@@ -1030,7 +1030,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       Pledges <span id="nav-pledges-badge" style="display:none;background:#ff5c7a;color:#fff;border-radius:8px;padding:0 5px;font-size:10px;font-weight:700;margin-left:4px;"></span>
     </div>
-    <div class="nav-item admin-only" onclick="showPage('members')">
+    <div class="nav-item admin-only" onclick="showPage('members');if(typeof loadMembers==='function')loadMembers();">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Members
     </div>
@@ -7154,7 +7154,15 @@ async function deleteVaultFile(name, btn) {
 // ── VAULT PICKER (in chat) ─────────────────────────────────────────────────
 function openVaultPicker() {
   const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
-  if (!tgId) { alert('Select a conversation first'); return; }
+  if (!tgId) {
+    // Show visible toast instead of alert (which can be blocked by Chrome)
+    const t = document.createElement('div');
+    t.textContent = '⚠️ Bitte zuerst eine Konversation auswählen';
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#2a1a00;border:1px solid #ffd166;color:#ffd166;padding:12px 20px;border-radius:10px;font-size:13px;z-index:99999;white-space:nowrap;';
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+    return;
+  }
   const overlay = document.getElementById('vault-picker-overlay');
   overlay.style.display = 'flex';
   _pickerCurrentFolder = '';
@@ -7809,12 +7817,20 @@ document.addEventListener('DOMContentLoaded', () => {
       if (name === 'performance') loadPerformance('heute');
       if (name === 'mystats') loadMyStats('heute');
       if (name === 'notifications') {
-        // Only clear the badge — loadNotifications() is already called by the original showPage
         const nb = document.getElementById('notif-badge');
         if (nb) nb.style.display = 'none';
+        // Belt + suspenders: also call directly in case showPage chain skipped it
+        if (typeof loadNotifications === 'function') loadNotifications();
+      }
+      if (name === 'members') {
+        if (typeof loadMembers === 'function') loadMembers();
       }
     };
   }
+  // Also pre-load on first open if nav shows these pages are active
+  setTimeout(() => {
+    if (typeof loadNotifications === 'function') loadNotifications();
+  }, 500);
 });
 
 </script>
