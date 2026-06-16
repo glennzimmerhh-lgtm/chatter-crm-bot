@@ -1216,6 +1216,9 @@ async def _bg_read_history(tg_id: str):
     """Background: mark messages as read in Telegram."""
     if not tg_client or not tg_client.is_connected():
         return
+    if active_calls:
+        print('⏸ read-ack skipped — call in progress')
+        return
     try:
         with db() as conn:
             with conn.cursor() as c:
@@ -1242,6 +1245,8 @@ async def send_typing(tg_id: str):
     """Send typing indicator to subscriber so they see '...' in Telegram."""
     if not tg_client or not tg_client.is_connected():
         return {'ok': False}
+    if active_calls:
+        return {'ok': False, 'skipped': 'call_active'}
     try:
         with db() as conn:
             with conn.cursor() as c:
@@ -2540,6 +2545,9 @@ async def get_profile_photo(tg_id: str):
             return FileResponse(p, media_type='image/jpeg')
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot not connected')
+    if active_calls:
+        # Don't hit MTProto (photo download) while a call is active — it can drop the call.
+        raise HTTPException(404, 'profile photo deferred during active call')
     try:
         with db() as conn:
             with conn.cursor() as c:
