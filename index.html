@@ -1126,30 +1126,6 @@
       </div>
     </div>
 
-    <!-- LEAD SOURCES -->
-    <div style="margin-bottom:20px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-        <span style="font-size:12px;font-weight:700;color:#4a9eff;text-transform:uppercase;letter-spacing:.06em;">📣 Quellen / Lead-Tracking</span>
-        <button onclick="toggleSourceTools()" style="margin-left:auto;font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:3px 10px;cursor:pointer;">⚙ Codes &amp; Links</button>
-        <button onclick="loadSourceStats()" title="Refresh" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:3px 8px;cursor:pointer;">↻</button>
-      </div>
-      <div id="source-stats"><div style="color:var(--text3);font-size:13px;">Laden…</div></div>
-      <div id="source-tools" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Quellen-Codes (kommagetrennt) — pro Anzeige/Kanal ein Code:</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-          <input id="source-codes-input" placeholder="markt1, markt2, social" style="flex:1;min-width:200px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;outline:none;">
-          <button onclick="saveSourceCodes()" style="background:var(--teal);border:none;border-radius:8px;color:#000;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">Speichern</button>
-        </div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Link-Generator — dein Telegram-Username + ein Code:</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-          <input id="source-username" placeholder="DeinUsername (ohne @)" style="width:210px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;outline:none;">
-          <input id="source-linkcode" placeholder="markt1" style="width:140px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;outline:none;">
-          <button onclick="genSourceLink()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:13px;cursor:pointer;">Link erzeugen</button>
-        </div>
-        <div id="source-link-out" style="margin-top:10px;"></div>
-      </div>
-    </div>
-
     <!-- ONLINE NOW WIDGET -->
     <div id="dash-online-widget" style="margin-bottom:20px;background:var(--card);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:16px 20px;display:none;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
@@ -1313,6 +1289,30 @@
             <tr><td colspan="6"><div class="empty">No data — connect Google Sheet</div></td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- LEAD SOURCES (compact, bottom of dashboard) -->
+    <div style="margin-top:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+        <span style="font-size:11px;font-weight:700;color:#4a9eff;text-transform:uppercase;letter-spacing:.06em;">📣 Quellen heute</span>
+        <button onclick="toggleSourceTools()" style="margin-left:auto;font-size:10px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:2px 8px;cursor:pointer;">⚙ Codes &amp; Links</button>
+        <button onclick="loadSourceStats()" title="Refresh" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:2px 7px;cursor:pointer;">↻</button>
+      </div>
+      <div id="source-stats" style="font-size:12px;"><div style="color:var(--text3);font-size:12px;">Laden…</div></div>
+      <div id="source-tools" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:5px;">Quellen-Codes (kommagetrennt):</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+          <input id="source-codes-input" placeholder="markt 1, markt 2, quoka, social media" style="flex:1;min-width:200px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:6px;font-size:12px;outline:none;">
+          <button onclick="saveSourceCodes()" style="background:var(--teal);border:none;border-radius:7px;color:#000;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">Speichern</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:5px;">Link-Generator (Username ohne @ + Code):</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <input id="source-username" placeholder="DeinUsername" style="width:180px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:6px;font-size:12px;outline:none;">
+          <input id="source-linkcode" placeholder="markt 1" style="width:130px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:6px;font-size:12px;outline:none;">
+          <button onclick="genSourceLink()" style="background:var(--bg3);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:6px 10px;font-size:12px;cursor:pointer;">Link erzeugen</button>
+        </div>
+        <div id="source-link-out" style="margin-top:8px;"></div>
       </div>
     </div>
   </div>
@@ -1842,7 +1842,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v4</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v5</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
@@ -3979,7 +3979,7 @@ function showPage(name) {
   // Chat activation
   window.chatPageActive = (name === 'chat');
   if (name === 'scripts') { renderScriptsPage(); }
-  if (name === 'subscribers') { loadSubscribersPage(); }
+  if (name === 'subscribers') { if (typeof loadSubscribersPage === 'function') loadSubscribersPage(); }
   if (name === 'performance') { loadPerformance(_perfPeriod); }
   if (name === 'vault') { if (typeof loadVaultPage === 'function') loadVaultPage(); }
   if (name === 'notifications') { if (typeof loadNotifications === 'function') loadNotifications(); }
@@ -6048,9 +6048,14 @@ function editShiftGoal() {
 
 function updateShiftGoal() {
   const user = localStorage.getItem('crm_user') || '';
-  // Robust: pull THIS chatter's revenue for today straight from the backend.
-  // Counts approved + pending; avoids local-cache / chatter-name / date mismatches.
-  if (user) {
+  const isAdm = localStorage.getItem('crm_role') === 'admin';
+  // Admin sees the team's daily revenue (whole shift); chatter sees their own daily revenue.
+  if (isAdm) {
+    fetch('/api/analytics/today-total')
+      .then(r => r.json())
+      .then(d => _renderShiftGoal(parseFloat(d.revenue) || 0))
+      .catch(() => _renderShiftGoal(_localTodayRevenue('')));
+  } else if (user) {
     fetch('/api/analytics/my-stats?chatter=' + encodeURIComponent(user) + '&period=heute')
       .then(r => r.json())
       .then(d => _renderShiftGoal(parseFloat(d.revenue) || 0))
@@ -7273,7 +7278,7 @@ function renderVaultGrid(grid, files, isPicker) {
 
     // Thumbnail — small server-generated preview (fast & clean); videos get a frame too
     const thumbSrc = '/api/vault/thumb/' + f.name.split('/').map(encodeURIComponent).join('/');
-    const thumb = `<img src="${thumbSrc}" loading="lazy" decoding="async" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`;
+    const thumb = `<img class="vlazy" data-src="${thumbSrc}" decoding="async" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`;
 
     const clickAction = isPicker
       ? `sendVaultFile('${f.name}')`

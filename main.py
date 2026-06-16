@@ -1371,18 +1371,30 @@ def save_source_codes(body: SourceCodesIn):
 
 @app.get('/analytics/sources')
 def analytics_sources():
+    # Daily numbers: new subs today + sales/revenue today, per source
+    since = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     with db() as conn:
         with conn.cursor() as c:
             c.execute('''SELECT COALESCE(NULLIF(c.source,''),'Direkt') as source,
-                                COUNT(DISTINCT c.tg_id) as subs,
-                                COUNT(DISTINCT s.tg_id) as buyers,
-                                COALESCE(SUM(s.amount),0) as revenue
+                                COUNT(DISTINCT CASE WHEN c.first_time >= %s THEN c.tg_id END) as subs,
+                                COUNT(DISTINCT CASE WHEN s.timestamp >= %s THEN s.tg_id END) as buyers,
+                                COALESCE(SUM(CASE WHEN s.timestamp >= %s THEN s.amount ELSE 0 END),0) as revenue
                          FROM conversations c
                          LEFT JOIN sales s ON s.tg_id = c.tg_id
                          GROUP BY COALESCE(NULLIF(c.source,''),'Direkt')
-                         ORDER BY subs DESC''')
+                         ORDER BY subs DESC''', (since, since, since))
             rows = c.fetchall()
     return [dict(r) for r in rows]
+
+@app.get('/analytics/today-total')
+def analytics_today_total():
+    """Team-wide revenue + sale count for today (for the admin shift-goal view)."""
+    since = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT COALESCE(SUM(amount),0) as revenue, COUNT(*) as sales FROM sales WHERE timestamp >= %s', (since,))
+            row = c.fetchone()
+    return {'revenue': float(row['revenue'] or 0), 'sales': row['sales'] or 0}
 
 # ── REPLY ─────────────────────────────────────────────────────────────────────
 class ReplyIn(BaseModel):
