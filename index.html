@@ -1749,7 +1749,7 @@
         <button class="period-btn" onclick="loadNotifications()" title="Refresh">↻</button>
       </div>
     </div>
-    <div id="notif-diag" style="display:none;margin-bottom:10px;padding:10px 14px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);border-radius:10px;font-size:12px;color:var(--text2);font-family:monospace;white-space:pre-wrap;"></div>
+    <div id="notif-diag" style="display:block;margin-bottom:10px;padding:10px 14px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);border-radius:10px;font-size:12px;color:var(--text2);font-family:monospace;white-space:pre-wrap;">⏳ Initialisiert...</div>
     <div id="notif-feed" style="display:flex;flex-direction:column;gap:8px;max-width:800px;"></div>
   </div>
 
@@ -1913,7 +1913,7 @@
           <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;">Aktive Members</div>
           <button onclick="loadMembers()" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:3px 8px;cursor:pointer;">↻ Reload</button>
         </div>
-        <div id="members-diag" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);border-radius:8px;font-size:11px;color:var(--text2);font-family:monospace;white-space:pre-wrap;"></div>
+        <div id="members-diag" style="display:block;margin-bottom:10px;padding:8px 12px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);border-radius:8px;font-size:11px;color:var(--text2);font-family:monospace;white-space:pre-wrap;">⏳ Initialisiert...</div>
         <div id="members-list" style="display:flex;flex-direction:column;gap:10px;">
         </div>
       </div>
@@ -6639,13 +6639,9 @@ function _notifDiag(msg) {
   el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
 
-let _loadNotifsRunning = false;
 async function loadNotifications() {
-  // Guard: skip if already in progress (prevents double-call from stacked showPage wrappers)
-  if (_loadNotifsRunning) { console.log('[notif] already loading, skipping duplicate call'); return; }
-  _loadNotifsRunning = true;
   const feed = document.getElementById('notif-feed');
-  if (!feed) { console.warn('[notif] notif-feed not found in DOM'); _loadNotifsRunning = false; return; }
+  if (!feed) { console.warn('[notif] notif-feed not found in DOM'); return; }
 
   _notifDiag('Starte Laden...');
 
@@ -6690,7 +6686,6 @@ async function loadNotifications() {
       <span style="font-size:11px;color:var(--text3);">${lastErr}</span><br>
       <button onclick="loadNotifications()" class="period-btn" style="margin-top:10px;">↻ Retry</button>
     </div>`;
-    _loadNotifsRunning = false;
     return;
   }
 
@@ -6703,7 +6698,6 @@ async function loadNotifications() {
   } catch(e) {
     _notifDiag('❌ renderNotifications Fehler: ' + e.message + ' | Stack: ' + (e.stack||'').slice(0,150));
     feed.innerHTML = `<div class="empty" style="color:#ff5c7a;">❌ Render-Fehler: ${e.message}<br><span style="font-size:10px;color:var(--text3);">${(e.stack||'').slice(0,200)}</span></div>`;
-    _loadNotifsRunning = false;
     return;
   }
 
@@ -6715,7 +6709,6 @@ async function loadNotifications() {
   }
   if (_allNotifs.length) _lastNotifTs = _allNotifs[0].ts;
   _notifDiag('✅ Fertig — ' + _allNotifs.length + ' Karten gerendert');
-  _loadNotifsRunning = false;
 }
 
 function filterNotifs(type) {
@@ -6743,7 +6736,7 @@ function renderNotifications() {
     const d = parseTs(n.ts);
     const timeStr = isNaN(d.getTime()) ? '' : d.toLocaleString('de-DE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
     const detail = isSale
-      ? `${n.name} · ${n.product || 'Produkt'} · <strong style="color:#ffd166">${(n.amount||0).toFixed(0)}€</strong>${n.chatter ? ' · ' + n.chatter : ''}`
+      ? `${n.name} · ${n.product || 'Produkt'} · <strong style="color:#ffd166">${parseFloat(n.amount||0).toFixed(0)}€</strong>${n.chatter ? ' · ' + n.chatter : ''}`
       : `${n.name} hat subscribed${n.username ? ' <span style="color:var(--text3)">@' + n.username + '</span>' : ''}`;
     return `<div onclick="openConv('${n.tg_id}','${(n.anon_id||'')}');showPage('chat')"
       style="display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:12px;cursor:pointer;transition:background .15s;"
@@ -7648,75 +7641,72 @@ function _membersDiag(msg) {
   el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
 
-let _loadMembersRunning = false;
 async function loadMembers() {
-  // Guard against concurrent calls (e.g., double-calls from stacked showPage wrappers)
-  if (_loadMembersRunning) { console.log('[members] already loading, skipping duplicate call'); return; }
-  _loadMembersRunning = true;
   const list = document.getElementById('members-list');
-  if (!list) { console.warn('[members] members-list not found'); _loadMembersRunning = false; return; }
+  if (!list) { console.warn('[members] members-list not found'); return; }
   _membersDiag('Starte Laden...');
   list.innerHTML = '<div style="color:var(--text3);font-size:13px;">⏳ Loading...</div>';
-  // Always include hardcoded Railway URL so fallback works even without crm_backend_url
-  const RAILWAY = 'https://worker-production-806f.up.railway.app';
-  const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || RAILWAY).replace(/\/$/, '');
+
+  // Fetch users — plain fetch, no _fetchT, for maximum reliability
   let users = null;
   let lastErr = '';
-  // Try Vercel proxy first, then direct Railway as fallback
-  const urls = ['/api/auth/users'];
-  if (!base.startsWith('/')) urls.push(base + '/auth/users');
-  for (const url of urls) {
-    _membersDiag('Fetching ' + url + '...');
-    try {
-      const r = await _fetchT(url, {}, 12000);
-      if (r.ok) {
-        users = await r.json();
-        _membersDiag('✅ ' + url + ' → ' + users.length + ' Users');
-        break;
-      }
-      let body = '';
-      try { body = await r.text(); } catch(_) {}
-      lastErr = `HTTP ${r.status} from ${url}: ${body.slice(0,120)}`;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    const r = await fetch('/api/auth/users', { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (r.ok) {
+      users = await r.json();
+      _membersDiag('✅ /api/auth/users → ' + users.length + ' Users');
+    } else {
+      lastErr = 'HTTP ' + r.status;
       _membersDiag('❌ ' + lastErr);
-      console.warn('[loadMembers]', lastErr);
-    } catch(err) {
-      lastErr = `${err.name}: ${err.message} (${url})`;
-      _membersDiag('❌ ' + lastErr);
-      console.warn('[loadMembers] fetch error:', lastErr);
     }
+  } catch(err) {
+    lastErr = err.name === 'AbortError' ? 'Timeout (12s)' : err.message;
+    _membersDiag('❌ ' + lastErr);
+    console.warn('[loadMembers] fetch failed:', lastErr);
   }
+
   if (!users) {
-    list.innerHTML = `<div style="color:var(--red);font-size:12px;line-height:1.6;">
-      ❌ Members konnten nicht geladen werden.<br>
-      <span style="color:var(--text3);font-size:11px;">${lastErr}</span><br>
-      <button onclick="loadMembers()" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:11px;">↻ Retry</button>
-    </div>`;
-    _loadMembersRunning = false;
+    list.innerHTML = '<div style="color:var(--red);font-size:12px;line-height:1.6;">❌ Members konnten nicht geladen werden.<br><span style="color:var(--text3);font-size:11px;">' + lastErr + '</span><br><button onclick="loadMembers()" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:11px;">↻ Retry</button></div>';
     return;
   }
-  const currentUser = localStorage.getItem('crm_user');
-  try {
-    list.innerHTML = users.length === 0
-      ? '<div style="color:var(--text3);font-size:13px;">Keine Members gefunden.</div>'
-      : users.map(u => `
-        <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">
-          <div style="width:36px;height:36px;border-radius:50%;background:${u.role==='admin'?'rgba(0,212,170,0.2)':'rgba(74,158,255,0.15)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:${u.role==='admin'?'var(--teal)':'var(--blue)'};">${(u.display_name||u.username||'?')[0].toUpperCase()}</div>
-          <div style="flex:1;">
-            <div style="font-size:13px;font-weight:600;color:var(--text);">${u.display_name || u.username}</div>
-            <div style="font-size:11px;color:var(--text3);">${u.role === 'admin' ? '👑 Admin' : '💬 Chatter'} · ${u.username}</div>
-          </div>
-          <select onchange="changeMemberRole(${u.id},this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:4px 6px;outline:none;">
-            <option value="chatter" ${u.role==='chatter'?'selected':''}>Chatter</option>
-            <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-          </select>
-          ${u.username !== currentUser ? `<button onclick="deleteMember(${u.id},'${u.username}')" style="background:rgba(255,92,122,0.15);border:1px solid rgba(255,92,122,0.3);color:#ff5c7a;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:11px;">✕</button>` : '<div style="width:34px;"></div>'}
-        </div>`).join('');
-    _membersDiag('✅ Fertig — ' + users.length + ' Members gerendert');
-  } catch(e) {
-    _membersDiag('❌ Render-Fehler: ' + e.message);
-    list.innerHTML = `<div style="color:var(--red);font-size:12px;">❌ Render-Fehler: ${e.message}</div>`;
+
+  const currentUser = localStorage.getItem('crm_user') || '';
+  if (users.length === 0) {
+    list.innerHTML = '<div style="color:var(--text3);font-size:13px;">Keine Members gefunden.</div>';
+    _membersDiag('✅ 0 Members');
+    return;
   }
-  _loadMembersRunning = false;
+
+  const rows = [];
+  for (const u of users) {
+    const name    = u.display_name || u.username || '?';
+    const initial = name[0].toUpperCase();
+    const roleLabel = u.role === 'admin' ? '👑 Admin' : '💬 Chatter';
+    const avatarBg  = u.role === 'admin' ? 'rgba(0,212,170,0.2)' : 'rgba(74,158,255,0.15)';
+    const avatarCol = u.role === 'admin' ? 'var(--teal)' : 'var(--blue)';
+    const isSelf    = u.username === currentUser;
+    // Use data-id attribute for role change/delete to avoid JS string escaping issues
+    rows.push(
+      '<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:10px;">'
+      + '<div style="width:36px;height:36px;border-radius:50%;background:' + avatarBg + ';display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:' + avatarCol + ';">' + initial + '</div>'
+      + '<div style="flex:1;">'
+        + '<div style="font-size:13px;font-weight:600;color:var(--text);">' + name + '</div>'
+        + '<div style="font-size:11px;color:var(--text3);">' + roleLabel + ' · ' + u.username + '</div>'
+      + '</div>'
+      + '<select data-uid="' + u.id + '" onchange="changeMemberRole(parseInt(this.dataset.uid),this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:4px 6px;outline:none;">'
+        + '<option value="chatter"' + (u.role==='chatter'?' selected':'') + '>Chatter</option>'
+        + '<option value="admin"' + (u.role==='admin'?' selected':'') + '>Admin</option>'
+      + '</select>'
+      + (isSelf ? '<div style="width:34px;"></div>'
+                : '<button data-uid="' + u.id + '" data-uname="' + u.username.replace(/"/g,'') + '" onclick="deleteMember(parseInt(this.dataset.uid),this.dataset.uname)" style="background:rgba(255,92,122,0.15);border:1px solid rgba(255,92,122,0.3);color:#ff5c7a;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:11px;">✕</button>')
+      + '</div>'
+    );
+  }
+  list.innerHTML = rows.join('');
+  _membersDiag('✅ Fertig — ' + users.length + ' Members gerendert');
 }
 
 async function createMember() {
