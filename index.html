@@ -1818,7 +1818,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v2</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v3</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
@@ -7180,10 +7180,10 @@ function renderVaultGrid(grid, files, isPicker) {
       ? `sendVaultFile('${f.name}')`
       : `openVaultPreview('${src.replace(/'/g,"\\'")}','${f.type}','${label.replace(/'/g,"\\'")}')`;
 
-    return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s;position:relative;"
+    return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s;position:relative;display:flex;flex-direction:column;align-self:start;"
       onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'"
       onclick="${clickAction}">
-      <div style="position:relative;width:100%;padding-bottom:100%;background:var(--bg2);overflow:hidden;">
+      <div style="position:relative;width:100%;height:160px;flex:0 0 160px;background:var(--bg2);overflow:hidden;">
         ${thumb}
         ${f.type === 'video' ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:32px;height:32px;background:rgba(0,0,0,.55);border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:none;font-size:14px;">▶</div>` : ''}
       </div>
@@ -7197,6 +7197,17 @@ function renderVaultGrid(grid, files, isPicker) {
     </div>`;
   }).join('');
   _vaultLazyObserve(grid);
+  try {
+    requestAnimationFrame(() => {
+      const t = grid.children && grid.children[0];
+      if (!t) return;
+      const r = t.getBoundingClientRect();
+      const st = document.getElementById('vault-picker-status');
+      if (st && grid.id === 'vault-picker-grid') {
+        st.textContent = (st.textContent || '').replace(/ · tile.*$/, '') + ' · tile ' + Math.round(r.width) + '×' + Math.round(r.height);
+      }
+    });
+  } catch(e) {}
 }
 
 let _vaultIO = null;
