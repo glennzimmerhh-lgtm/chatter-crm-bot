@@ -1006,6 +1006,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
       Scripts
     </div>
+    <div class="nav-item" onclick="showPage('hotkeys')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="10" x2="6" y2="10"/><line x1="10" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="14" y2="10"/><line x1="18" y1="10" x2="18" y2="10"/><line x1="7" y1="14" x2="17" y2="14"/></svg>
+      Hotkeys
+    </div>
     <div class="nav-item" onclick="showPage('mystats')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       My Stats
@@ -1753,6 +1757,22 @@
     <div id="notif-feed" style="display:flex;flex-direction:column;gap:8px;max-width:800px;"></div>
   </div>
 
+  <!-- HOTKEYS PAGE -->
+  <div id="page-hotkeys" style="display:none;">
+    <div class="page-header" style="margin-bottom:16px;">
+      <h1 style="font-size:22px;">⌨️ Hotkeys</h1>
+      <p style="color:var(--text2);font-size:13px;margin-top:4px;">Type a shortcut (e.g. <b>aa1</b>) in the chat, then press Space or Enter — it expands into the text below. Shared across all chatters.</p>
+    </div>
+    <div style="max-width:760px;">
+      <div id="hotkeys-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center;">
+        <button onclick="addHotkeyRow()" style="padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;">＋ Add hotkey</button>
+        <button onclick="saveHotkeys()" style="padding:9px 16px;border-radius:10px;border:none;background:var(--teal);color:#000;font-size:13px;font-weight:700;cursor:pointer;">✅ Save</button>
+        <span id="hotkeys-status" style="font-size:12px;color:var(--text3);"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- VAULT PAGE -->
   <div id="page-vault" style="display:none;">
     <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
@@ -2081,7 +2101,7 @@
           <div id="ai-suggest-chips" style="display:flex;flex-direction:column;gap:5px;"></div>
         </div>
         <div class="reply-bar">
-          <textarea id="chat-input" rows="1" placeholder="Write a message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatReply();}" oninput="onChatInput();this.style.height='auto';this.style.height=Math.min(this.scrollHeight,160)+'px';"></textarea>
+          <textarea id="chat-input" rows="1" placeholder="Write a message..." onkeydown="onChatKeydown(event)" oninput="onChatInput();this.style.height='auto';this.style.height=Math.min(this.scrollHeight,160)+'px';"></textarea>
           <button onclick="openVaultPicker()" title="Send file from Vault" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:var(--text2);border-radius:10px;padding:11px 12px;font-size:15px;cursor:pointer;flex-shrink:0;">📁</button>
           <button onclick="sendChatReply()">Send ↑</button>
         </div>
@@ -3843,7 +3863,7 @@ function _fmtHours(sec) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -3864,6 +3884,7 @@ function showPage(name) {
   if (name === 'vault') { if (typeof loadVaultPage === 'function') loadVaultPage(); }
   if (name === 'notifications') { if (typeof loadNotifications === 'function') loadNotifications(); }
   if (name === 'members') { if (typeof loadMembers === 'function') loadMembers(); }
+  if (name === 'hotkeys') { if (typeof renderHotkeysPage === 'function') renderHotkeysPage(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues
     const _doLoad = () => {
@@ -4988,10 +5009,13 @@ if (checkAuth()) {
       const ticks = dir === 'out' ? `<svg width="15" height="10" viewBox="0 0 15 10" style="margin-left:3px;vertical-align:middle;flex-shrink:0" fill="${m.is_read ? '#00d4aa' : 'rgba(255,255,255,0.35)'}"><path d="M0 5l1.4-1.4 3.1 3.1 6.1-6.1 1.4 1.4-7.5 7.5z"/><path d="M4 5l1.4-1.4 3.1 3.1 6.1-6.1 1.4 1.4-7.5 7.5z" opacity="0.7"/></svg>` : '';
       // For incoming: show translation if available, otherwise original
       const displayText = (dir === 'in' && m.translation) ? m.translation : m.text;
-      const meta = dir === 'out'
-        ? `<div class="msg-meta" style="display:flex;align-items:center;justify-content:flex-end;gap:2px;">${m.chatter||'Chatter'} · ${time}${ticks}</div>`
-        : `<div class="msg-meta">${time}</div>`;
       const msgBubbleId = `msg-${m.id || i}`;
+      const retractBtn = (dir === 'out' && m.tg_msg_id > 0)
+        ? `<button onclick="retractMsg(event,'${currentChatTgId}',${m.tg_msg_id},${m.id||0},'${msgBubbleId}')" title="Unsend (delete for everyone)" style="background:none;border:none;color:rgba(255,255,255,.3);font-size:11px;cursor:pointer;padding:0 4px 0 0;line-height:1;">↩</button>`
+        : '';
+      const meta = dir === 'out'
+        ? `<div class="msg-meta" style="display:flex;align-items:center;justify-content:flex-end;gap:2px;">${retractBtn}${m.chatter||'Chatter'} · ${time}${ticks}</div>`
+        : `<div class="msg-meta">${time}</div>`;
       // 🇬🇧 translate button — tiny, inside bubble, only on incoming
       const transBtn = dir === 'in'
         ? `<button onclick="translateIncoming('${msgBubbleId}',this)" style="display:inline-block;margin-top:3px;background:none;border:none;color:rgba(255,255,255,.25);font-size:10px;cursor:pointer;padding:0;line-height:1;" title="Translate">🇬🇧</button>`
@@ -5966,6 +5990,81 @@ function onChatInput() {
   }
   if (_typingTimer) clearTimeout(_typingTimer);
 }
+
+// ── HOTKEYS (inline text expansion + management) ──────────────────────────────
+let _hotkeys = [];
+async function loadHotkeys() {
+  try {
+    const r = await fetch('/api/hotkeys');
+    if (r.ok) { const d = await r.json(); _hotkeys = JSON.parse(d.hotkeys || '[]') || []; }
+  } catch(e) { /* keep existing */ }
+}
+loadHotkeys();
+
+function onChatKeydown(e) {
+  // Inline hotkey expansion: typing e.g. "aa1" then Space/Enter inserts the saved text
+  if ((e.key === ' ' || e.key === 'Enter') && _hotkeys && _hotkeys.length) {
+    const ta = e.target;
+    if (ta && ta.selectionStart === ta.selectionEnd) {
+      const before = ta.value.slice(0, ta.selectionStart);
+      const m = before.match(/(\S+)$/);
+      if (m) {
+        const token = m[1];
+        const hk = _hotkeys.find(h => h && h.key && h.key.toLowerCase() === token.toLowerCase());
+        if (hk) {
+          e.preventDefault();
+          const start = ta.selectionStart - token.length;
+          const after = ta.value.slice(ta.selectionStart);
+          ta.value = ta.value.slice(0, start) + (hk.text || '') + after;
+          const pos = start + (hk.text || '').length;
+          ta.setSelectionRange(pos, pos);
+          ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+          return; // don't send / don't add the space
+        }
+      }
+    }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (window.sendChatReply) window.sendChatReply(); }
+}
+
+function renderHotkeysPage() {
+  const list = document.getElementById('hotkeys-list');
+  if (!list) return;
+  if (!_hotkeys.length) _hotkeys = [{ key: '', text: '' }];
+  list.innerHTML = _hotkeys.map((h, i) => ''
+    + '<div style="display:flex;gap:10px;align-items:flex-start;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px;">'
+    +   '<input value="' + (h.key||'').replace(/"/g,'&quot;') + '" oninput="_hotkeys[' + i + '].key=this.value" placeholder="aa1" style="width:90px;flex-shrink:0;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;font-weight:700;outline:none;">'
+    +   '<textarea oninput="_hotkeys[' + i + '].text=this.value" placeholder="Message text…" rows="2" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;outline:none;">' + (h.text||'').replace(/</g,'&lt;') + '</textarea>'
+    +   '<button onclick="_hotkeys.splice(' + i + ',1);renderHotkeysPage()" style="background:rgba(255,92,122,.12);border:1px solid rgba(255,92,122,.3);color:#ff5c7a;border-radius:8px;padding:8px 10px;cursor:pointer;font-size:13px;flex-shrink:0;">✕</button>'
+    + '</div>').join('');
+}
+function addHotkeyRow() { _hotkeys.push({ key: '', text: '' }); renderHotkeysPage(); }
+async function saveHotkeys() {
+  _hotkeys = _hotkeys.filter(h => (h.key||'').trim());
+  const status = document.getElementById('hotkeys-status');
+  try {
+    const r = await fetch('/api/hotkeys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hotkeys: JSON.stringify(_hotkeys) }) });
+    if (r.ok) { if (status) { status.textContent = '✅ Saved'; status.style.color = 'var(--teal)'; } }
+    else { if (status) { status.textContent = '❌ Save failed'; status.style.color = '#ff5c7a'; } }
+  } catch(e) { if (status) { status.textContent = '❌ ' + e.message; status.style.color = '#ff5c7a'; } }
+  renderHotkeysPage();
+}
+
+// ── RETRACT (unsend) a sent message ───────────────────────────────────────────
+window.retractMsg = async function(e, tgId, tgMsgId, dbId, bubbleId) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  if (!confirm('Unsend this message (delete for everyone on Telegram)?')) return;
+  try {
+    const r = await fetch('/api/message/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tgId, tg_msg_id: tgMsgId, db_id: dbId }) });
+    if (r.ok) {
+      const b = document.getElementById(bubbleId);
+      if (b) { const row = b.closest('.msg-row'); (row || b).remove(); }
+    } else {
+      const d = await r.json().catch(() => ({}));
+      alert('Could not unsend: ' + (d.detail || ('HTTP ' + r.status)));
+    }
+  } catch(err) { alert('Error: ' + err.message); }
+};
 
 // ── ONLINE STATUS PANEL ───────────────────────────────────────────────────────
 async function refreshOnlinePanel() {
@@ -7062,9 +7161,9 @@ function renderVaultGrid(grid, files, isPicker) {
 
     // Thumbnail — video gets <video> for native first-frame preview
     const thumb = f.type === 'image'
-      ? `<img class="vlazy" data-src="${src}" style="width:100%;height:100%;object-fit:cover;background:var(--bg2);" onerror="this.onerror=null;this.style.display='none'">`
-      : `<video class="vlazy" data-src="${src}" style="width:100%;height:100%;object-fit:cover;" preload="metadata" muted playsinline
-           onerror="this.onerror=null;this.style.display='none';if(this.parentNode)this.parentNode.innerHTML='<div style=\\'font-size:28px;display:flex;align-items:center;justify-content:center;height:100%\\'>🎬</div>'"
+      ? `<img class="vlazy" data-src="${src}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`
+      : `<video class="vlazy" data-src="${src}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" preload="metadata" muted playsinline
+           onerror="this.onerror=null;this.style.display='none';if(this.parentNode)this.parentNode.innerHTML='<div style=\\'position:absolute;inset:0;font-size:28px;display:flex;align-items:center;justify-content:center;\\'>🎬</div>'"
            onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0">
          </video>`;
 
@@ -7075,7 +7174,7 @@ function renderVaultGrid(grid, files, isPicker) {
     return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s;position:relative;"
       onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'"
       onclick="${clickAction}">
-      <div style="height:150px;min-height:150px;background:var(--bg2);overflow:hidden;position:relative;">
+      <div style="position:relative;width:100%;padding-bottom:100%;background:var(--bg2);overflow:hidden;">
         ${thumb}
         ${f.type === 'video' ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:32px;height:32px;background:rgba(0,0,0,.55);border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:none;font-size:14px;">▶</div>` : ''}
       </div>

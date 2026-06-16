@@ -1261,6 +1261,55 @@ async def send_typing(tg_id: str):
     except Exception as e:
         return {'ok': False, 'detail': str(e)}
 
+# ── HOTKEYS (shared text shortcuts) ───────────────────────────────────────────
+class HotkeysIn(BaseModel):
+    hotkeys: str = '[]'
+
+@app.get('/hotkeys')
+def get_hotkeys():
+    return {'hotkeys': get_setting('hotkeys_json', '[]')}
+
+@app.post('/hotkeys')
+def save_hotkeys(body: HotkeysIn):
+    set_setting('hotkeys_json', body.hotkeys or '[]')
+    return {'ok': True}
+
+# ── DELETE / UNSEND a message (revoke = delete for everyone) ───────────────────
+class MsgDeleteIn(BaseModel):
+    tg_id: str
+    tg_msg_id: int = 0
+    db_id: int = 0
+
+@app.post('/message/delete')
+async def delete_message(body: MsgDeleteIn):
+    # 1) Delete on Telegram for everyone when we have the Telegram message id
+    if tg_client and tg_client.is_connected() and body.tg_msg_id:
+        try:
+            with db() as conn:
+                with conn.cursor() as c:
+                    c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
+                    row = c.fetchone()
+            ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+            peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+            await tg_client.delete_messages(peer, [body.tg_msg_id], revoke=True)
+        except Exception as e:
+            print(f'delete_messages error: {e}')
+    # 2) Remove from the CRM database
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                if body.db_id:
+                    c.execute('DELETE FROM messages WHERE id=%s', (body.db_id,))
+                elif body.tg_msg_id:
+                    c.execute('DELETE FROM messages WHERE tg_id=%s AND tg_msg_id=%s', (body.tg_id, body.tg_msg_id))
+    except Exception as e:
+        print(f'DB delete error: {e}')
+    asyncio.create_task(ws_manager.broadcast({
+        'type': 'msg_deleted', 'tg_id': body.tg_id,
+        'tg_msg_id': body.tg_msg_id, 'db_id': body.db_id,
+    }))
+    return {'ok': True}
+
 # ── REPLY ─────────────────────────────────────────────────────────────────────
 class ReplyIn(BaseModel):
     tg_id: str
