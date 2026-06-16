@@ -7803,7 +7803,6 @@ async function saveAutoOnline() {
 }
 
 // Load settings when broadcast page opens
-const _origShowPage = window.showPage || showPage;
 // Hook into showPage for broadcast / performance / mystats
 // NOTE: Do NOT add loadMembers() or loadNotifications() here — the original showPage already
 // calls them (lines ~3862-3863). Adding them here would create duplicate concurrent async calls
