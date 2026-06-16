@@ -1818,7 +1818,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v2</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
@@ -5945,27 +5945,36 @@ function editShiftGoal() {
 
 function updateShiftGoal() {
   const user = localStorage.getItem('crm_user') || '';
+  // Robust: pull THIS chatter's revenue for today straight from the backend.
+  // Counts approved + pending; avoids local-cache / chatter-name / date mismatches.
+  if (user) {
+    fetch('/api/analytics/my-stats?chatter=' + encodeURIComponent(user) + '&period=heute')
+      .then(r => r.json())
+      .then(d => _renderShiftGoal(parseFloat(d.revenue) || 0))
+      .catch(() => _renderShiftGoal(_localTodayRevenue(user)));
+  } else {
+    _renderShiftGoal(_localTodayRevenue(user));
+  }
+}
+
+function _localTodayRevenue(user) {
   const now = new Date();
-  // Filter CRM sales for current chatter today
   const todayStr = typeof localDateStr === 'function' ? localDateStr(now) :
     `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-  const todaySales = _getSalesData().filter(s => {
+  return _getSalesData().filter(s => {
     const d = typeof parseTs === 'function' ? parseTs(s.timestamp) : new Date((s.timestamp||'') + 'Z');
     const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const sameDay = ds === todayStr;
     const sameChatter = !user || s.chatter === user;
-    return sameDay && sameChatter;
-  });
-  const earned = todaySales.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
-  const pct = Math.min(100, Math.round((earned / SHIFT_GOAL) * 100));
-  const circumference = 87.96;
-  const offset = circumference - (pct / 100) * circumference;
+    return ds === todayStr && sameChatter;
+  }).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+}
 
+function _renderShiftGoal(earned) {
+  const pct = Math.min(100, Math.round((earned / SHIFT_GOAL) * 100));
   const txt = document.getElementById('shift-goal-text');
   const bar = document.getElementById('shift-goal-bar');
   const pctEl = document.getElementById('shift-goal-pct');
   if (!txt || !bar || !pctEl) return;
-
   const color = pct >= 100 ? '#00d4aa' : pct >= 66 ? '#ffd166' : pct >= 33 ? '#ff9f43' : '#ff5c7a';
   txt.textContent = `${earned.toFixed(0)}€ / ${SHIFT_GOAL}€`;
   txt.style.color = pct >= 100 ? '#00d4aa' : 'var(--text)';
@@ -7161,8 +7170,8 @@ function renderVaultGrid(grid, files, isPicker) {
 
     // Thumbnail — video gets <video> for native first-frame preview
     const thumb = f.type === 'image'
-      ? `<img class="vlazy" data-src="${src}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`
-      : `<video class="vlazy" data-src="${src}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" preload="metadata" muted playsinline
+      ? `<img src="${src}" loading="lazy" decoding="async" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`
+      : `<video src="${src}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" preload="metadata" muted playsinline
            onerror="this.onerror=null;this.style.display='none';if(this.parentNode)this.parentNode.innerHTML='<div style=\\'position:absolute;inset:0;font-size:28px;display:flex;align-items:center;justify-content:center;\\'>🎬</div>'"
            onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0">
          </video>`;
