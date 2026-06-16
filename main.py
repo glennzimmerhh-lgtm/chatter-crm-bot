@@ -428,6 +428,7 @@ def init_db():
                 "ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_code TEXT DEFAULT ''",
                 # YouSafe reference codes
                 "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS payment_ref TEXT DEFAULT ''",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS source TEXT DEFAULT ''",
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_last_time ON conversations(last_time DESC)",
@@ -786,6 +787,7 @@ async def start_userbot():
                 elif event.sticker:     text = '[Sticker]'
                 elif event.voice:       text = '[🎤 Voice]'
                 else:                   text = '[Message]'
+                await loop.run_in_executor(None, lambda: maybe_set_source(tg_id, text))
                 await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'in', tg_msg_id=msg_tg_id))
                 print(f'📨 {tg_id}: {text[:80]}')
                 # Push to all connected CRM clients
@@ -1309,6 +1311,78 @@ async def delete_message(body: MsgDeleteIn):
         'tg_msg_id': body.tg_msg_id, 'db_id': body.db_id,
     }))
     return {'ok': True}
+
+# ── REPLY ─────────────────────────────────────────────────────────────────────
+# ── LEAD SOURCE TRACKING ──────────────────────────────────────────────────────
+DEFAULT_SOURCE_CODES = 'markt 1, markt 2, quoka, social media'
+
+def _get_source_codes():
+    raw = get_setting('source_codes', DEFAULT_SOURCE_CODES) or DEFAULT_SOURCE_CODES
+    return [c.strip() for c in raw.replace('\n', ',').split(',') if c.strip()]
+
+def detect_source(text, codes):
+    """Return the matching source code if the (first) message carries one."""
+    if not text or not codes:
+        return ''
+    t = text.strip().lower().lstrip('#').strip()
+    for pref in ('start ', 'start:', 'ref ', 'ref-', 'ref:', 'src ', 'code '):
+        if t.startswith(pref):
+            t = t[len(pref):].strip()
+            break
+    tokens = t.split()
+    first = ''.join(ch for ch in (tokens[0] if tokens else '') if ch.isalnum())
+    compact = ''.join(ch for ch in t if ch.isalnum())
+    for code in codes:
+        cl = ''.join(ch for ch in code.lower() if ch.isalnum())
+        if cl and (first == cl or compact.startswith(cl)):
+            return code
+    return ''
+
+def maybe_set_source(tg_id, text):
+    """On first contact, set the subscriber's source if the message carries a known code."""
+    try:
+        codes = _get_source_codes()
+        if not codes:
+            return
+        code = detect_source(text, codes)
+        if not code:
+            return
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('SELECT source, msg_count FROM conversations WHERE tg_id=%s', (tg_id,))
+                row = c.fetchone()
+                if row and not (row['source'] or '').strip() and (row['msg_count'] or 0) <= 1:
+                    c.execute('UPDATE conversations SET source=%s WHERE tg_id=%s', (code, tg_id))
+                    print(f'🎯 Source set for {tg_id}: {code}')
+    except Exception as e:
+        print(f'maybe_set_source error: {e}')
+
+class SourceCodesIn(BaseModel):
+    codes: str = ''
+
+@app.get('/sources/codes')
+def get_source_codes():
+    return {'codes': get_setting('source_codes', DEFAULT_SOURCE_CODES)}
+
+@app.post('/sources/codes')
+def save_source_codes(body: SourceCodesIn):
+    set_setting('source_codes', body.codes or '')
+    return {'ok': True}
+
+@app.get('/analytics/sources')
+def analytics_sources():
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('''SELECT COALESCE(NULLIF(c.source,''),'Direkt') as source,
+                                COUNT(DISTINCT c.tg_id) as subs,
+                                COUNT(DISTINCT s.tg_id) as buyers,
+                                COALESCE(SUM(s.amount),0) as revenue
+                         FROM conversations c
+                         LEFT JOIN sales s ON s.tg_id = c.tg_id
+                         GROUP BY COALESCE(NULLIF(c.source,''),'Direkt')
+                         ORDER BY subs DESC''')
+            rows = c.fetchall()
+    return [dict(r) for r in rows]
 
 # ── REPLY ─────────────────────────────────────────────────────────────────────
 class ReplyIn(BaseModel):

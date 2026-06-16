@@ -1126,6 +1126,30 @@
       </div>
     </div>
 
+    <!-- LEAD SOURCES -->
+    <div style="margin-bottom:20px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:700;color:#4a9eff;text-transform:uppercase;letter-spacing:.06em;">📣 Quellen / Lead-Tracking</span>
+        <button onclick="toggleSourceTools()" style="margin-left:auto;font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:3px 10px;cursor:pointer;">⚙ Codes &amp; Links</button>
+        <button onclick="loadSourceStats()" title="Refresh" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:3px 8px;cursor:pointer;">↻</button>
+      </div>
+      <div id="source-stats"><div style="color:var(--text3);font-size:13px;">Laden…</div></div>
+      <div id="source-tools" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Quellen-Codes (kommagetrennt) — pro Anzeige/Kanal ein Code:</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+          <input id="source-codes-input" placeholder="markt1, markt2, social" style="flex:1;min-width:200px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;outline:none;">
+          <button onclick="saveSourceCodes()" style="background:var(--teal);border:none;border-radius:8px;color:#000;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">Speichern</button>
+        </div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Link-Generator — dein Telegram-Username + ein Code:</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input id="source-username" placeholder="DeinUsername (ohne @)" style="width:210px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;outline:none;">
+          <input id="source-linkcode" placeholder="markt1" style="width:140px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;outline:none;">
+          <button onclick="genSourceLink()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:13px;cursor:pointer;">Link erzeugen</button>
+        </div>
+        <div id="source-link-out" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
     <!-- ONLINE NOW WIDGET -->
     <div id="dash-online-widget" style="margin-bottom:20px;background:var(--card);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:16px 20px;display:none;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
@@ -3159,7 +3183,83 @@ async function loadData() {
   updateShiftGoal();
 }
 
+// ── LEAD SOURCE TRACKING (dashboard) ─────────────────────────────────────────
+window.loadSourceStats = async function loadSourceStats() {
+  const box = document.getElementById('source-stats');
+  if (!box) return;
+  try {
+    const results = await Promise.all([
+      fetch('/api/analytics/sources').then(r => r.json()).catch(function(){ return []; }),
+      fetch('/api/sources/codes').then(r => r.json()).catch(function(){ return { codes: '' }; })
+    ]);
+    const stats = Array.isArray(results[0]) ? results[0] : [];
+    const statsBy = {};
+    stats.forEach(function(r){ statsBy[(r.source||'').trim().toLowerCase()] = r; });
+    const codes = ((results[1] && results[1].codes) || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    const order = codes.slice();
+    stats.forEach(function(r){
+      const nm = (r.source||'').trim();
+      if (nm && !codes.some(function(c){ return c.toLowerCase() === nm.toLowerCase(); })) order.push(nm);
+    });
+    if (!order.length) { box.innerHTML = '<div style="color:var(--text3);font-size:13px;">Noch keine Quellen.</div>'; return; }
+    box.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+      + '<thead><tr style="color:var(--text3);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">'
+      + '<th style="padding:4px 6px;">Quelle</th><th style="padding:4px 6px;">Subs</th><th style="padding:4px 6px;">Käufer</th><th style="padding:4px 6px;">Umsatz</th><th style="padding:4px 6px;">Conv.</th></tr></thead><tbody>'
+      + order.map(function(name){
+          var r = statsBy[(name||'').trim().toLowerCase()] || { subs:0, buyers:0, revenue:0 };
+          var subs = r.subs||0, buyers = r.buyers||0, rev = parseFloat(r.revenue||0);
+          var conv = subs ? Math.round(buyers/subs*100) : 0;
+          return '<tr style="border-top:1px solid var(--border);">'
+            + '<td style="padding:6px;font-weight:600;">' + name + '</td>'
+            + '<td style="padding:6px;">' + subs + '</td>'
+            + '<td style="padding:6px;">' + buyers + '</td>'
+            + '<td style="padding:6px;color:#22c55e;font-weight:600;">' + rev.toFixed(0) + '€</td>'
+            + '<td style="padding:6px;">' + conv + '%</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  } catch(e) {
+    box.innerHTML = '<div style="color:#ff5c7a;font-size:12px;">Fehler: ' + e.message + '</div>';
+  }
+};
+window.toggleSourceTools = function() {
+  const t = document.getElementById('source-tools');
+  if (!t) return;
+  const show = t.style.display === 'none';
+  t.style.display = show ? 'block' : 'none';
+  if (show) {
+    fetch('/api/sources/codes').then(r => r.json()).then(d => { const i = document.getElementById('source-codes-input'); if (i) i.value = d.codes || ''; }).catch(function(){});
+    const u = document.getElementById('source-username');
+    if (u && !u.value) u.value = localStorage.getItem('crm_source_username') || '';
+  }
+};
+window.saveSourceCodes = async function() {
+  const codes = document.getElementById('source-codes-input').value;
+  try {
+    await fetch('/api/sources/codes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ codes: codes }) });
+    loadSourceStats();
+    const i = document.getElementById('source-codes-input');
+    if (i) { i.style.borderColor = 'var(--teal)'; setTimeout(function(){ i.style.borderColor = 'var(--border)'; }, 1200); }
+  } catch(e) { alert('Fehler: ' + e.message); }
+};
+window._copySourceLink = function(btn) {
+  const l = btn.getAttribute('data-link');
+  navigator.clipboard.writeText(l).then(function(){ btn.textContent = '✓ Kopiert'; });
+};
+window.genSourceLink = function() {
+  const u = (document.getElementById('source-username').value || '').trim().replace(/^@/, '');
+  const code = (document.getElementById('source-linkcode').value || '').trim();
+  const out = document.getElementById('source-link-out');
+  if (!u || !code) { out.innerHTML = '<span style="color:#ff5c7a;font-size:12px;">Bitte Username und Code angeben.</span>'; return; }
+  localStorage.setItem('crm_source_username', u);
+  const link = 'https://t.me/' + u + '?text=' + encodeURIComponent(code);
+  out.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">'
+    + '<code style="font-size:12px;color:var(--teal);word-break:break-all;flex:1;">' + link + '</code>'
+    + '<button data-link="' + link + '" onclick="_copySourceLink(this)" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap;">📋 Kopieren</button></div>'
+    + '<div style="font-size:11px;color:var(--text3);margin-top:6px;">Diesen Link in die markt.de-Anzeige bzw. in den angepinnten Gruppen-Beitrag setzen. Wer ihn klickt, sendet automatisch „' + code + '“ → wird der Quelle zugeordnet.</div>';
+};
+
 function renderDashboard() {
+  if (window.loadSourceStats) window.loadSourceStats();
   const p = currentPeriod;
   const tod = today();
   const periodLabels = { heute: 'Today', woche: 'This Week', monat: 'This Month' };
