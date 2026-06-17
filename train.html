@@ -219,7 +219,7 @@ async function ingest(){
   try {
     while(true){
       $('ingestMsg').textContent='lese ein… ('+total+' bisher)'; $('ingestMsg').className='msg dim';
-      const r=await fetch(base()+'/ingest?limit=2000',{method:'POST',headers:hdr()});
+      const r=await fetch(base()+'/ingest?limit=300',{method:'POST',headers:hdr()});
       const d=await r.json(); if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
       total += (d.embedded_now||0);
       if(d.done || (d.embedded_now||0)===0){ $('ingestMsg').textContent='fertig ✓ ('+total+' neu eingelesen, Rest: '+(d.remaining||0)+')'; $('ingestMsg').className='msg ok'; break; }
