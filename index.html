@@ -1842,7 +1842,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v10</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v11</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
@@ -7314,7 +7314,7 @@ function renderVaultGrid(grid, files, isPicker) {
       // FULL image (not cropped), no card chrome — masonry, max 4 per row
       return `<div onclick="${clickAction}" style="break-inside:avoid;margin-bottom:6px;position:relative;cursor:pointer;line-height:0;border-radius:6px;overflow:hidden;background:var(--bg2);transition:opacity .15s;"
         onmouseover="this.style.opacity='.82'" onmouseout="this.style.opacity='1'">
-        <img class="vlazy" data-src="${thumbSrc}" decoding="async" onload="this.style.aspectRatio='auto'" style="width:100%;height:auto;aspect-ratio:3/4;display:block;" onerror="this.onerror=null;this.style.opacity='.15'">
+        <img src="${thumbSrc}" loading="lazy" decoding="async" onload="this.style.aspectRatio='auto'" style="width:100%;height:auto;aspect-ratio:3/4;display:block;background:var(--bg2);" onerror="this.onerror=null;this.style.opacity='.12'">
         ${playOverlay}
       </div>`;
     }
