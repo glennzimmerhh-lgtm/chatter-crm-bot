@@ -971,7 +971,7 @@ def healthz():
             with conn.cursor() as c:
                 c.execute('SELECT COUNT(*) as n FROM conversations')
                 n = c.fetchone()['n']
-        return {'status': 'ok', 'conversations': n, 'userbot': 'connected' if _tg_client_ready else 'disconnected', 'db': DB_PATH if USE_SQLITE else 'postgresql'}
+        return {'status': 'ok', 'ver': 'thumb-ffmpeg-v8', 'conversations': n, 'userbot': 'connected' if _tg_client_ready else 'disconnected', 'db': DB_PATH if USE_SQLITE else 'postgresql'}
     except Exception as e:
         return {'status': 'error', 'detail': str(e)}
 
