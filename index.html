@@ -1842,13 +1842,13 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v9</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v10</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
       <div id="vault-picker-folders" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
       <div id="vault-picker-status" style="font-size:12px;color:var(--text3);margin-bottom:8px;"></div>
-      <div id="vault-picker-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;overflow-y:auto;flex:1;padding-right:4px;"></div>
+      <div id="vault-picker-grid" style="column-count:4;column-gap:6px;overflow-y:auto;flex:1;padding-right:4px;"></div>
     </div>
   </div>
 
@@ -7304,12 +7304,22 @@ function renderVaultGrid(grid, files, isPicker) {
 
     // Thumbnail — small server-generated preview (fast & clean); videos get a frame too
     const thumbSrc = '/api/vault/thumb/' + f.name.split('/').map(encodeURIComponent).join('/');
-    const thumb = `<img class="vlazy" data-src="${thumbSrc}" decoding="async" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`;
-
     const clickAction = isPicker
       ? `sendVaultFile('${f.name}')`
       : `openVaultPreview('${src.replace(/'/g,"\\'")}','${f.type}','${label.replace(/'/g,"\\'")}')`;
+    const playOverlay = f.type === 'video'
+      ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:34px;height:34px;background:rgba(0,0,0,.55);border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:none;font-size:15px;color:#fff;">▶</div>` : '';
 
+    if (isPicker) {
+      // FULL image (not cropped), no card chrome — masonry, max 4 per row
+      return `<div onclick="${clickAction}" style="break-inside:avoid;margin-bottom:6px;position:relative;cursor:pointer;line-height:0;border-radius:6px;overflow:hidden;background:var(--bg2);transition:opacity .15s;"
+        onmouseover="this.style.opacity='.82'" onmouseout="this.style.opacity='1'">
+        <img class="vlazy" data-src="${thumbSrc}" decoding="async" onload="this.style.aspectRatio='auto'" style="width:100%;height:auto;aspect-ratio:3/4;display:block;" onerror="this.onerror=null;this.style.opacity='.15'">
+        ${playOverlay}
+      </div>`;
+    }
+
+    const thumb = `<img class="vlazy" data-src="${thumbSrc}" decoding="async" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.style.display='none'">`;
     return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s;position:relative;display:flex;flex-direction:column;align-self:start;"
       onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'"
       onclick="${clickAction}">
@@ -7342,16 +7352,15 @@ function _vaultLazyObserve(grid){
   if(_vaultIO && _vaultIOGrid !== grid){ _vaultIO.disconnect(); _vaultIO = null; }
   if(!_vaultIO){
     _vaultIOGrid = grid;
-    _vaultIO = new IntersectionObserver((entries)=>{
+    _vaultIO = new IntersectionObserver((entries, obs)=>{
       entries.forEach(en=>{
-        const el = en.target;
         if(en.isIntersecting){
+          const el = en.target;
           if(el.dataset.src && !el.getAttribute('src')) el.src = el.dataset.src;
-        } else if(el.getAttribute('src')){
-          el.removeAttribute('src');
+          obs.unobserve(el);
         }
       });
-    }, { root: grid, rootMargin: '250px' });
+    }, { root: grid, rootMargin: '200px' });
   }
   grid.querySelectorAll('.vlazy').forEach(el=>_vaultIO.observe(el));
 }
@@ -7507,7 +7516,7 @@ function openVaultPicker() {
 function _renderPickerFolderTabs(folders, allFiles) {
   const bar = document.getElementById('vault-picker-folders');
   if (!bar) return;
-  const tabs = folders.map(f => ({ label: `📂 ${f}`, folder: f }));
+  const tabs = folders.filter(f => !f.startsWith('_')).map(f => ({ label: `📂 ${f}`, folder: f }));
   bar.innerHTML = tabs.map(t => `
     <button onclick="pickerSelectFolder('${t.folder}')"
       style="padding:4px 10px;border-radius:16px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${_pickerCurrentFolder===t.folder?'rgba(0,212,170,.5)':'var(--border)'};background:${_pickerCurrentFolder===t.folder?'rgba(0,212,170,.12)':'var(--bg3)'};color:${_pickerCurrentFolder===t.folder?'var(--teal)':'var(--text2)'};">
