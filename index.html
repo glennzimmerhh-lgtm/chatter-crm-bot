@@ -1631,19 +1631,19 @@
           <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Exclude Stage</label>
           <select id="bc-exclude-stage" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px;outline:none;margin-bottom:8px;">
             <option value="">No exclusion</option>
-            <option value="done">✅ Exclude Done</option>
+            <option value="kalt">❄️ Exclude Cold</option>
+            <option value="warm">🌱 Exclude Warm</option>
+            <option value="hot">🔥 Exclude Hot</option>
+            <option value="angebot">💬 Exclude Offer made</option>
             <option value="gebucht">📅 Exclude Booked</option>
-            <option value="angebot">💬 Exclude Offered</option>
-            <option value="done,gebucht">Exclude Done + Booked</option>
+            <option value="done">✅ Exclude Done</option>
           </select>
           <button onclick="excludeRecentChatted()" style="width:100%;background:var(--bg3);border:1px solid rgba(255,209,102,.3);color:#ffd166;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:8px;">
             🕐 Exclude subscribers chatted in last 5h
           </button>
           <div id="bc-exclude-info" style="font-size:11px;color:var(--teal);margin-bottom:8px;display:none;"></div>
-          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Listen ausschließen (z.B. Whales)</label>
-          <div id="bc-exclude-lists" style="display:flex;flex-wrap:wrap;gap:6px;">
-            <span style="font-size:11px;color:var(--text3);">Lädt Listen…</span>
-          </div>
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Spender-Tiers ausschließen (z.B. Whales)</label>
+          <div id="bc-exclude-tiers" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
         </div>
         <div style="padding:10px;background:rgba(255,92,122,0.08);border:1px solid rgba(255,92,122,0.2);border-radius:8px;font-size:12px;color:var(--text2);">
           ⚠️ 1 msg/sec. 100 subs ≈ 2 min. Don't close.
@@ -6363,35 +6363,43 @@ async function excludeRecentChatted() {
   } catch(e) { if(info){info.style.display='block';info.textContent='❌ Error loading recent chats';} }
 }
 
-let _bcExcludeListIds = new Set();
-async function loadBroadcastExcludeLists() {
-  const box = document.getElementById('bc-exclude-lists');
+// Spend-tier exclusion (whale/big/mid/low/…) — tiers are auto-computed from spend.
+const _BC_TIERS = [
+  { key: 'whale',   label: '🐋 Whale', col: '#b482ff' },
+  { key: 'big',     label: '💰 Big',   col: '#ffd166' },
+  { key: 'mid',     label: '⚡ Mid',   col: '#00d4aa' },
+  { key: 'low',     label: '🌱 Low',   col: '#6495ed' },
+  { key: 'starter', label: '💫 Starter', col: '#aaccff' },
+  { key: 'new',     label: '🆕 Neu',   col: '#888888' },
+];
+let _bcExcludeTiers = new Set();
+function loadBroadcastExcludeLists() {
+  const box = document.getElementById('bc-exclude-tiers');
   if (!box) return;
-  try {
-    const lists = await fetch('/api/lists').then(r => r.json());
-    if (!Array.isArray(lists) || !lists.length) {
-      box.innerHTML = '<span style="font-size:11px;color:var(--text3);">Keine Listen angelegt</span>';
-      return;
-    }
-    box.innerHTML = lists.map(l => {
-      const on = _bcExcludeListIds.has(l.id);
-      const cnt = (l.members && l.members.length) ? l.members.length : 0;
-      const col = l.color || '#ff5c7a';
-      return `<button type="button" onclick="toggleBcExcludeList(${l.id})"
-        style="font-size:11px;padding:5px 10px;border-radius:14px;cursor:pointer;font-weight:600;
-        border:1px solid ${on ? col : 'var(--border)'};
-        background:${on ? col + '22' : 'var(--bg3)'};
-        color:${on ? col : 'var(--text2)'};">
-        ${on ? '✕ ' : ''}${l.name}${cnt ? ` (${cnt})` : ''}</button>`;
-    }).join('');
-  } catch (e) {
-    box.innerHTML = '<span style="font-size:11px;color:#ff5c7a;">Fehler beim Laden der Listen</span>';
-  }
+  box.innerHTML = _BC_TIERS.map(t => {
+    const on = _bcExcludeTiers.has(t.key);
+    return `<button type="button" onclick="toggleBcExcludeTier('${t.key}')"
+      style="font-size:11px;padding:5px 10px;border-radius:14px;cursor:pointer;font-weight:600;
+      border:1px solid ${on ? t.col : 'var(--border)'};
+      background:${on ? t.col + '22' : 'var(--bg3)'};
+      color:${on ? t.col : 'var(--text2)'};">
+      ${on ? '✕ ' : ''}${t.label}</button>`;
+  }).join('');
 }
-function toggleBcExcludeList(id) {
-  if (_bcExcludeListIds.has(id)) _bcExcludeListIds.delete(id);
-  else _bcExcludeListIds.add(id);
+function toggleBcExcludeTier(key) {
+  if (_bcExcludeTiers.has(key)) _bcExcludeTiers.delete(key);
+  else _bcExcludeTiers.add(key);
   loadBroadcastExcludeLists();
+}
+// Resolve which subscribers fall into the excluded spend-tiers → their tg_ids.
+function bcTierExcludedIds() {
+  if (!_bcExcludeTiers.size || typeof getSpendingTier !== 'function') return [];
+  const out = [];
+  (allConvs || []).forEach(c => {
+    const tier = getSpendingTier(getSubscriberSpending(c.tg_id)).key;
+    if (_bcExcludeTiers.has(tier)) out.push(c.tg_id);
+  });
+  return out;
 }
 
 let _bcSending = false; // guard against double-click / double-send
@@ -6419,9 +6427,10 @@ async function startBroadcast() {
   try {
     const body = { text, chatter };
     if (stage) body.filter_stage = stage;
-    if (_bcExcludeIds.length) body.exclude_ids = _bcExcludeIds;
+    const _tierExcl = bcTierExcludedIds();
+    const _allExcl = Array.from(new Set([...(_bcExcludeIds || []), ..._tierExcl]));
+    if (_allExcl.length) body.exclude_ids = _allExcl;
     if (excludeStage) body.exclude_stages = excludeStage.split(',');
-    if (_bcExcludeListIds.size) body.exclude_lists = Array.from(_bcExcludeListIds);
     const r = await fetch('/api/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
