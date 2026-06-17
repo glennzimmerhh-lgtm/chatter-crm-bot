@@ -1842,7 +1842,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v7</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v8</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
@@ -7330,18 +7330,30 @@ function renderVaultGrid(grid, files, isPicker) {
 }
 
 let _vaultIO = null;
+let _vaultIOGrid = null;
 function _vaultLazyObserve(grid){
   if(!grid) return;
-  const items = grid.querySelectorAll('.vlazy');
-  if(!('IntersectionObserver' in window)){ items.forEach(el=>{ if(el.dataset.src) el.src = el.dataset.src; }); return; }
-  if(!_vaultIO){
-    _vaultIO = new IntersectionObserver((entries,obs)=>{
-      entries.forEach(en=>{
-        if(en.isIntersecting){ const el=en.target; if(el.dataset.src && !el.getAttribute('src')) el.src = el.dataset.src; obs.unobserve(el); }
-      });
-    }, { rootMargin: '300px' });
+  if(!('IntersectionObserver' in window)){
+    grid.querySelectorAll('.vlazy').forEach(el=>{ if(el.dataset.src) el.src = el.dataset.src; });
+    return;
   }
-  items.forEach(el=>_vaultIO.observe(el));
+  // Observe relative to THIS scroll container → only truly-visible tiles load,
+  // off-screen tiles are unloaded again so memory stays bounded (no crash on big folders).
+  if(_vaultIO && _vaultIOGrid !== grid){ _vaultIO.disconnect(); _vaultIO = null; }
+  if(!_vaultIO){
+    _vaultIOGrid = grid;
+    _vaultIO = new IntersectionObserver((entries)=>{
+      entries.forEach(en=>{
+        const el = en.target;
+        if(en.isIntersecting){
+          if(el.dataset.src && !el.getAttribute('src')) el.src = el.dataset.src;
+        } else if(el.getAttribute('src')){
+          el.removeAttribute('src');
+        }
+      });
+    }, { root: grid, rootMargin: '250px' });
+  }
+  grid.querySelectorAll('.vlazy').forEach(el=>_vaultIO.observe(el));
 }
 
 // ── VAULT PREVIEW MODAL ───────────────────────────────────────────────────────

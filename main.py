@@ -1956,33 +1956,21 @@ def vault_thumb(filepath: str):
             return FileResponse(thumb_path, media_type='image/jpeg')
     except Exception:
         pass
-    image_exts = ('jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif')
+    # Generate a small JPEG via ffmpeg for BOTH images and videos (no Pillow dependency).
+    # On any failure return 404 — NEVER the full original (that would blow up browser memory).
     video_exts = ('mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
-    if ext in image_exts:
-        try:
-            from PIL import Image
-            im = Image.open(src)
-            im.thumbnail((360, 360))
-            if im.mode not in ('RGB', 'L'):
-                im = im.convert('RGB')
-            im.save(thumb_path, 'JPEG', quality=72)
+    try:
+        import subprocess
+        cmd = ['ffmpeg', '-y']
+        if ext in video_exts:
+            cmd += ['-ss', '00:00:01']
+        cmd += ['-i', src, '-vframes', '1', '-vf', "scale='min(360,iw)':-2", thumb_path]
+        subprocess.run(cmd, capture_output=True, timeout=25)
+        if os.path.isfile(thumb_path) and os.path.getsize(thumb_path) > 0:
             return FileResponse(thumb_path, media_type='image/jpeg')
-        except Exception as e:
-            print(f'thumb(image) {filepath}: {e}')
-            return FileResponse(src)
-    if ext in video_exts:
-        try:
-            import subprocess
-            subprocess.run(
-                ['ffmpeg', '-y', '-ss', '00:00:01', '-i', src, '-vframes', '1', '-vf', 'scale=360:-1', thumb_path],
-                capture_output=True, timeout=25
-            )
-            if os.path.isfile(thumb_path):
-                return FileResponse(thumb_path, media_type='image/jpeg')
-        except Exception as e:
-            print(f'thumb(video) {filepath}: {e}')
-        raise HTTPException(404, 'no thumb')
-    return FileResponse(src)
+    except Exception as e:
+        print(f'thumb {filepath}: {e}')
+    raise HTTPException(404, 'no thumb')
 
 @app.delete('/vault/file/{filepath:path}')
 def vault_delete(filepath: str):
