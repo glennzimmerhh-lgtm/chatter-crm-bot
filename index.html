@@ -1640,6 +1640,10 @@
             🕐 Exclude subscribers chatted in last 5h
           </button>
           <div id="bc-exclude-info" style="font-size:11px;color:var(--teal);margin-bottom:8px;display:none;"></div>
+          <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px;">Listen ausschließen (z.B. Whales)</label>
+          <div id="bc-exclude-lists" style="display:flex;flex-wrap:wrap;gap:6px;">
+            <span style="font-size:11px;color:var(--text3);">Lädt Listen…</span>
+          </div>
         </div>
         <div style="padding:10px;background:rgba(255,92,122,0.08);border:1px solid rgba(255,92,122,0.2);border-radius:8px;font-size:12px;color:var(--text2);">
           ⚠️ 1 msg/sec. 100 subs ≈ 2 min. Don't close.
@@ -4185,7 +4189,7 @@ if (checkAuth()) {
     el.innerHTML = sorted.map(c => {
       const active = c.tg_id === currentChatTgId ? 'active' : '';
       const letter = anonLetter(c.internal_name, c.anon_id, c.tg_username);
-      const time = c.last_time ? new Date(c.last_time).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
+      const time = c.last_time ? parseTs(c.last_time).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
       const spending = getSubscriberSpending(c.tg_id);
       const tier = getSpendingTier(spending);
       const pillCls = 'spend-pill-' + tier.key;
@@ -4243,7 +4247,7 @@ if (checkAuth()) {
     if (conv.is_online) {
       statusTxt = '<span style="color:#22c55e;">🟢 Online</span>';
     } else if (conv.last_seen) {
-      const d = new Date(conv.last_seen);
+      const d = parseTs(conv.last_seen);
       const now = new Date();
       const diffMin = Math.floor((now - d) / 60000);
       if (diffMin < 1) statusTxt = 'Gerade eben gesehen';
@@ -5128,7 +5132,7 @@ if (checkAuth()) {
     const wasAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 40;
     el.innerHTML = msgs.map((m, i) => {
       const dir = m.direction === 'in' ? 'in' : 'out';
-      const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
+      const time = m.timestamp ? parseTs(m.timestamp).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
       const ticks = dir === 'out' ? `<svg width="15" height="10" viewBox="0 0 15 10" style="margin-left:3px;vertical-align:middle;flex-shrink:0" fill="${m.is_read ? '#00d4aa' : 'rgba(255,255,255,0.35)'}"><path d="M0 5l1.4-1.4 3.1 3.1 6.1-6.1 1.4 1.4-7.5 7.5z"/><path d="M4 5l1.4-1.4 3.1 3.1 6.1-6.1 1.4 1.4-7.5 7.5z" opacity="0.7"/></svg>` : '';
       // For incoming: show translation if available, otherwise original
       const displayText = (dir === 'in' && m.translation) ? m.translation : m.text;
@@ -5304,6 +5308,7 @@ if (checkAuth()) {
         if (msg.tg_id === currentChatTgId) loadMsgs();
         break;
       case 'notification': {
+        if (msg.notif_type === 'paypal') { try { showPaypalToast(msg.text || 'Money received'); } catch(e){} }
         // Only badge for new_sub and sale — NOT messages
         if (msg.notif_type === 'message') break;
         const nb = document.getElementById('notif-badge');
@@ -6358,6 +6363,37 @@ async function excludeRecentChatted() {
   } catch(e) { if(info){info.style.display='block';info.textContent='❌ Error loading recent chats';} }
 }
 
+let _bcExcludeListIds = new Set();
+async function loadBroadcastExcludeLists() {
+  const box = document.getElementById('bc-exclude-lists');
+  if (!box) return;
+  try {
+    const lists = await fetch('/api/lists').then(r => r.json());
+    if (!Array.isArray(lists) || !lists.length) {
+      box.innerHTML = '<span style="font-size:11px;color:var(--text3);">Keine Listen angelegt</span>';
+      return;
+    }
+    box.innerHTML = lists.map(l => {
+      const on = _bcExcludeListIds.has(l.id);
+      const cnt = (l.members && l.members.length) ? l.members.length : 0;
+      const col = l.color || '#ff5c7a';
+      return `<button type="button" onclick="toggleBcExcludeList(${l.id})"
+        style="font-size:11px;padding:5px 10px;border-radius:14px;cursor:pointer;font-weight:600;
+        border:1px solid ${on ? col : 'var(--border)'};
+        background:${on ? col + '22' : 'var(--bg3)'};
+        color:${on ? col : 'var(--text2)'};">
+        ${on ? '✕ ' : ''}${l.name}${cnt ? ` (${cnt})` : ''}</button>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = '<span style="font-size:11px;color:#ff5c7a;">Fehler beim Laden der Listen</span>';
+  }
+}
+function toggleBcExcludeList(id) {
+  if (_bcExcludeListIds.has(id)) _bcExcludeListIds.delete(id);
+  else _bcExcludeListIds.add(id);
+  loadBroadcastExcludeLists();
+}
+
 let _bcSending = false; // guard against double-click / double-send
 
 async function startBroadcast() {
@@ -6385,6 +6421,7 @@ async function startBroadcast() {
     if (stage) body.filter_stage = stage;
     if (_bcExcludeIds.length) body.exclude_ids = _bcExcludeIds;
     if (excludeStage) body.exclude_stages = excludeStage.split(',');
+    if (_bcExcludeListIds.size) body.exclude_lists = Array.from(_bcExcludeListIds);
     const r = await fetch('/api/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -6495,7 +6532,7 @@ async function cancelScheduledBroadcast(id) {
 const _origShowPage = window.showPage;
 window.showPage = function(page) {
   if (_origShowPage) _origShowPage(page);
-  if (page === 'broadcast') loadScheduledBroadcasts();
+  if (page === 'broadcast') { loadScheduledBroadcasts(); loadBroadcastExcludeLists(); }
 };
 </script>
 
@@ -6936,6 +6973,22 @@ function _notifDiag(msg) {
   el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
 
+function showPaypalToast(text) {
+  let host = document.getElementById('paypal-toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'paypal-toast-host';
+    host.style.cssText = 'position:fixed;top:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  t.style.cssText = 'background:#003087;color:#fff;border:1px solid #0070ba;border-radius:12px;padding:12px 16px;font-size:13px;font-weight:700;box-shadow:0 6px 24px rgba(0,0,0,.4);display:flex;align-items:center;gap:10px;min-width:220px;cursor:pointer;';
+  t.innerHTML = '<span style="font-size:20px;">💰</span><span>PayPal — ' + text + '</span>';
+  t.onclick = () => t.remove();
+  host.appendChild(t);
+  setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 9000);
+}
+
 window.loadNotifications = async function loadNotifications() {
   const feed = document.getElementById('notif-feed');
   if (!feed) { console.warn('[notif] notif-feed not found in DOM'); return; }
@@ -6987,8 +7040,8 @@ window.loadNotifications = async function loadNotifications() {
   }
 
   // Only Sales & New Subscribers
-  _allNotifs = raw.filter(n => n.type === 'sale' || n.type === 'new_sub');
-  _notifDiag('✅ Filter: ' + _allNotifs.length + ' sale/new_sub von ' + raw.length + ' gesamt');
+  _allNotifs = raw.filter(n => n.type === 'sale' || n.type === 'new_sub' || n.type === 'paypal');
+  _notifDiag('✅ Filter: ' + _allNotifs.length + ' sale/new_sub/paypal von ' + raw.length + ' gesamt');
 
   try {
     renderNotifications();
@@ -7027,16 +7080,23 @@ function renderNotifications() {
   }
   feed.innerHTML = items.map(n => {
     const isSale = n.type === 'sale';
-    const icon  = isSale ? '💰' : '🆕';
-    const color = isSale ? '#ffd166' : '#4a9eff';
-    const label = isSale ? 'Sale' : 'New Subscriber';
+    const isPaypal = n.type === 'paypal';
+    const icon  = isPaypal ? '💰' : (isSale ? '💰' : '🆕');
+    const color = isPaypal ? '#0070ba' : (isSale ? '#ffd166' : '#4a9eff');
+    const label = isPaypal ? 'PayPal' : (isSale ? 'Sale' : 'New Subscriber');
     const d = parseTs(n.ts);
     const timeStr = isNaN(d.getTime()) ? '' : d.toLocaleString('de-DE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-    const detail = isSale
-      ? `${n.name} · ${n.product || 'Produkt'} · <strong style="color:#ffd166">${parseFloat(n.amount||0).toFixed(0)}€</strong>${n.chatter ? ' · ' + n.chatter : ''}`
-      : `${n.name} hat subscribed${n.username ? ' <span style="color:var(--text3)">@' + n.username + '</span>' : ''}`;
-    return `<div onclick="openConv('${n.tg_id}','${(n.anon_id||'')}');showPage('chat')"
-      style="display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:12px;cursor:pointer;transition:background .15s;"
+    let detail;
+    if (isPaypal) {
+      detail = `<strong style="color:#0070ba">${n.text || 'Money received'}</strong>`;
+    } else if (isSale) {
+      detail = `${n.name} · ${n.product || 'Produkt'} · <strong style="color:#ffd166">${parseFloat(n.amount||0).toFixed(0)}€</strong>${n.chatter ? ' · ' + n.chatter : ''}`;
+    } else {
+      detail = `${n.name} hat subscribed${n.username ? ' <span style="color:var(--text3)">@' + n.username + '</span>' : ''}`;
+    }
+    const clickAttr = isPaypal ? '' : `onclick="openConv('${n.tg_id}','${(n.anon_id||'')}');showPage('chat')"`;
+    return `<div ${clickAttr}
+      style="display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:12px;${isPaypal?'':'cursor:pointer;'}transition:background .15s;"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
       <div style="font-size:22px;flex-shrink:0;">${icon}</div>
       <div style="flex:1;min-width:0;">

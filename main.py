@@ -373,6 +373,17 @@ def init_db():
                 tg_id   TEXT NOT NULL,
                 PRIMARY KEY (list_id, tg_id)
             )''')
+            # PayPal payment-received notifications (parsed from email)
+            c.execute('''CREATE TABLE IF NOT EXISTS paypal_notifications (
+                id        SERIAL PRIMARY KEY,
+                mail_uid  TEXT UNIQUE,
+                amount    TEXT DEFAULT '',
+                currency  TEXT DEFAULT '',
+                sender    TEXT DEFAULT '',
+                subject   TEXT DEFAULT '',
+                ts        TEXT NOT NULL,
+                seen      INTEGER DEFAULT 0
+            )''')
             # Users table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
                 id            INTEGER PRIMARY KEY,
@@ -888,6 +899,119 @@ async def start_userbot():
             await asyncio.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, 60)  # exponential backoff max 60s
 
+# ── PAYPAL EMAIL POLLER ───────────────────────────────────────────────────────
+# Detects "money received" emails from PayPal in a connected mailbox (IMAP) and
+# pushes a real-time notification into the CRM. No sub-matching — chatter knows.
+import imaplib as _imaplib
+import email as _email
+from email.header import decode_header as _decode_header
+
+def _pp_decode(s):
+    if not s:
+        return ''
+    try:
+        out = ''
+        for txt, enc in _decode_header(s):
+            out += txt.decode(enc or 'utf-8', 'ignore') if isinstance(txt, bytes) else txt
+        return out
+    except Exception:
+        return str(s)
+
+def _pp_parse_amount(text: str):
+    """Best-effort (amount_str, currency) from a PayPal subject line."""
+    cur_map = {'€': 'EUR', 'EUR': 'EUR', '$': 'USD', 'USD': 'USD', '£': 'GBP', 'GBP': 'GBP'}
+    m = re.search(r'(€|EUR|\$|USD|£|GBP)\s*([0-9][0-9.,]*[0-9])', text, re.I)
+    if m:
+        return m.group(2), cur_map.get(m.group(1).upper(), m.group(1))
+    m = re.search(r'([0-9][0-9.,]*[0-9])\s*(€|EUR|\$|USD|£|GBP)', text, re.I)
+    if m:
+        return m.group(1), cur_map.get(m.group(2).upper(), m.group(2))
+    return '', ''
+
+def _paypal_imap_check():
+    """Blocking: return list of payment-received mails as dicts (newest 30, last 3 days)."""
+    host = os.environ.get('PAYPAL_IMAP_HOST', 'imap.gmail.com')
+    user = os.environ.get('PAYPAL_IMAP_USER', '')
+    pw = os.environ.get('PAYPAL_IMAP_PASS', '')
+    folder = os.environ.get('PAYPAL_IMAP_FOLDER', 'INBOX')
+    if not user or not pw:
+        return []
+    new_items, M = [], None
+    try:
+        M = _imaplib.IMAP4_SSL(host, timeout=20)
+        M.login(user, pw)
+        M.select(folder)
+        since = (datetime.now() - timedelta(days=3)).strftime('%d-%b-%Y')
+        typ, data = M.search(None, '(FROM "paypal" SINCE %s)' % since)
+        if typ != 'OK' or not data or not data[0]:
+            return []
+        for num in data[0].split()[-30:]:
+            typ, msgdata = M.fetch(num, '(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM MESSAGE-ID DATE)])')
+            if typ != 'OK' or not msgdata or not msgdata[0]:
+                continue
+            hdr = _email.message_from_bytes(msgdata[0][1])
+            subject = _pp_decode(hdr.get('Subject'))
+            low = subject.lower()
+            if not any(k in low for k in ('received', 'erhalten', 'sent you', 'gesendet',
+                                          'payment', 'zahlung', 'geld')):
+                continue
+            msgid = (hdr.get('Message-ID') or hdr.get('Message-Id') or '').strip()
+            uid = msgid or (subject + '|' + (hdr.get('Date') or ''))
+            amount, currency = _pp_parse_amount(subject)
+            new_items.append({'mail_uid': uid, 'amount': amount, 'currency': currency,
+                              'sender': _pp_decode(hdr.get('From')), 'subject': subject})
+    except Exception as e:
+        print(f'PayPal IMAP error: {e}')
+    finally:
+        try:
+            if M:
+                M.logout()
+        except Exception:
+            pass
+    return new_items
+
+async def _run_paypal_poller():
+    if os.environ.get('PAYPAL_IMAP_ENABLED', '').lower() not in ('1', 'true', 'yes', 'on'):
+        print('ℹ️  PayPal-Mail-Poller aus (PAYPAL_IMAP_ENABLED nicht gesetzt)')
+        return
+    try:
+        interval = int(os.environ.get('PAYPAL_POLL_SECONDS', '25'))
+    except Exception:
+        interval = 25
+    print(f'✅ PayPal-Mail-Poller aktiv (alle {interval}s)')
+    loop = asyncio.get_event_loop()
+    await asyncio.sleep(8)
+    while True:
+        try:
+            for it in await loop.run_in_executor(None, _paypal_imap_check):
+                is_new = False
+                try:
+                    with db() as conn:
+                        with conn.cursor() as c:
+                            c.execute('SELECT 1 FROM paypal_notifications WHERE mail_uid=%s', (it['mail_uid'],))
+                            if not c.fetchone():
+                                c.execute('''INSERT INTO paypal_notifications
+                                    (mail_uid, amount, currency, sender, subject, ts, seen)
+                                    VALUES (%s,%s,%s,%s,%s,%s,0)''',
+                                    (it['mail_uid'], it['amount'], it['currency'],
+                                     it['sender'][:200], it['subject'][:300],
+                                     datetime.now().isoformat()))
+                                is_new = True
+                except Exception as e:
+                    print(f'PayPal store error: {e}')
+                if is_new:
+                    amt = (it['amount'] + ' ' + it['currency']).strip() or 'Betrag unbekannt'
+                    await ws_manager.broadcast({
+                        'type': 'notification', 'notif_type': 'paypal',
+                        'amount': it['amount'], 'currency': it['currency'],
+                        'text': f'Money received ({amt})',
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    print(f'💰 PayPal received: {amt}')
+        except Exception as e:
+            print(f'PayPal poller loop error: {e}')
+        await asyncio.sleep(interval)
+
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -899,6 +1023,7 @@ async def lifespan(app: FastAPI):
         print(f'⚠️ init_db() warning (non-fatal): {_ie}')
     asyncio.create_task(start_userbot())
     asyncio.create_task(_run_scheduled_broadcasts())
+    asyncio.create_task(_run_paypal_poller())
     # PyTgCalls is now initialized inside start_userbot() on every connect cycle
     # via _reinit_calls() — no separate _init_calls task needed.
     yield
@@ -1786,6 +1911,18 @@ def get_notifications(limit: int = 80):
                                'name': r['internal_name'] or r['anon_id'],
                                'amount': float(r['amount']), 'product': r['product'] or '',
                                'chatter': r['chatter'] or ''})
+            # PayPal payments (parsed from email)
+            try:
+                c.execute('''SELECT amount, currency, sender, subject, ts
+                             FROM paypal_notifications ORDER BY ts DESC LIMIT %s''', (limit,))
+                for r in c.fetchall():
+                    amt = (str(r['amount'] or '') + ' ' + str(r['currency'] or '')).strip()
+                    events.append({'type': 'paypal', 'ts': str(r['ts']),
+                                   'amount': r['amount'] or '', 'currency': r['currency'] or '',
+                                   'text': f"Money received ({amt or 'Betrag unbekannt'})",
+                                   'sender': r['sender'] or ''})
+            except Exception as _pe:
+                print(f'paypal notif feed error: {_pe}')
     # Sort all events by timestamp desc, return top N
     events.sort(key=lambda x: x['ts'], reverse=True)
     return events[:limit]
@@ -2002,9 +2139,55 @@ async def vault_send(body: VaultSendIn):
     asyncio.create_task(_send_vault_file_bg(body, fpath))
     return {'ok': True}
 
+VIDEO_EXTS = ('mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
+
+def _ffprobe_video_meta(fpath: str):
+    """Best-effort (duration_s, width, height) via ffprobe. Returns (0,0,0) on failure."""
+    try:
+        import subprocess, json as _json
+        out = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+             '-show_streams', '-show_format', fpath],
+            capture_output=True, timeout=20)
+        data = _json.loads(out.stdout.decode('utf-8', 'ignore') or '{}')
+        dur, w, h = 0, 0, 0
+        for s in data.get('streams', []):
+            if s.get('codec_type') == 'video':
+                w = int(s.get('width') or 0)
+                h = int(s.get('height') or 0)
+                try:
+                    dur = int(float(s.get('duration') or 0))
+                except Exception:
+                    pass
+                break
+        if not dur:
+            try:
+                dur = int(float(data.get('format', {}).get('duration') or 0))
+            except Exception:
+                pass
+        return dur, w, h
+    except Exception as e:
+        print(f'ffprobe meta error: {e}')
+        return 0, 0, 0
+
+def _make_video_thumb(fpath: str):
+    """Generate a JPEG thumbnail from a video via ffmpeg. Returns path or None."""
+    try:
+        import subprocess
+        thumb = fpath + '.thumb.jpg'
+        subprocess.run(['ffmpeg', '-y', '-ss', '00:00:01', '-i', fpath, '-vframes', '1',
+                        '-vf', "scale='min(320,iw)':-2", thumb],
+                       capture_output=True, timeout=25)
+        if os.path.isfile(thumb) and os.path.getsize(thumb) > 0:
+            return thumb
+    except Exception as e:
+        print(f'video thumb error: {e}')
+    return None
+
 async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
     global _tg_priority
     _tg_priority += 1  # pause broadcast while uploading
+    thumb_to_clean = None
     try:
         with db() as conn:
             with conn.cursor() as c:
@@ -2012,7 +2195,29 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
                 row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
         peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
-        await tg_client.send_file(peer, fpath, caption=body.caption or None)
+
+        # Build send kwargs — videos need explicit attributes + thumbnail + streaming,
+        # otherwise Telegram often rejects them or they never upload.
+        ext = body.filename.rsplit('.', 1)[-1].lower() if '.' in body.filename else ''
+        send_kwargs = {'caption': body.caption or None}
+        loop = asyncio.get_event_loop()
+        if ext in VIDEO_EXTS:
+            dur, w, h = await loop.run_in_executor(None, _ffprobe_video_meta, fpath)
+            thumb_to_clean = await loop.run_in_executor(None, _make_video_thumb, fpath)
+            send_kwargs['supports_streaming'] = True
+            send_kwargs['force_document'] = False
+            if w > 0 and h > 0:
+                send_kwargs['attributes'] = [types.DocumentAttributeVideo(
+                    duration=dur or 0, w=w, h=h, supports_streaming=True)]
+            if thumb_to_clean:
+                send_kwargs['thumb'] = thumb_to_clean
+        try:
+            await tg_client.send_file(peer, fpath, **send_kwargs)
+        except Exception as send_err:
+            # Last-resort fallback: deliver as a plain document so it never silently fails.
+            print(f'⚠️  video/file send failed ({send_err}); retrying as document')
+            await tg_client.send_file(peer, fpath, caption=body.caption or None,
+                                      force_document=True)
         display_name = body.filename.split('/')[-1]
         save_msg(body.tg_id, f'[📎 {display_name}]', 'out', 'Vault')
         await ws_manager.broadcast({
@@ -2030,6 +2235,11 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
         except Exception:
             pass
     finally:
+        if thumb_to_clean:
+            try:
+                os.remove(thumb_to_clean)
+            except Exception:
+                pass
         _tg_priority = max(0, _tg_priority - 1)
 
 # ── PLEDGES ──────────────────────────────────────────────────────────────────
@@ -2301,6 +2511,7 @@ class BroadcastIn(BaseModel):
     tg_ids: Optional[list] = None
     exclude_ids: Optional[list] = None       # exclude specific tg_ids
     exclude_stages: Optional[list] = None    # exclude by funnel stage
+    exclude_lists: Optional[list] = None     # exclude all members of these list ids (whale/big/...)
 
 @app.post('/broadcast')
 async def post_broadcast(body: BroadcastIn, background_tasks: BackgroundTasks):
@@ -2323,6 +2534,18 @@ async def post_broadcast(body: BroadcastIn, background_tasks: BackgroundTasks):
 
     # Apply exclusions
     exclude_set = set(body.exclude_ids or [])
+    # Exclude every member of the chosen lists (e.g. whales / big spenders)
+    if body.exclude_lists:
+        try:
+            with db() as conn:
+                with conn.cursor() as c:
+                    fmt = ','.join(['%s'] * len(body.exclude_lists))
+                    c.execute(f'SELECT tg_id FROM list_members WHERE list_id IN ({fmt})',
+                              [int(x) for x in body.exclude_lists])
+                    for r in c.fetchall():
+                        exclude_set.add(r['tg_id'])
+        except Exception as _e:
+            print(f'exclude_lists error: {_e}')
     exclude_stages = set(body.exclude_stages or [])
     recipients = [r for r in all_r
                   if r['tg_id'] not in exclude_set
