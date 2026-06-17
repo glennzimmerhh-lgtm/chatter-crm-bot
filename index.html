@@ -1842,7 +1842,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v6</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v7</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
@@ -7327,17 +7327,6 @@ function renderVaultGrid(grid, files, isPicker) {
     </div>`;
   }).join('');
   _vaultLazyObserve(grid);
-  try {
-    requestAnimationFrame(() => {
-      const t = grid.children && grid.children[0];
-      if (!t) return;
-      const r = t.getBoundingClientRect();
-      const st = document.getElementById('vault-picker-status');
-      if (st && grid.id === 'vault-picker-grid') {
-        st.textContent = (st.textContent || '').replace(/ · tile.*$/, '') + ' · tile ' + Math.round(r.width) + '×' + Math.round(r.height);
-      }
-    });
-  } catch(e) {}
 }
 
 let _vaultIO = null;
@@ -7495,16 +7484,18 @@ function openVaultPicker() {
   Promise.all([_vpFetch('/vault/folders'), _vpFetch('/vault')]).then(([folders, files]) => {
     _vaultFiles = files;
     _vaultFolders = folders;
-    if (status) status.textContent = files.length + ' files — click to send';
+    _pickerCurrentFolder = '';
+    if (status) status.textContent = 'Wähle einen Ordner ↑';
     _renderPickerFolderTabs(folders, files);
-    renderVaultGrid(document.getElementById('vault-picker-grid'), files, true);
+    const grid = document.getElementById('vault-picker-grid');
+    if (grid) grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:30px 0;text-align:center;">📂 Wähle oben einen Ordner, um die Dateien zu sehen.</div>';
   }).catch(() => { if (status) status.textContent = 'Error loading vault'; });
 }
 
 function _renderPickerFolderTabs(folders, allFiles) {
   const bar = document.getElementById('vault-picker-folders');
   if (!bar) return;
-  const tabs = [{ label: '📁 All', folder: '' }, ...folders.map(f => ({ label: `📂 ${f}`, folder: f }))];
+  const tabs = folders.map(f => ({ label: `📂 ${f}`, folder: f }));
   bar.innerHTML = tabs.map(t => `
     <button onclick="pickerSelectFolder('${t.folder}')"
       style="padding:4px 10px;border-radius:16px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${_pickerCurrentFolder===t.folder?'rgba(0,212,170,.5)':'var(--border)'};background:${_pickerCurrentFolder===t.folder?'rgba(0,212,170,.12)':'var(--bg3)'};color:${_pickerCurrentFolder===t.folder?'var(--teal)':'var(--text2)'};">
@@ -7514,11 +7505,17 @@ function _renderPickerFolderTabs(folders, allFiles) {
 
 function pickerSelectFolder(folder) {
   _pickerCurrentFolder = folder;
-  const files = folder ? _vaultFiles.filter(f => f.folder === folder) : _vaultFiles;
-  renderVaultGrid(document.getElementById('vault-picker-grid'), files, true);
   _renderPickerFolderTabs(_vaultFolders, _vaultFiles);
+  const grid = document.getElementById('vault-picker-grid');
   const status = document.getElementById('vault-picker-status');
-  if (status) status.textContent = files.length + ' files — click to send';
+  if (!folder) {
+    if (grid) grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:30px 0;text-align:center;">📂 Wähle oben einen Ordner.</div>';
+    if (status) status.textContent = 'Wähle einen Ordner ↑';
+    return;
+  }
+  const files = _vaultFiles.filter(f => f.folder === folder);
+  renderVaultGrid(grid, files, true);
+  if (status) status.textContent = files.length + ' Dateien — zum Senden klicken';
 }
 
 function closeVaultPicker(e) {
