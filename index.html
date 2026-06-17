@@ -1842,7 +1842,7 @@
   <div id="vault-picker-overlay" onclick="closeVaultPicker(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;align-items:center;justify-content:center;">
     <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:680px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v5</div>
+        <div style="font-size:16px;font-weight:700;">🔒 Vault — Send File · v6</div>
         <button onclick="closeVaultPicker()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;">✕</button>
       </div>
       <!-- Folder tabs in picker -->
@@ -2063,6 +2063,8 @@
           <button id="media-gallery-btn" onclick="openMediaGallery()" style="display:none;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.35);border-radius:8px;color:#4a9eff;padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;" title="Subscriber-Medien anzeigen">
             📷
           </button>
+          <!-- Mark Unread Button -->
+          <button id="mark-unread-btn" onclick="markConvUnread()" style="display:none;background:rgba(255,92,122,.12);border:1px solid rgba(255,92,122,.35);border-radius:8px;color:#ff5c7a;padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;" title="Als ungelesen markieren (für den Chatter)">📩</button>
           <!-- Mute Button -->
           <button id="mute-sub-btn" onclick="toggleMuteSub()" style="display:none;background:rgba(120,120,120,.12);border:1px solid rgba(150,150,150,.3);border-radius:8px;color:#888;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" title="Subscriber muten / entmuten">
             🔇
@@ -4268,6 +4270,8 @@ if (checkAuth()) {
     if (callBtn) callBtn.style.display = 'inline-flex';
     const mediaBtn = document.getElementById('media-gallery-btn');
     if (mediaBtn) mediaBtn.style.display = 'inline-flex';
+    const unreadBtn = document.getElementById('mark-unread-btn');
+    if (unreadBtn) unreadBtn.style.display = 'inline-flex';
     // Mute button — reflect current muted state
     updateMuteBtn(tgId);
     // Sync call bar with current active call state
@@ -4295,6 +4299,21 @@ if (checkAuth()) {
       btn.title = 'Subscriber muten';
     }
   }
+
+  window.markConvUnread = async function() {
+    const tgId = currentChatTgId;
+    if (!tgId) return;
+    try {
+      await fetch('/api/conversations/' + encodeURIComponent(tgId) + '/unread', { method: 'POST' });
+    } catch(e) { console.warn('markUnread', e); }
+    const c = (typeof allConvs !== 'undefined' && allConvs) ? allConvs.find(x => x.tg_id === tgId) : null;
+    if (c) { c.unread = Math.max(1, c.unread || 0); renderConvList(applyConvFilters(allConvs)); }
+    const total = allConvs.filter(x => (x.unread || 0) > 0).length;
+    const badge = document.getElementById('chat-unread-badge');
+    if (badge) { badge.textContent = total || ''; badge.style.display = total ? 'inline' : 'none'; }
+    const ub = document.getElementById('mark-unread-btn');
+    if (ub) { ub.textContent = '✓'; setTimeout(function(){ ub.textContent = '📩'; }, 1200); }
+  };
 
   window.toggleMuteSub = async function() {
     if (!currentChatTgId) return;
@@ -5334,7 +5353,8 @@ if (checkAuth()) {
       case 'read_update': {
         // Telegram app read → clear unread in local cache + badge
         const rc = allConvs.find(c => c.tg_id === msg.tg_id);
-        if (rc) { rc.unread = 0; renderConvList(applyConvFilters(allConvs)); }
+        const _u = (typeof msg.unread === 'number') ? msg.unread : 0;
+        if (rc) { rc.unread = _u; renderConvList(applyConvFilters(allConvs)); }
         const totalUnread = allConvs.filter(c => (c.unread || 0) > 0).length;
         const badge = document.getElementById('chat-unread-badge');
         if (badge) { badge.textContent = totalUnread || ''; badge.style.display = totalUnread ? 'inline' : 'none'; }
@@ -6756,16 +6776,22 @@ window.showPage = function(page) {
 
   async function _marieStyle(rawText) {
     const context = _getChatContext();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
     try {
       const r = await fetch('/api/ai/style', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: rawText, context })
+        body: JSON.stringify({ text: rawText, context }),
+        signal: ctrl.signal
       });
       const d = await r.json();
       if (d.ok && d.result) return d.result;
       throw new Error(d.detail || 'Unknown error');
-    } catch(e) { alert('Error: ' + e.message); return null; }
+    } catch(e) {
+      if (e && e.name === 'AbortError') { alert('Übersetzer hat zu lange gebraucht — bitte nochmal versuchen.'); return null; }
+      alert('Error: ' + e.message); return null;
+    } finally { clearTimeout(timer); }
   }
 
   const _sv0 = window.saveSettings || saveSettings;
@@ -7503,13 +7529,18 @@ function closeVaultPicker(e) {
 async function sendVaultFile(filename) {
   const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
   if (!tgId) return;
-  document.getElementById('vault-picker-overlay').style.display = 'none';
+  const ov = document.getElementById('vault-picker-overlay');
+  if (ov) ov.style.display = 'none';
+  // Plain fetch (no abort timeout) — backend queues the upload and returns instantly
   try {
-    const r = await _vaultApi('POST', '/vault/send', { tg_id: tgId, filename });
-    const d = await r.json();
-    if (d.ok) { if (window.loadMsgs) loadMsgs(); }
-    else { alert('Send failed: ' + (d.detail||'error')); }
-  } catch(e) { alert('Error: ' + e.message); }
+    const r = await fetch('/api/vault/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tgId, filename }) });
+    let d = {}; try { d = await r.json(); } catch(_) {}
+    if (r.ok && d.ok) { setTimeout(function(){ if (window.loadMsgs) loadMsgs(); }, 800); }
+    else if (!r.ok) { alert('Send failed: ' + (d.detail || ('HTTP ' + r.status))); }
+  } catch(e) {
+    if (e && e.name === 'AbortError') return;
+    alert('Error: ' + (e && e.message));
+  }
 }
 
 // vault loading is handled directly in showPage

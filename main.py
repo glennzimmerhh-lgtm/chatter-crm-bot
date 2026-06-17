@@ -516,10 +516,13 @@ def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id
                     (text[:100], ts, tg_id)
                 )
 
+_auto_tx_sem = threading.Semaphore(3)
 def _auto_translate_message(tg_id: str, text: str):
     """Translate incoming message to English and store in DB (background thread)."""
     if not OPENAI_API_KEY or not text.strip():
         return
+    if not _auto_tx_sem.acquire(blocking=False):
+        return  # cap concurrent auto-translations so the worker never gets flooded
     try:
         import urllib.request as _r, json as _j
         payload = _j.dumps({
@@ -543,6 +546,8 @@ def _auto_translate_message(tg_id: str, text: str):
                 )
     except Exception as e:
         print(f'Auto-translate error: {e}')
+    finally:
+        _auto_tx_sem.release()
 
 def _send_auto_online_msg(tg_id: str):
     """Fire auto-message to subscriber who just came online (run in thread)."""
@@ -1396,6 +1401,18 @@ def analytics_today_total():
             row = c.fetchone()
     return {'revenue': float(row['revenue'] or 0), 'sales': row['sales'] or 0}
 
+@app.post('/conversations/{tg_id}/unread')
+async def set_conv_unread(tg_id: str):
+    """Mark a conversation as unread again (so the chatter still picks it up)."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('UPDATE conversations SET unread=1 WHERE tg_id=%s', (tg_id,))
+    try:
+        await ws_manager.broadcast({'type': 'read_update', 'tg_id': tg_id, 'unread': 1})
+    except Exception:
+        pass
+    return {'ok': True}
+
 # ── REPLY ─────────────────────────────────────────────────────────────────────
 class ReplyIn(BaseModel):
     tg_id: str
@@ -1985,7 +2002,8 @@ class VaultSendIn(BaseModel):
 
 @app.post('/vault/send')
 async def vault_send(body: VaultSendIn):
-    """Send a vault file to a subscriber via Telegram."""
+    """Queue a vault file for sending. Returns instantly; the upload runs in the background
+    so large images/videos don't cause the request to time out."""
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
     if '..' in body.filename:
@@ -1993,6 +2011,12 @@ async def vault_send(body: VaultSendIn):
     fpath = os.path.join(VAULT_DIR, body.filename)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'File not found in vault')
+    asyncio.create_task(_send_vault_file_bg(body, fpath))
+    return {'ok': True}
+
+async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
+    global _tg_priority
+    _tg_priority += 1  # pause broadcast while uploading
     try:
         with db() as conn:
             with conn.cursor() as c:
@@ -2003,14 +2027,22 @@ async def vault_send(body: VaultSendIn):
         await tg_client.send_file(peer, fpath, caption=body.caption or None)
         display_name = body.filename.split('/')[-1]
         save_msg(body.tg_id, f'[📎 {display_name}]', 'out', 'Vault')
-        asyncio.create_task(ws_manager.broadcast({
+        await ws_manager.broadcast({
             'type': 'new_message', 'tg_id': body.tg_id,
             'text': f'[📎 {display_name}]', 'direction': 'out',
             'timestamp': datetime.now().isoformat()
-        }))
-        return {'ok': True}
+        })
     except Exception as e:
-        raise HTTPException(500, str(e))
+        print(f'❌ vault send error for {body.tg_id}: {e}')
+        try:
+            await ws_manager.broadcast({
+                'type': 'notification', 'notif_type': 'error', 'tg_id': body.tg_id,
+                'text': f'Vault-Senden fehlgeschlagen: {e}', 'timestamp': datetime.now().isoformat()
+            })
+        except Exception:
+            pass
+    finally:
+        _tg_priority = max(0, _tg_priority - 1)
 
 # ── PLEDGES ──────────────────────────────────────────────────────────────────
 
