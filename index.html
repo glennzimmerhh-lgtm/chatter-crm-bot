@@ -1616,6 +1616,7 @@
           <input id="ai-pilot-gap" type="number" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 10px;width:120px;outline:none;"></div>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-ppvpay" type="checkbox"> PPV nur nach bestätigter Zahlung</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-followup" type="checkbox"> Auto-Follow-up (stille Fans nachfassen)</label>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-online" type="checkbox"> Online-Fans persönlich anschreiben</label>
         <button onclick="saveAIPilot()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;">Speichern</button>
         <span id="ai-pilot-msg" style="font-size:12px;color:var(--teal);"></span>
       </div>
@@ -6441,6 +6442,7 @@ async function loadAIPilot() {
     const g = document.getElementById('ai-pilot-gap'); if (g) g.value = (d.min_gap_sec != null ? d.min_gap_sec : 20);
     const p = document.getElementById('ai-pilot-ppvpay'); if (p) p.checked = d.ppv_needs_payment !== false;
     const fu = document.getElementById('ai-pilot-followup'); if (fu) fu.checked = !!d.followup_enabled;
+    const ol = document.getElementById('ai-pilot-online'); if (ol) ol.checked = !!d.online_outreach;
     const w = document.getElementById('ai-pilot-warn'); if (w) w.style.display = d.engine_configured ? 'none' : 'block';
     renderAIPilot();
   } catch (e) {}
@@ -6459,6 +6461,7 @@ async function saveAIPilot() {
     min_gap_sec: parseInt(document.getElementById('ai-pilot-gap').value) || 20,
     ppv_needs_payment: document.getElementById('ai-pilot-ppvpay').checked,
     followup_enabled: document.getElementById('ai-pilot-followup').checked,
+    online_outreach: document.getElementById('ai-pilot-online').checked,
   };
   try {
     await fetch('/api/ai/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
