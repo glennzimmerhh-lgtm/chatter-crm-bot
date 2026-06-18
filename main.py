@@ -1288,6 +1288,21 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
 
     reply = (result.get('reply') or '').strip()
     actions = result.get('actions') or []
+    # Diagnostic: AI verbally promised a call but didn't fire start_call → surface why.
+    try:
+        _rl = reply.lower()
+        _promised_call = any(w in _rl for w in ('ruf dich', 'rufe dich', 'ruf dich an', 'rufe dich an',
+                                                'ich ruf', 'ich rufe', 'call you', 'anrufen', 'fake check'))
+        _fired_call = any((a.get('tool') == 'start_call') for a in actions)
+        if _promised_call and not _fired_call:
+            if not call_list:
+                _ai_log(tg_id, 'call_promised_no_recording',
+                        'KI kuendigt Call an, aber KEINE Aufnahme in fake_checks/paid_calls vorhanden', False)
+            else:
+                _ai_log(tg_id, 'call_promised_not_fired',
+                        'KI kuendigt Call an, hat start_call aber nicht ausgeloest', False)
+    except Exception:
+        pass
     if result.get('handoff'):
         _ai_log(tg_id, 'handoff', incoming_text[:200], False)
         try:
@@ -1559,6 +1574,183 @@ async def _run_ai_followups():
         await asyncio.sleep(900)   # every 15 min
 
 
+# ── PROACTIVE OPPORTUNITY HUNTER ──────────────────────────────────────────────
+# Goes beyond "fan ghosted us": actively scans ALL chats and hunts sales chances —
+# warm leads sitting unanswered, fans showing buying intent, and high-value fans
+# going cold. Ranks by opportunity and value, then re-opens the conversation.
+_BUY_SIGNALS = ('wie viel', 'wieviel', 'preis', 'kostet', 'was kostet', 'kosten', 'kaufen',
+                'will', 'möchte', 'gerne', 'interessiert', 'interesse', 'ja', 'okay', 'ok',
+                'paypal', 'revolut', 'überweis', 'zahlen', 'bezahl', 'paysafe', 'deal',
+                'video', 'call', 'sexting', 'content', 'nackt', 'mehr', 'zeig', 'schick')
+
+def _hunt_due(tg_id: str, min_hours: float = 24.0) -> bool:
+    """Don't re-hunt the same fan more often than every `min_hours`."""
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT MAX(ts) AS last FROM ai_action_log WHERE tg_id=%s AND kind LIKE 'hunt%%'", (tg_id,))
+            row = c.fetchone()
+            last = row['last'] if row else None
+    except Exception:
+        return False
+    if not last:
+        return True
+    try:
+        ref = datetime.fromisoformat(str(last))
+    except Exception:
+        return True
+    return (datetime.now() - ref).total_seconds() / 3600 >= min_hours
+
+def _find_opportunities(limit: int = 12) -> list:
+    """SQL+heuristic scan → ranked list of sales opportunities across all chats."""
+    now = datetime.now()
+    recent_floor = (now - timedelta(days=30)).isoformat()
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('''
+                SELECT c.tg_id, c.tg_access_hash, c.is_muted,
+                       m.direction AS last_dir, m.timestamp AS last_ts, m.text AS last_text,
+                       COALESCE(s.spend, 0) AS spend
+                FROM conversations c
+                JOIN LATERAL (SELECT direction, timestamp, text FROM messages
+                              WHERE tg_id=c.tg_id ORDER BY id DESC LIMIT 1) m ON true
+                LEFT JOIN LATERAL (SELECT SUM(amount) AS spend FROM sales WHERE tg_id=c.tg_id) s ON true
+                WHERE m.timestamp >= %s
+                ORDER BY m.timestamp DESC
+                LIMIT 600
+            ''', (recent_floor,))
+            rows = c.fetchall()
+    except Exception as e:
+        print(f'opportunity scan error: {e}')
+        return []
+    try:
+        whale_floor = float(get_setting('ai_hunt_whale_eur', '100') or 100)
+    except Exception:
+        whale_floor = 100.0
+    cands = []
+    for r in rows:
+        tg_id = r['tg_id']
+        if r.get('is_muted'):
+            continue
+        last_ts = r.get('last_ts')
+        try:
+            age_h = (now - datetime.fromisoformat(str(last_ts))).total_seconds() / 3600 if last_ts else 9999
+        except Exception:
+            age_h = 9999
+        spend = _to_float_safe(r.get('spend'))
+        last_dir = r.get('last_dir')
+        text = (r.get('last_text') or '').lower()
+        otype = None
+        score = 0.0
+        if last_dir == 'in' and 2 <= age_h <= 14 * 24:
+            # warm lead: fan wrote last (interest) and it's sitting unanswered
+            if any(sig in text for sig in _BUY_SIGNALS):
+                otype, score = 'warm_signal', 100 + spend
+            else:
+                otype, score = 'warm_unanswered', 60 + spend
+        elif spend >= whale_floor and age_h >= 5 * 24:
+            otype, score = 'whale_cold', 80 + spend
+        elif age_h >= 10 * 24:
+            otype, score = 'cold_reactivate', 20 + spend * 0.5
+        if not otype:
+            continue
+        cands.append({'tg_id': tg_id, 'access_hash': r.get('tg_access_hash'),
+                      'type': otype, 'score': score, 'spend': spend, 'age_h': age_h})
+    cands.sort(key=lambda x: x['score'], reverse=True)
+    return cands[:limit]
+
+def _to_float_safe(v) -> float:
+    try:
+        return float(v) if v is not None else 0.0
+    except Exception:
+        return 0.0
+
+_HUNT_CONTEXT = {
+    'warm_signal': ("Der Fan hat ZULETZT geschrieben und ein klares Kaufsignal/Interesse gezeigt, "
+                    "aber es kam keine Antwort. Knüpf genau daran an und führ ihn jetzt zum Abschluss."),
+    'warm_unanswered': ("Der Fan hat zuletzt geschrieben, aber es kam keine Antwort. Greif den Faden "
+                        "wieder auf, bring Wärme rein und lenk Richtung Angebot."),
+    'whale_cold': ("Das ist ein wertvoller Stammkunde, der abgekühlt ist. Hol ihn persönlich und "
+                   "charmant zurück und mach ein passendes Angebot."),
+    'cold_reactivate': ("Dieser Fan ist seit längerem still. Reaktiviere ihn mit einem lockeren, "
+                        "neugierig machenden Opener und einem dezenten Aufhänger."),
+}
+
+async def _do_opportunity_cycle():
+    global _tg_priority
+    if active_calls:
+        return
+    try:
+        batch = int(get_setting('ai_hunt_batch', '6') or 6)
+    except Exception:
+        batch = 6
+    try:
+        gap_h = float(get_setting('ai_hunt_min_hours', '24') or 24)
+    except Exception:
+        gap_h = 24.0
+    opps = _find_opportunities(limit=batch * 3)
+    loop = asyncio.get_event_loop()
+    sent = 0
+    for o in opps:
+        if sent >= batch:
+            break
+        tg_id = o['tg_id']
+        if not _ai_allowed(tg_id):
+            continue
+        if not _hunt_due(tg_id, gap_h):
+            continue
+        _ai_last_action[tg_id] = datetime.now()
+        ctx = _HUNT_CONTEXT.get(o['type'], '')
+        payload = {'tg_id': tg_id, 'context': ctx}
+
+        def _call_fu(p=payload):
+            req = _ureq_ai.Request(AI_ENGINE_URL + '/followup', data=_json_ai.dumps(p).encode(),
+                                   headers={'Content-Type': 'application/json',
+                                            'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+            with _ureq_ai.urlopen(req, timeout=45) as resp:
+                return _json_ai.loads(resp.read())
+        try:
+            res = await loop.run_in_executor(None, _call_fu)
+        except Exception as e:
+            print(f'hunt engine error {tg_id}: {e}')
+            continue
+        reply = (res.get('reply') or '').strip()
+        if res.get('handoff') or not reply:
+            _ai_log(tg_id, 'hunt_skip', o['type'] + ' handoff/empty', False)
+            continue
+        try:
+            ah = int(o['access_hash']) if o['access_hash'] else 0
+            peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+            _tg_priority += 1
+            try:
+                await _human_send(peer, tg_id, reply, 'KI-Jagd')
+                _ai_log(tg_id, 'hunt_' + o['type'], reply[:200], True)
+                sent += 1
+                try:
+                    await ws_manager.broadcast({'type': 'notification', 'notif_type': 'ai_action',
+                        'tg_id': tg_id, 'text': 'KI-Chance (' + o['type'] + ') angegangen',
+                        'timestamp': datetime.now().isoformat()})
+                except Exception:
+                    pass
+            finally:
+                _tg_priority = max(0, _tg_priority - 1)
+        except Exception as e:
+            print(f'hunt send error {tg_id}: {e}')
+            _ai_log(tg_id, 'hunt_error', str(e)[:200], False)
+        await asyncio.sleep(5)
+
+async def _run_ai_hunter():
+    await asyncio.sleep(70)
+    while True:
+        try:
+            if (get_setting('ai_autosend_enabled', '0') == '1'
+                    and get_setting('ai_hunt_enabled', '0') == '1'
+                    and AI_ENGINE_URL and AI_ENGINE_TOKEN and _ai_within_hours()):
+                await _do_opportunity_cycle()
+        except Exception as e:
+            print(f'hunt loop error: {e}')
+        await asyncio.sleep(1800)   # every 30 min
+
+
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1572,6 +1764,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_run_scheduled_broadcasts())
     asyncio.create_task(_run_paypal_poller())
     asyncio.create_task(_run_ai_followups())
+    asyncio.create_task(_run_ai_hunter())
     # PyTgCalls is now initialized inside start_userbot() on every connect cycle
     # via _reinit_calls() — no separate _init_calls task needed.
     yield
@@ -2298,6 +2491,7 @@ class AIControlIn(BaseModel):
     ppv_needs_payment: Optional[bool] = None
     followup_enabled: Optional[bool] = None
     online_outreach: Optional[bool] = None
+    hunt_enabled: Optional[bool] = None     # proactive opportunity hunter
     scope: Optional[str] = None            # 'all' or 'test'
     human_typing: Optional[bool] = None
     during_calls: Optional[bool] = None
@@ -2311,6 +2505,7 @@ def ai_control_get():
         'ppv_needs_payment': get_setting('ai_ppv_needs_payment', '1') == '1',
         'followup_enabled': get_setting('ai_followup_enabled', '0') == '1',
         'online_outreach': get_setting('ai_online_outreach', '0') == '1',
+        'hunt_enabled': get_setting('ai_hunt_enabled', '0') == '1',
         'scope': get_setting('ai_scope', 'all'),
         'human_typing': get_setting('ai_human_typing', '1') == '1',
         'during_calls': get_setting('ai_during_calls', '1') == '1',
@@ -2332,6 +2527,8 @@ def ai_control_set(body: AIControlIn):
         set_setting('ai_followup_enabled', '1' if body.followup_enabled else '0')
     if body.online_outreach is not None:
         set_setting('ai_online_outreach', '1' if body.online_outreach else '0')
+    if body.hunt_enabled is not None:
+        set_setting('ai_hunt_enabled', '1' if body.hunt_enabled else '0')
     if body.scope is not None:
         set_setting('ai_scope', 'test' if body.scope == 'test' else 'all')
     if body.human_typing is not None:
