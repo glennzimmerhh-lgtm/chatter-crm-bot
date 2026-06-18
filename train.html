@@ -136,6 +136,30 @@
     </div>
   </div>
 
+  <!-- Verhandlungsspielraum -->
+  <div class="card">
+    <h2>🤝 Verhandlungsspielraum</h2>
+    <div class="sub" style="margin:0 0 8px;">Wie weit darf die KI beim Preis runtergehen, um abzuschließen? Standard: kleiner Rabatt (bis ~15%) / Bonus / Bundle, nie unter ~70% des Listenpreises. Leer lassen = Standard. Eigene Vorgabe möglich (z.B. „max 5€ Rabatt, lieber Bundle anbieten").</div>
+    <textarea id="negotiation" style="min-height:90px;" placeholder="Leer lassen = Standard (kleiner Rabatt/Bonus/Bundle, nie unter 70%)…"></textarea>
+    <div class="row" style="margin-top:10px;">
+      <button class="sec" onclick="loadNegotiation()">Laden</button>
+      <button onclick="saveNegotiation()">Verhandlung speichern</button>
+      <span id="negMsg" class="msg dim"></span>
+    </div>
+  </div>
+
+  <!-- Content-Guide -->
+  <div class="card">
+    <h2>🎬 Content-Guide (was deine Files/Calls enthalten)</h2>
+    <div class="sub" style="margin:0 0 8px;">Beschreib kurz, was deine PPV-Dateien und Call-Aufnahmen enthalten — damit die KI treffsicher das Richtige schickt statt nach Dateinamen zu raten. Eine Zeile pro Datei.</div>
+    <textarea id="contentguide" style="min-height:120px;" placeholder="boobies_set1.jpg: 20 soft Bilder&#10;dildo_4min.mp4: explizites Dildo-Video 4 Min&#10;fake_checks/check1.mp4: verspielter 20-Sek-Check&#10;paid_calls/long.mp4: 10 Min expliziter Call"></textarea>
+    <div class="row" style="margin-top:10px;">
+      <button class="sec" onclick="loadContentGuide()">Laden</button>
+      <button onclick="saveContentGuide()">Content-Guide speichern</button>
+      <span id="cgMsg" class="msg dim"></span>
+    </div>
+  </div>
+
   <!-- Preisliste -->
   <div class="card">
     <h2>💶 Preisliste (verbindlich)</h2>
@@ -354,6 +378,22 @@ async function savePriceList(){
   try { const r=await fetch(base()+'/price-list',{method:'POST',headers:jhdr(),body:JSON.stringify({price_list:$('pricelist').value})}); if(!r.ok) throw new Error('HTTP '+r.status); $('priceMsg').textContent='gespeichert ✓ — Preise sind jetzt verbindlich'; $('priceMsg').className='msg ok'; }
   catch(e){ $('priceMsg').textContent='Fehler: '+e.message; $('priceMsg').className='msg err'; }
 }
+async function loadNegotiation(){
+  try { const r=await fetch(base()+'/negotiation',{headers:hdr()}); const d=await r.json(); $('negotiation').value=(d.negotiation&&d.negotiation!==d.default)?d.negotiation:''; $('negMsg').textContent='geladen'; $('negMsg').className='msg dim'; }
+  catch(e){ $('negMsg').textContent='Fehler: '+e.message; $('negMsg').className='msg err'; }
+}
+async function saveNegotiation(){
+  try { const v=$('negotiation').value.trim(); const r=await fetch(base()+'/negotiation',{method:'POST',headers:jhdr(),body:JSON.stringify({negotiation:v})}); if(!r.ok) throw new Error('HTTP '+r.status); $('negMsg').textContent=v?'gespeichert ✓':'auf Standard gesetzt ✓'; $('negMsg').className='msg ok'; }
+  catch(e){ $('negMsg').textContent='Fehler: '+e.message; $('negMsg').className='msg err'; }
+}
+async function loadContentGuide(){
+  try { const r=await fetch(base()+'/content-guide',{headers:hdr()}); const d=await r.json(); $('contentguide').value=d.content_guide||''; $('cgMsg').textContent='geladen'; $('cgMsg').className='msg dim'; }
+  catch(e){ $('cgMsg').textContent='Fehler: '+e.message; $('cgMsg').className='msg err'; }
+}
+async function saveContentGuide(){
+  try { const r=await fetch(base()+'/content-guide',{method:'POST',headers:jhdr(),body:JSON.stringify({content_guide:$('contentguide').value})}); if(!r.ok) throw new Error('HTTP '+r.status); $('cgMsg').textContent='gespeichert ✓'; $('cgMsg').className='msg ok'; }
+  catch(e){ $('cgMsg').textContent='Fehler: '+e.message; $('cgMsg').className='msg err'; }
+}
 async function loadSalesDrive(){
   try { const r=await fetch(base()+'/sales-drive',{headers:hdr()}); const d=await r.json(); $('salesdrive').value=(d.sales_drive&&d.sales_drive!==d.default)?d.sales_drive:''; $('sdMsg').textContent='geladen'; $('sdMsg').className='msg dim'; }
   catch(e){ $('sdMsg').textContent='Fehler: '+e.message; $('sdMsg').className='msg err'; }
@@ -488,7 +528,7 @@ if($('chatIn')){
 }
 
 // Auto-load persona + knowledge if connection is already set (und Admin)
-if (!window.__AI_BLOCKED__ && $('url') && $('url').value && $('token').value) { loadConfig(); loadKnowledge(); loadPriceList(); loadPayTerms(); loadSalesDrive(); }
+if (!window.__AI_BLOCKED__ && $('url') && $('url').value && $('token').value) { loadConfig(); loadKnowledge(); loadPriceList(); loadPayTerms(); loadSalesDrive(); loadNegotiation(); loadContentGuide(); }
 </script>
 </body>
 </html>
