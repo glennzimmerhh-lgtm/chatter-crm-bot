@@ -97,6 +97,10 @@ PORT        = int(os.environ.get('PORT', 8000))
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 SUBSCRIBER_BACKUP_WEBHOOK = os.environ.get('SUBSCRIBER_BACKUP_WEBHOOK', '')
+# ── AI chatting engine (autonomous brain) ────────────────────────────────────
+AI_ENGINE_URL = os.environ.get('AI_ENGINE_URL', '').rstrip('/')
+AI_ENGINE_TOKEN = os.environ.get('AI_ENGINE_TOKEN', '')
+_ai_last_action: dict = {}   # tg_id -> datetime of last autonomous AI action (rate limit)
 
 # ── PostgreSQL health check at startup ───────────────────────────────────────
 # If DATABASE_URL is set but PostgreSQL is down/red, fall back to SQLite.
@@ -372,6 +376,15 @@ def init_db():
                 list_id INTEGER NOT NULL,
                 tg_id   TEXT NOT NULL,
                 PRIMARY KEY (list_id, tg_id)
+            )''')
+            # Log of every autonomous AI action (reply, ppv, call, stage, handoff)
+            c.execute('''CREATE TABLE IF NOT EXISTS ai_action_log (
+                id       SERIAL PRIMARY KEY,
+                tg_id    TEXT,
+                kind     TEXT,
+                detail   TEXT,
+                executed INTEGER DEFAULT 0,
+                ts       TEXT NOT NULL
             )''')
             # PayPal payment-received notifications (parsed from email)
             c.execute('''CREATE TABLE IF NOT EXISTS paypal_notifications (
@@ -823,6 +836,9 @@ async def start_userbot():
                     'text': text[:80],
                     'timestamp': now_ts,
                 }))
+                # Autonomous AI chatter — only on real text; master-switched, defaults OFF
+                if event.text:
+                    asyncio.create_task(_ai_autorespond(tg_id, text))
 
             @tg_client.on(events.NewMessage(outgoing=True, func=lambda e: e.is_private))
             async def on_outgoing_dm(event):
@@ -1011,6 +1027,190 @@ async def _run_paypal_poller():
         except Exception as e:
             print(f'PayPal poller loop error: {e}')
         await asyncio.sleep(interval)
+
+# ── AUTONOMOUS AI CHATTER (worker side: ask engine /act, then execute) ────────
+import json as _json_ai
+import urllib.request as _ureq_ai
+
+_AI_MEDIA_EXTS = ('jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
+_AI_CALL_EXTS = ('mp3', 'mp4', 'wav', 'ogg', 'aac', 'm4a', 'mov', 'mkv')
+
+def _ai_available_ppv() -> list:
+    """Vault media files the AI is allowed to send (top-level + one folder deep)."""
+    out = []
+    try:
+        for item in sorted(os.listdir(VAULT_DIR)):
+            if item.startswith('.') or item.startswith('_'):
+                continue
+            p = os.path.join(VAULT_DIR, item)
+            if os.path.isfile(p) and item.rsplit('.', 1)[-1].lower() in _AI_MEDIA_EXTS:
+                out.append(item)
+            elif os.path.isdir(p):
+                for f in sorted(os.listdir(p)):
+                    if os.path.isfile(os.path.join(p, f)) and f.rsplit('.', 1)[-1].lower() in _AI_MEDIA_EXTS:
+                        out.append(f'{item}/{f}')
+    except Exception as e:
+        print(f'ai ppv list error: {e}')
+    return out[:120]
+
+def _ai_available_calls() -> list:
+    out = []
+    for folder in CALL_FOLDERS:
+        d = os.path.join(CALLS_DIR, folder)
+        try:
+            for f in sorted(os.listdir(d)):
+                if os.path.isfile(os.path.join(d, f)) and f.rsplit('.', 1)[-1].lower() in _AI_CALL_EXTS:
+                    out.append(f'{folder}/{f}')
+        except Exception:
+            pass
+    return out
+
+def _ai_payment_confirmed(tg_id: str) -> bool:
+    """Conservative gate: a payment counts as confirmed only if a sale is logged for this fan."""
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT 1 FROM sales WHERE tg_id=%s ORDER BY id DESC LIMIT 1", (tg_id,))
+            return c.fetchone() is not None
+    except Exception:
+        return False
+
+def _ai_log(tg_id, kind, detail, executed):
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("INSERT INTO ai_action_log (tg_id,kind,detail,executed,ts) VALUES (%s,%s,%s,%s,%s)",
+                      (tg_id, kind, str(detail)[:500], 1 if executed else 0, datetime.now().isoformat()))
+    except Exception as e:
+        print(f'ai log error: {e}')
+
+def _ai_within_hours() -> bool:
+    hrs = get_setting('ai_work_hours', '')   # "9-23"; empty = always on
+    if not hrs or '-' not in hrs:
+        return True
+    try:
+        a, b = [int(x) for x in hrs.split('-', 1)]
+        h = datetime.now().hour
+        return (a <= h < b) if a <= b else (h >= a or h < b)
+    except Exception:
+        return True
+
+async def _ai_autorespond(tg_id: str, incoming_text: str):
+    """Master-switched autonomous responder. Defaults OFF — nothing happens until enabled."""
+    if get_setting('ai_autosend_enabled', '0') != '1':
+        return
+    if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+        return
+    if not _ai_within_hours():
+        return
+    try:
+        min_gap = int(get_setting('ai_min_gap_sec', '20') or 20)
+    except Exception:
+        min_gap = 20
+    last = _ai_last_action.get(tg_id)
+    if last and (datetime.now() - last).total_seconds() < min_gap:
+        return
+    _ai_last_action[tg_id] = datetime.now()
+
+    payment_ok = _ai_payment_confirmed(tg_id)
+    ppv_list = _ai_available_ppv()
+    call_list = _ai_available_calls()
+    payload = {'tg_id': tg_id, 'incoming': incoming_text,
+               'available_ppv': ppv_list, 'available_calls': call_list,
+               'payment_confirmed': payment_ok}
+    loop = asyncio.get_event_loop()
+
+    def _call_engine():
+        req = _ureq_ai.Request(AI_ENGINE_URL + '/act',
+                               data=_json_ai.dumps(payload).encode(),
+                               headers={'Content-Type': 'application/json',
+                                        'Authorization': 'Bearer ' + AI_ENGINE_TOKEN},
+                               method='POST')
+        with _ureq_ai.urlopen(req, timeout=45) as r:
+            return _json_ai.loads(r.read())
+
+    try:
+        result = await loop.run_in_executor(None, _call_engine)
+    except Exception as e:
+        print(f'AI engine /act error: {e}')
+        _ai_log(tg_id, 'engine_error', str(e)[:200], False)
+        return
+
+    reply = (result.get('reply') or '').strip()
+    actions = result.get('actions') or []
+    if result.get('handoff'):
+        _ai_log(tg_id, 'handoff', incoming_text[:200], False)
+        try:
+            await ws_manager.broadcast({'type': 'notification', 'notif_type': 'ai_handoff',
+                'tg_id': tg_id, 'text': 'KI hat an Mensch uebergeben (heikel)',
+                'timestamp': datetime.now().isoformat()})
+        except Exception:
+            pass
+        return
+
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+        row = c.fetchone()
+    ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+    peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+
+    global _tg_priority
+    _tg_priority += 1
+    try:
+        if reply:
+            try:
+                sent = await tg_client.send_message(peer, reply)
+                await loop.run_in_executor(None, lambda: save_msg(tg_id, reply, 'out', 'KI', sent.id))
+                await ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id, 'text': reply,
+                    'direction': 'out', 'timestamp': datetime.now().isoformat()})
+                _ai_log(tg_id, 'reply', reply[:200], True)
+            except Exception as e:
+                print(f'AI reply send error: {e}')
+                _ai_log(tg_id, 'reply_error', str(e)[:200], False)
+
+        ppv_needs_payment = get_setting('ai_ppv_needs_payment', '1') == '1'
+        for act in actions:
+            tool = act.get('tool')
+            args = act.get('args') or {}
+            try:
+                if tool == 'set_funnel_stage':
+                    stage = args.get('stage', '')
+                    if stage in ('kalt', 'warm', 'hot', 'angebot', 'gebucht', 'done'):
+                        with db() as conn, conn.cursor() as c:
+                            c.execute('UPDATE conversations SET funnel_stage=%s WHERE tg_id=%s', (stage, tg_id))
+                        _ai_log(tg_id, 'set_stage', stage, True)
+                elif tool == 'send_ppv':
+                    fn = args.get('filename', '')
+                    if fn not in ppv_list:
+                        _ai_log(tg_id, 'send_ppv_invalid', fn, False)
+                    elif ppv_needs_payment and not payment_ok:
+                        _ai_log(tg_id, 'send_ppv_blocked', fn + ' (keine bestaetigte Zahlung)', False)
+                    else:
+                        await _send_vault_file_bg(
+                            VaultSendIn(tg_id=tg_id, filename=fn, caption=args.get('caption', '')),
+                            os.path.join(VAULT_DIR, fn))
+                        _ai_log(tg_id, 'send_ppv', fn, True)
+                elif tool == 'start_call':
+                    folder = args.get('folder', '')
+                    fn = args.get('filename', '')
+                    entry = f'{folder}/{fn}'
+                    if entry not in call_list:
+                        _ai_log(tg_id, 'start_call_invalid', entry, False)
+                    elif folder == 'paid_calls' and not payment_ok:
+                        _ai_log(tg_id, 'start_call_blocked', entry + ' (keine bestaetigte Zahlung)', False)
+                    else:
+                        await start_fake_call(CallStartIn(tg_id=tg_id, filename=fn, folder=folder, chatter='KI'))
+                        _ai_log(tg_id, 'start_call', entry, True)
+            except Exception as e:
+                print(f'AI action {tool} error: {e}')
+                _ai_log(tg_id, str(tool or 'action') + '_error', str(e)[:200], False)
+    finally:
+        _tg_priority = max(0, _tg_priority - 1)
+
+    try:
+        await ws_manager.broadcast({'type': 'notification', 'notif_type': 'ai_action',
+            'tg_id': tg_id, 'text': 'KI hat geantwortet', 'timestamp': datetime.now().isoformat()})
+    except Exception:
+        pass
+
 
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -1741,6 +1941,43 @@ def _openai_chat(messages: list, max_tokens: int = 300, temperature: float = 0.8
     with _urllib_req.urlopen(req, timeout=15) as resp:
         data = _json.loads(resp.read())
     return data['choices'][0]['message']['content'].strip()
+
+# ── AI AUTOPILOT CONTROL (master switch + guardrails + action log) ────────────
+class AIControlIn(BaseModel):
+    enabled: Optional[bool] = None
+    work_hours: Optional[str] = None        # "9-23" or "" for always
+    min_gap_sec: Optional[int] = None
+    ppv_needs_payment: Optional[bool] = None
+
+@app.get('/ai/control')
+def ai_control_get():
+    return {
+        'enabled': get_setting('ai_autosend_enabled', '0') == '1',
+        'work_hours': get_setting('ai_work_hours', ''),
+        'min_gap_sec': int(get_setting('ai_min_gap_sec', '20') or 20),
+        'ppv_needs_payment': get_setting('ai_ppv_needs_payment', '1') == '1',
+        'engine_configured': bool(AI_ENGINE_URL and AI_ENGINE_TOKEN),
+    }
+
+@app.post('/ai/control')
+def ai_control_set(body: AIControlIn):
+    if body.enabled is not None:
+        set_setting('ai_autosend_enabled', '1' if body.enabled else '0')
+    if body.work_hours is not None:
+        set_setting('ai_work_hours', body.work_hours.strip())
+    if body.min_gap_sec is not None:
+        set_setting('ai_min_gap_sec', str(max(0, int(body.min_gap_sec))))
+    if body.ppv_needs_payment is not None:
+        set_setting('ai_ppv_needs_payment', '1' if body.ppv_needs_payment else '0')
+    return {'ok': True}
+
+@app.get('/ai/action-log')
+def ai_action_log_get(limit: int = 100):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute('SELECT tg_id, kind, detail, executed, ts FROM ai_action_log ORDER BY id DESC LIMIT %s', (limit,))
+            return c.fetchall()
+
 
 class TranslateIn(BaseModel):
     text: str
