@@ -841,10 +841,13 @@ async def start_userbot():
                     'text': text[:80],
                     'timestamp': now_ts,
                 }))
-                # Autonomous AI chatter — only on real text; master-switched, defaults OFF
+                # Autonomous AI chatter — master-switched, defaults OFF
                 if event.text:
                     asyncio.create_task(_ai_autorespond(tg_id, text))
                     asyncio.create_task(_ai_refresh_memory_bg(tg_id))
+                elif event.photo and get_setting('ai_autosend_enabled', '0') == '1' and AI_ENGINE_URL and AI_ENGINE_TOKEN:
+                    # Fan sent a photo (e.g. payment screenshot) — let the AI read it
+                    asyncio.create_task(_ai_handle_photo(event, tg_id))
 
             @tg_client.on(events.NewMessage(outgoing=True, func=lambda e: e.is_private))
             async def on_outgoing_dm(event):
@@ -1142,7 +1145,7 @@ def _ai_within_hours() -> bool:
     except Exception:
         return True
 
-async def _ai_autorespond(tg_id: str, incoming_text: str):
+async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
     """Master-switched autonomous responder. Defaults OFF — nothing happens until enabled."""
     if get_setting('ai_autosend_enabled', '0') != '1':
         return
@@ -1165,6 +1168,8 @@ async def _ai_autorespond(tg_id: str, incoming_text: str):
     payload = {'tg_id': tg_id, 'incoming': incoming_text,
                'available_ppv': ppv_list, 'available_calls': call_list,
                'payment_confirmed': payment_ok}
+    if image_b64:
+        payload['image_b64'] = image_b64
     loop = asyncio.get_event_loop()
 
     def _call_engine():
@@ -1216,11 +1221,41 @@ async def _ai_autorespond(tg_id: str, incoming_text: str):
                 _ai_log(tg_id, 'reply_error', str(e)[:200], False)
 
         ppv_needs_payment = get_setting('ai_ppv_needs_payment', '1') == '1'
+        # process log_sale first so paid content can unlock within the same turn
+        actions.sort(key=lambda a: 0 if a.get('tool') == 'log_sale' else 1)
         for act in actions:
             tool = act.get('tool')
             args = act.get('args') or {}
             try:
-                if tool == 'set_funnel_stage':
+                if tool == 'log_sale':
+                    try:
+                        amount = float(args.get('amount') or 0)
+                    except Exception:
+                        amount = 0
+                    if amount <= 0:
+                        _ai_log(tg_id, 'log_sale_invalid', str(args)[:120], False)
+                    else:
+                        product = (args.get('product') or 'Sale')[:100]
+                        method = (args.get('method') or 'KI')[:50]
+                        try:
+                            with db() as conn, conn.cursor() as c:
+                                c.execute('SELECT anon_id FROM conversations WHERE tg_id=%s', (tg_id,))
+                                _r = c.fetchone()
+                                anon = (_r['anon_id'] if _r else '') or ''
+                                c.execute(
+                                    "INSERT INTO sales (tg_id,anon_id,amount,product,notes,chatter,timestamp,status,payment_method) "
+                                    "VALUES (%s,%s,%s,%s,%s,%s,%s,'approved',%s)",
+                                    (tg_id, anon, amount, product, 'von KI erkannt', 'KI',
+                                     datetime.now().isoformat(), method))
+                            payment_ok = True
+                            _ai_log(tg_id, 'log_sale', f'{amount:.0f}EUR {product} {method}', True)
+                            await ws_manager.broadcast({'type': 'notification', 'notif_type': 'sale',
+                                'tg_id': tg_id, 'text': f'KI-Sale: {amount:.0f}EUR {product}',
+                                'timestamp': datetime.now().isoformat()})
+                        except Exception as e:
+                            print(f'log_sale error: {e}')
+                            _ai_log(tg_id, 'log_sale_error', str(e)[:200], False)
+                elif tool == 'set_funnel_stage':
                     stage = args.get('stage', '')
                     if stage in ('kalt', 'warm', 'hot', 'angebot', 'gebucht', 'done'):
                         with db() as conn, conn.cursor() as c:
@@ -1280,15 +1315,29 @@ async def _ai_refresh_memory_bg(tg_id: str):
         print(f'memory refresh error {tg_id}: {e}')
 
 
+async def _ai_handle_photo(event, tg_id):
+    """Download an incoming photo and let the AI 'see' it (e.g. payment screenshots)."""
+    try:
+        import base64
+        data = await event.download_media(file=bytes)
+        if not data or len(data) > 5_000_000:
+            return
+        b64 = base64.b64encode(data).decode()
+        await _ai_autorespond(tg_id, "(Der Fan hat ein Bild geschickt — sieh es dir an und reagiere passend.)",
+                              image_b64=b64)
+    except Exception as e:
+        print(f'ai photo handle error {tg_id}: {e}')
+
+
 # ── AUTO FOLLOW-UP (re-engage silent fans who got an offer but didn't reply) ──
 async def _do_followup_cycle():
     global _tg_priority
     try:
-        min_h = int(get_setting('ai_followup_min_h', '8') or 8)
+        min_h = int(get_setting('ai_followup_min_h', '3') or 3)
         max_h = int(get_setting('ai_followup_max_h', '72') or 72)
-        batch = int(get_setting('ai_followup_batch', '5') or 5)
+        batch = int(get_setting('ai_followup_batch', '8') or 8)
     except Exception:
-        min_h, max_h, batch = 8, 72, 5
+        min_h, max_h, batch = 3, 72, 8
     now = datetime.now()
     hi = (now - timedelta(hours=min_h)).isoformat()   # newer bound (at least min_h old)
     lo = (now - timedelta(hours=max_h)).isoformat()   # older bound (at most max_h old)
