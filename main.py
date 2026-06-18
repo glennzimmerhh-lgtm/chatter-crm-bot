@@ -579,24 +579,28 @@ def _auto_translate_message(tg_id: str, text: str):
         _auto_tx_sem.release()
 
 def _send_auto_online_msg(tg_id: str):
-    """Fire auto-message to subscriber who just came online (run in thread)."""
+    """Message a subscriber who just came online (run in thread).
+    If AI online-outreach is on, send a personalized, chat-aware opener from the engine;
+    otherwise fall back to the fixed auto_online_text."""
     import threading
     def _do():
         try:
-            enabled = get_setting('auto_online_enabled', '0')
-            if enabled != '1':
+            use_ai = (get_setting('ai_online_outreach', '0') == '1'
+                      and get_setting('ai_autosend_enabled', '0') == '1'
+                      and bool(AI_ENGINE_URL) and bool(AI_ENGINE_TOKEN))
+            fixed_text = get_setting('auto_online_text', '').strip()
+            if get_setting('auto_online_enabled', '0') != '1' and not use_ai:
                 return
-            text = get_setting('auto_online_text', '').strip()
-            if not text:
+            if not use_ai and not fixed_text:
                 return
             cooldown_h = int(get_setting('auto_online_cooldown_h', '24') or 24)
             allowed_stages = get_setting('auto_online_stages', '')  # comma-sep or empty=all
 
             with db() as conn:
                 with conn.cursor() as c:
-                    c.execute('SELECT tg_access_hash, funnel_stage, last_auto_msg_at FROM conversations WHERE tg_id=%s', (tg_id,))
+                    c.execute('SELECT tg_access_hash, funnel_stage, last_auto_msg_at, is_muted FROM conversations WHERE tg_id=%s', (tg_id,))
                     row = c.fetchone()
-            if not row:
+            if not row or row.get('is_muted'):
                 return
             # Stage filter
             if allowed_stages:
@@ -605,12 +609,41 @@ def _send_auto_online_msg(tg_id: str):
                     return
             # Cooldown check
             if row['last_auto_msg_at']:
-                from datetime import timezone
-                last = datetime.fromisoformat(row['last_auto_msg_at'])
-                diff_h = (datetime.now() - last).total_seconds() / 3600
-                if diff_h < cooldown_h:
+                try:
+                    last = datetime.fromisoformat(row['last_auto_msg_at'])
+                    if (datetime.now() - last).total_seconds() / 3600 < cooldown_h:
+                        return
+                except Exception:
+                    pass
+
+            sender = 'Auto'
+            text = fixed_text
+            if use_ai:
+                if not _ai_within_hours():
                     return
-            # Send message via Telethon (must run in event loop)
+                try:
+                    import urllib.request as _u, json as _jj
+                    payload = _jj.dumps({'tg_id': tg_id,
+                        'context': 'Der Fan ist GERADE online gekommen — schreib ihn proaktiv, persoenlich '
+                                   'und auf euren bisherigen Chat bezogen an, und lenke charmant Richtung Sale.'}).encode()
+                    req = _u.Request(AI_ENGINE_URL + '/followup', data=payload,
+                                     headers={'Content-Type': 'application/json',
+                                              'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+                    with _u.urlopen(req, timeout=45) as resp:
+                        res = _jj.loads(resp.read())
+                    if res.get('handoff'):
+                        return
+                    ai_text = (res.get('reply') or '').strip()
+                    if ai_text:
+                        text = ai_text
+                        sender = 'KI'
+                except Exception as e:
+                    print(f'AI online-outreach error {tg_id}: {e}')
+                    if not fixed_text:
+                        return
+            if not text:
+                return
+
             import asyncio
             async def _send():
                 if not tg_client or not tg_client.is_connected():
@@ -619,12 +652,19 @@ def _send_auto_online_msg(tg_id: str):
                 peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
                 sent = await tg_client.send_message(peer, text)
                 now = datetime.now().isoformat()
-                save_msg(tg_id, text, 'out', 'Auto', tg_msg_id=sent.id)
+                save_msg(tg_id, text, 'out', sender, tg_msg_id=sent.id)
                 with db() as conn:
                     with conn.cursor() as c:
                         c.execute('UPDATE conversations SET last_auto_msg_at=%s WHERE tg_id=%s', (now, tg_id))
+                try:
+                    await ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id, 'text': text,
+                        'direction': 'out', 'timestamp': now})
+                    if sender == 'KI':
+                        _ai_log(tg_id, 'online_outreach', text[:200], True)
+                except Exception:
+                    pass
             loop = asyncio.get_event_loop()
-            asyncio.run_coroutine_threadsafe(_send(), loop).result(timeout=15)
+            asyncio.run_coroutine_threadsafe(_send(), loop).result(timeout=40)
         except Exception as e:
             print(f'Auto-online-msg error: {e}')
     threading.Thread(target=_do, daemon=True).start()
@@ -1329,18 +1369,51 @@ async def _ai_handle_photo(event, tg_id):
         print(f'ai photo handle error {tg_id}: {e}')
 
 
-# ── AUTO FOLLOW-UP (re-engage silent fans who got an offer but didn't reply) ──
+# ── AUTO FOLLOW-UP (persistent multi-touch re-engagement of silent fans) ──────
+# Escalating drip so we keep trying without spamming: 3h, 1d, 3d, 7d, 14d, then ~monthly.
+_FOLLOWUP_GAPS_H = [3, 24, 72, 168, 336, 720]
+_FOLLOWUP_MAX_TOUCHES = 12   # persistent (~up to a year) but not infinite
+
+def _followup_due(tg_id: str) -> bool:
+    """Decide whether the next re-engagement touch is due for this silent fan."""
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT MAX(timestamp) AS t FROM messages WHERE tg_id=%s AND direction='in'", (tg_id,))
+            row = c.fetchone()
+            last_in = row['t'] if row else None
+            if last_in:
+                c.execute("SELECT COUNT(*) AS n, MAX(ts) AS last FROM ai_action_log "
+                          "WHERE tg_id=%s AND kind='followup' AND ts > %s", (tg_id, str(last_in)))
+            else:
+                c.execute("SELECT COUNT(*) AS n, MAX(ts) AS last FROM ai_action_log "
+                          "WHERE tg_id=%s AND kind='followup'", (tg_id,))
+            r = c.fetchone() or {}
+            cnt = r.get('n') or 0
+            last_fu = r.get('last')
+    except Exception:
+        return False
+    if cnt >= _FOLLOWUP_MAX_TOUCHES:
+        return False
+    gap_h = _FOLLOWUP_GAPS_H[min(cnt, len(_FOLLOWUP_GAPS_H) - 1)]
+    ref = last_fu or last_in
+    if not ref:
+        return True
+    try:
+        ref_dt = datetime.fromisoformat(str(ref))
+    except Exception:
+        return True
+    return (datetime.now() - ref_dt).total_seconds() / 3600 >= gap_h
+
 async def _do_followup_cycle():
     global _tg_priority
     try:
-        min_h = int(get_setting('ai_followup_min_h', '3') or 3)
-        max_h = int(get_setting('ai_followup_max_h', '72') or 72)
         batch = int(get_setting('ai_followup_batch', '8') or 8)
     except Exception:
-        min_h, max_h, batch = 3, 72, 8
+        batch = 8
     now = datetime.now()
-    hi = (now - timedelta(hours=min_h)).isoformat()   # newer bound (at least min_h old)
-    lo = (now - timedelta(hours=max_h)).isoformat()   # older bound (at most max_h old)
+    # candidates: fans whose LAST message is ours (they didn't reply), silent >= 3h.
+    # No upper time limit — old silent fans stay candidates and get the next scheduled touch.
+    cutoff_recent = (now - timedelta(hours=3)).isoformat()
     try:
         with db() as conn, conn.cursor() as c:
             c.execute('''
@@ -1348,29 +1421,23 @@ async def _do_followup_cycle():
                 FROM conversations c
                 JOIN LATERAL (SELECT direction, timestamp FROM messages
                               WHERE tg_id=c.tg_id ORDER BY id DESC LIMIT 1) m ON true
-                WHERE m.direction='out' AND m.timestamp <= %s AND m.timestamp >= %s
-                ORDER BY m.timestamp DESC LIMIT 80
-            ''', (hi, lo))
+                WHERE m.direction='out' AND m.timestamp <= %s
+                ORDER BY m.timestamp DESC LIMIT 400
+            ''', (cutoff_recent,))
             rows = c.fetchall()
     except Exception as e:
         print(f'followup query error: {e}')
         return
-    cutoff = (now - timedelta(hours=24)).isoformat()
     cands = []
+    scanned = 0
     for r in rows:
-        if len(cands) >= batch:
+        if len(cands) >= batch or scanned >= 150:
             break
+        scanned += 1
         if r.get('is_muted'):
             continue
-        try:
-            with db() as conn, conn.cursor() as c:
-                c.execute("SELECT 1 FROM ai_action_log WHERE tg_id=%s AND kind='followup' AND ts>=%s LIMIT 1",
-                          (r['tg_id'], cutoff))
-                if c.fetchone():
-                    continue
-        except Exception:
-            pass
-        cands.append(r)
+        if _followup_due(r['tg_id']):
+            cands.append(r)
 
     loop = asyncio.get_event_loop()
     for r in cands:
@@ -2161,6 +2228,7 @@ class AIControlIn(BaseModel):
     min_gap_sec: Optional[int] = None
     ppv_needs_payment: Optional[bool] = None
     followup_enabled: Optional[bool] = None
+    online_outreach: Optional[bool] = None
 
 @app.get('/ai/control')
 def ai_control_get():
@@ -2170,6 +2238,7 @@ def ai_control_get():
         'min_gap_sec': int(get_setting('ai_min_gap_sec', '20') or 20),
         'ppv_needs_payment': get_setting('ai_ppv_needs_payment', '1') == '1',
         'followup_enabled': get_setting('ai_followup_enabled', '0') == '1',
+        'online_outreach': get_setting('ai_online_outreach', '0') == '1',
         'engine_configured': bool(AI_ENGINE_URL and AI_ENGINE_TOKEN),
     }
 
@@ -2185,6 +2254,8 @@ def ai_control_set(body: AIControlIn):
         set_setting('ai_ppv_needs_payment', '1' if body.ppv_needs_payment else '0')
     if body.followup_enabled is not None:
         set_setting('ai_followup_enabled', '1' if body.followup_enabled else '0')
+    if body.online_outreach is not None:
+        set_setting('ai_online_outreach', '1' if body.online_outreach else '0')
     return {'ok': True}
 
 @app.get('/ai/action-log')
