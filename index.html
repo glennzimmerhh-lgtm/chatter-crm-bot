@@ -3003,8 +3003,17 @@ const SHIFT_DEFS = [
 let salesData = [];
 let crmSalesData = []; // sales from Railway backend
 let crmConvsData = []; // all conversations for new-sub tracking
+let _spendByTg = {};   // tg_id -> total spend (precomputed, O(1) lookup)
+function _rebuildSpendMap() {
+  const m = {};
+  for (const s of (crmSalesData || [])) {
+    if (!s || !s.tg_id) continue;
+    m[s.tg_id] = (m[s.tg_id] || 0) + (parseFloat(s.amount) || 0);
+  }
+  _spendByTg = m;
+}
 window._getCrmSalesData = () => crmSalesData;
-window._setCrmSalesData = (d) => { crmSalesData = d; };
+window._setCrmSalesData = (d) => { crmSalesData = d; _rebuildSpendMap(); };
 let shiftsData = [];
 let revenueChart = null;
 let replyChart = null;
@@ -3208,6 +3217,7 @@ async function loadData() {
   salesData    = results[0].status === 'fulfilled' ? results[0].value : salesData;
   shiftsData   = results[1].status === 'fulfilled' ? results[1].value : shiftsData;
   crmSalesData = results[2].status === 'fulfilled' ? results[2].value : [];
+  _rebuildSpendMap();
   crmConvsData = results[3].status === 'fulfilled' ? results[3].value : [];
 
   // Auto-retry if backend returned empty data (max 3 retries, delay 3s)
@@ -4180,10 +4190,7 @@ if (checkAuth()) {
 
   // ── SPENDING TIERS ───────────────────────────────────────────────
   function getSubscriberSpending(tgId) {
-    if (!crmSalesData || !crmSalesData.length) return 0;
-    return crmSalesData
-      .filter(s => s.tg_id === tgId)
-      .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+    return _spendByTg[tgId] || 0;
   }
 
   function getSpendingTier(amount) {
