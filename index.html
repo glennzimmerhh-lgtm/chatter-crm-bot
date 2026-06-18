@@ -5329,7 +5329,7 @@ if (checkAuth()) {
         if (msg.tg_id === currentChatTgId) loadMsgs();
         break;
       case 'notification': {
-        if (msg.notif_type === 'paypal') { try { showPaypalToast(msg.text || 'Money received'); } catch(e){} }
+        if (msg.notif_type === 'paypal' || msg.notif_type === 'revolut') { try { showPayToast(msg.text || 'Money received', msg.notif_type); } catch(e){} }
         // Only badge for new_sub and sale — NOT messages
         if (msg.notif_type === 'message') break;
         const nb = document.getElementById('notif-badge');
@@ -7049,7 +7049,12 @@ function paypalLogo(size) {
     + '<rect width="28" height="28" rx="7" fill="url(#' + gid + ')"/>'
     + '<path transform="translate(2 2)" fill="#fff" d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 0 0-.607-.541c-.013.076-.026.175-.041.254-.93 4.778-4.005 7.201-9.138 7.201h-2.19a.563.563 0 0 0-.556.479l-1.187 7.527h-.506l-.24 1.516a.56.56 0 0 0 .554.647h3.882c.46 0 .85-.334.922-.788.06-.26.76-4.852.816-5.09a.932.932 0 0 1 .923-.788h.58c3.76 0 6.705-1.528 7.565-5.946.36-1.847.174-3.388-.777-4.471z"/></svg>';
 }
-function showPaypalToast(text) {
+function revolutLogo(size) {
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;display:block;">'
+    + '<rect width="28" height="28" rx="7" fill="#0a0a0a"/>'
+    + '<text x="14" y="20.5" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="18" font-weight="800" fill="#ffffff">R</text></svg>';
+}
+function showPayToast(text, provider) {
   let host = document.getElementById('paypal-toast-host');
   if (!host) {
     host = document.createElement('div');
@@ -7057,9 +7062,14 @@ function showPaypalToast(text) {
     host.style.cssText = 'position:fixed;top:18px;right:18px;z-index:99999;display:flex;flex-direction:column;gap:10px;';
     document.body.appendChild(host);
   }
+  const isRev = provider === 'revolut';
+  const bg = isRev ? '#0a0a0a' : '#003087';
+  const border = isRev ? '#3a3a3a' : '#0070ba';
+  const logo = isRev ? revolutLogo(40) : paypalLogo(40);
+  const label = isRev ? 'Revolut' : 'PayPal';
   const t = document.createElement('div');
-  t.style.cssText = 'background:#003087;color:#fff;border:1px solid #0070ba;border-radius:16px;padding:20px 26px;font-size:17px;font-weight:800;box-shadow:0 12px 40px rgba(0,0,0,.55);display:flex;align-items:center;gap:16px;min-width:330px;max-width:440px;cursor:pointer;transform:scale(.6);opacity:0;transition:transform .28s cubic-bezier(.2,1.35,.4,1),opacity .28s;';
-  t.innerHTML = paypalLogo(40) + '<span>' + text + '</span>';
+  t.style.cssText = 'background:' + bg + ';color:#fff;border:1px solid ' + border + ';border-radius:16px;padding:20px 26px;font-size:17px;font-weight:800;box-shadow:0 12px 40px rgba(0,0,0,.55);display:flex;align-items:center;gap:16px;min-width:330px;max-width:440px;cursor:pointer;transform:scale(.6);opacity:0;transition:transform .28s cubic-bezier(.2,1.35,.4,1),opacity .28s;';
+  t.innerHTML = logo + '<span>' + label + ' — ' + text + '</span>';
   t.onclick = () => t.remove();
   host.appendChild(t);
   requestAnimationFrame(() => { t.style.transform = 'scale(1)'; t.style.opacity = '1'; });
@@ -7117,8 +7127,8 @@ window.loadNotifications = async function loadNotifications() {
   }
 
   // Only Sales & New Subscribers
-  _allNotifs = raw.filter(n => n.type === 'sale' || n.type === 'new_sub' || n.type === 'paypal');
-  _notifDiag('✅ Filter: ' + _allNotifs.length + ' sale/new_sub/paypal von ' + raw.length + ' gesamt');
+  _allNotifs = raw.filter(n => n.type === 'sale' || n.type === 'new_sub' || n.type === 'paypal' || n.type === 'revolut');
+  _notifDiag('✅ Filter: ' + _allNotifs.length + ' sale/new_sub/paypal/revolut von ' + raw.length + ' gesamt');
 
   try {
     renderNotifications();
@@ -7158,22 +7168,24 @@ function renderNotifications() {
   feed.innerHTML = items.map(n => {
     const isSale = n.type === 'sale';
     const isPaypal = n.type === 'paypal';
-    const iconHtml = isPaypal ? paypalLogo(30) : ('<span style="font-size:22px;">' + (isSale ? '💰' : '🆕') + '</span>');
-    const color = isPaypal ? '#0070ba' : (isSale ? '#ffd166' : '#4a9eff');
-    const label = isPaypal ? 'PayPal' : (isSale ? 'Sale' : 'New Subscriber');
+    const isRevolut = n.type === 'revolut';
+    const isPay = isPaypal || isRevolut;
+    const iconHtml = isRevolut ? revolutLogo(30) : (isPaypal ? paypalLogo(30) : ('<span style="font-size:22px;">' + (isSale ? '💰' : '🆕') + '</span>'));
+    const color = isRevolut ? '#c8c8c8' : (isPaypal ? '#0070ba' : (isSale ? '#ffd166' : '#4a9eff'));
+    const label = isRevolut ? 'Revolut' : (isPaypal ? 'PayPal' : (isSale ? 'Sale' : 'New Subscriber'));
     const d = parseTs(n.ts);
     const timeStr = isNaN(d.getTime()) ? '' : d.toLocaleString('de-DE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
     let detail;
-    if (isPaypal) {
-      detail = `<strong style="color:#0070ba">${n.text || 'Money received'}</strong>`;
+    if (isPay) {
+      detail = `<strong style="color:${color}">${n.text || 'Money received'}</strong>`;
     } else if (isSale) {
       detail = `${n.name} · ${n.product || 'Produkt'} · <strong style="color:#ffd166">${parseFloat(n.amount||0).toFixed(0)}€</strong>${n.chatter ? ' · ' + n.chatter : ''}`;
     } else {
       detail = `${n.name} hat subscribed${n.username ? ' <span style="color:var(--text3)">@' + n.username + '</span>' : ''}`;
     }
-    const clickAttr = isPaypal ? '' : `onclick="openConv('${n.tg_id}','${(n.anon_id||'')}');showPage('chat')"`;
+    const clickAttr = isPay ? '' : `onclick="openConv('${n.tg_id}','${(n.anon_id||'')}');showPage('chat')"`;
     return `<div ${clickAttr}
-      style="display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:12px;${isPaypal?'':'cursor:pointer;'}transition:background .15s;"
+      style="display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:12px;${isPay?'':'cursor:pointer;'}transition:background .15s;"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
       <div style="flex-shrink:0;display:flex;align-items:center;">${iconHtml}</div>
       <div style="flex:1;min-width:0;">

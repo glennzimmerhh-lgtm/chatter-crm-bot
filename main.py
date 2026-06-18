@@ -394,9 +394,14 @@ def init_db():
                 currency  TEXT DEFAULT '',
                 sender    TEXT DEFAULT '',
                 subject   TEXT DEFAULT '',
+                provider  TEXT DEFAULT 'paypal',
                 ts        TEXT NOT NULL,
                 seen      INTEGER DEFAULT 0
             )''')
+            try:
+                c.execute("ALTER TABLE paypal_notifications ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'paypal'")
+            except Exception:
+                pass
             # Users table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
                 id            INTEGER PRIMARY KEY,
@@ -991,27 +996,32 @@ def _paypal_imap_check():
         M.login(user, pw)
         M.select(folder)
         since = (datetime.now() - timedelta(days=3)).strftime('%d-%b-%Y')
-        typ, data = M.search(None, '(FROM "paypal" SINCE %s)' % since)
+        typ, data = M.search(None, '(SINCE %s OR FROM "paypal" FROM "revolut")' % since)
         if typ != 'OK' or not data or not data[0]:
             return []
-        for num in data[0].split()[-30:]:
+        # Only treat as an INCOMING payment (avoid card spend / outgoing transfers)
+        recv_kw = ('received', 'erhalten', 'sent you', 'gesendet', 'hat dir',
+                   'paid you', 'a payment from', 'you got', 'eingegangen')
+        for num in data[0].split()[-40:]:
             typ, msgdata = M.fetch(num, '(BODY.PEEK[])')
             if typ != 'OK' or not msgdata or not msgdata[0]:
                 continue
             msg = _email.message_from_bytes(msgdata[0][1])
             subject = _pp_decode(msg.get('Subject'))
-            low = subject.lower()
-            if not any(k in low for k in ('received', 'erhalten', 'sent you', 'gesendet',
-                                          'payment', 'zahlung', 'geld')):
+            frm = _pp_decode(msg.get('From'))
+            body = _pp_body_text(msg)
+            hay = (subject + ' ' + body[:400]).lower()
+            if not any(k in hay for k in recv_kw):
                 continue
+            provider = 'revolut' if 'revolut' in frm.lower() else 'paypal'
             msgid = (msg.get('Message-ID') or msg.get('Message-Id') or '').strip()
             uid = msgid or (subject + '|' + (msg.get('Date') or ''))
-            # Amount: try subject first, then the email body (PayPal puts it in the body)
+            # Amount: try subject first, then the email body
             amount, currency = _pp_parse_amount(subject)
             if not amount:
-                amount, currency = _pp_parse_amount(_pp_body_text(msg))
+                amount, currency = _pp_parse_amount(body)
             new_items.append({'mail_uid': uid, 'amount': amount, 'currency': currency,
-                              'sender': _pp_decode(msg.get('From')), 'subject': subject})
+                              'sender': frm, 'subject': subject, 'provider': provider})
     except Exception as e:
         print(f'PayPal IMAP error: {e}')
     finally:
@@ -1043,23 +1053,25 @@ async def _run_paypal_poller():
                             c.execute('SELECT 1 FROM paypal_notifications WHERE mail_uid=%s', (it['mail_uid'],))
                             if not c.fetchone():
                                 c.execute('''INSERT INTO paypal_notifications
-                                    (mail_uid, amount, currency, sender, subject, ts, seen)
-                                    VALUES (%s,%s,%s,%s,%s,%s,0)''',
+                                    (mail_uid, amount, currency, sender, subject, provider, ts, seen)
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s,0)''',
                                     (it['mail_uid'], it['amount'], it['currency'],
                                      it['sender'][:200], it['subject'][:300],
+                                     it.get('provider', 'paypal'),
                                      datetime.now().isoformat()))
                                 is_new = True
                 except Exception as e:
-                    print(f'PayPal store error: {e}')
+                    print(f'Payment store error: {e}')
                 if is_new:
+                    provider = it.get('provider', 'paypal')
                     amt = (it['amount'] + ' ' + it['currency']).strip() or 'Betrag unbekannt'
                     await ws_manager.broadcast({
-                        'type': 'notification', 'notif_type': 'paypal',
+                        'type': 'notification', 'notif_type': provider,
                         'amount': it['amount'], 'currency': it['currency'],
                         'text': f'Money received ({amt})',
                         'timestamp': datetime.now().isoformat()
                     })
-                    print(f'💰 PayPal received: {amt}')
+                    print(f'💰 {provider} received: {amt}')
         except Exception as e:
             print(f'PayPal poller loop error: {e}')
         await asyncio.sleep(interval)
@@ -2184,18 +2196,18 @@ def get_notifications(limit: int = 80):
                                'name': r['internal_name'] or r['anon_id'],
                                'amount': float(r['amount']), 'product': r['product'] or '',
                                'chatter': r['chatter'] or ''})
-            # PayPal payments (parsed from email)
+            # PayPal / Revolut payments (parsed from email)
             try:
-                c.execute('''SELECT amount, currency, sender, subject, ts
+                c.execute('''SELECT amount, currency, sender, subject, provider, ts
                              FROM paypal_notifications ORDER BY ts DESC LIMIT %s''', (limit,))
                 for r in c.fetchall():
                     amt = (str(r['amount'] or '') + ' ' + str(r['currency'] or '')).strip()
-                    events.append({'type': 'paypal', 'ts': str(r['ts']),
+                    events.append({'type': (r.get('provider') or 'paypal'), 'ts': str(r['ts']),
                                    'amount': r['amount'] or '', 'currency': r['currency'] or '',
                                    'text': f"Money received ({amt or 'Betrag unbekannt'})",
                                    'sender': r['sender'] or ''})
             except Exception as _pe:
-                print(f'paypal notif feed error: {_pe}')
+                print(f'payment notif feed error: {_pe}')
     # Sort all events by timestamp desc, return top N
     events.sort(key=lambda x: x['ts'], reverse=True)
     return events[:limit]
