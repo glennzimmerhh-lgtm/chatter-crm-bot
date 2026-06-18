@@ -1618,6 +1618,7 @@
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-followup" type="checkbox"> Auto-Follow-up (stille Fans nachfassen)</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-online" type="checkbox"> Online-Fans persönlich anschreiben</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-human" type="checkbox"> Menschliches Tippen (Tipp-Anzeige + Pause)</label>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;" title="Antwortet während eines Calls per Text weiter; PPV/Call/Bilder werden während des Calls übersprungen, um Abbrüche zu vermeiden"><input id="ai-pilot-during-calls" type="checkbox"> Auch während Calls antworten (nur Text)</label>
         <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">KI-Reichweite</label>
           <select id="ai-pilot-scope" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 10px;outline:none;">
             <option value="all">Alle Fans</option>
@@ -6523,6 +6524,7 @@ async function loadAIPilot() {
     const ol = document.getElementById('ai-pilot-online'); if (ol) ol.checked = !!d.online_outreach;
     const sc = document.getElementById('ai-pilot-scope'); if (sc) sc.value = d.scope || 'all';
     const hu = document.getElementById('ai-pilot-human'); if (hu) hu.checked = d.human_typing !== false;
+    const dc = document.getElementById('ai-pilot-during-calls'); if (dc) dc.checked = d.during_calls !== false;
     const w = document.getElementById('ai-pilot-warn'); if (w) w.style.display = d.engine_configured ? 'none' : 'block';
     renderAIPilot();
   } catch (e) {}
@@ -6544,6 +6546,7 @@ async function saveAIPilot() {
     online_outreach: document.getElementById('ai-pilot-online').checked,
     scope: document.getElementById('ai-pilot-scope').value,
     human_typing: document.getElementById('ai-pilot-human').checked,
+    during_calls: document.getElementById('ai-pilot-during-calls').checked,
   };
   try {
     await fetch('/api/ai/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

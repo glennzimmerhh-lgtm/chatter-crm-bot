@@ -1244,8 +1244,9 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
         return
     if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
         return
-    if active_calls:
-        return  # never compete with a live call — it would lag/drop it
+    in_call = bool(active_calls)
+    if in_call and get_setting('ai_during_calls', '1') != '1':
+        return  # call-protection off-switch: pause AI entirely during a live call
     if not _ai_allowed(tg_id):
         return  # test scope: only act for whitelisted fans
     if not _ai_within_hours():
@@ -1321,6 +1322,10 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
             tool = act.get('tool')
             args = act.get('args') or {}
             try:
+                if in_call and tool in ('send_ppv', 'start_call'):
+                    # heavy media/MTProto ops would drop the live call — skip during a call
+                    _ai_log(tg_id, str(tool) + '_skipped_call', 'waehrend Call uebersprungen', False)
+                    continue
                 if tool == 'log_sale' and not image_b64:
                     # hard guard: never log a sale without a fresh payment screenshot in THIS turn
                     _ai_log(tg_id, 'log_sale_blocked', 'kein frischer Zahlungs-Screenshot', False)
@@ -2295,6 +2300,7 @@ class AIControlIn(BaseModel):
     online_outreach: Optional[bool] = None
     scope: Optional[str] = None            # 'all' or 'test'
     human_typing: Optional[bool] = None
+    during_calls: Optional[bool] = None
 
 @app.get('/ai/control')
 def ai_control_get():
@@ -2307,6 +2313,7 @@ def ai_control_get():
         'online_outreach': get_setting('ai_online_outreach', '0') == '1',
         'scope': get_setting('ai_scope', 'all'),
         'human_typing': get_setting('ai_human_typing', '1') == '1',
+        'during_calls': get_setting('ai_during_calls', '1') == '1',
         'test_count': len(_ai_test_set()),
         'engine_configured': bool(AI_ENGINE_URL and AI_ENGINE_TOKEN),
     }
@@ -2329,6 +2336,8 @@ def ai_control_set(body: AIControlIn):
         set_setting('ai_scope', 'test' if body.scope == 'test' else 'all')
     if body.human_typing is not None:
         set_setting('ai_human_typing', '1' if body.human_typing else '0')
+    if body.during_calls is not None:
+        set_setting('ai_during_calls', '1' if body.during_calls else '0')
     return {'ok': True}
 
 # Per-fan AI toggle (for test scope) — add/remove a fan from the whitelist
