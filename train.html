@@ -136,6 +136,18 @@
     </div>
   </div>
 
+  <!-- Zahlungsbedingungen -->
+  <div class="card">
+    <h2>💳 Zahlungsbedingungen</h2>
+    <div class="sub" style="margin:0 0 8px;">Feste Zahlungsregeln, die die AI immer kennt und befolgt. Z. B. „Zahlung immer zuerst, dann Content", „PayPal nur Freunde &amp; Familie", „keine Rückerstattungen", „Screenshot als Nachweis".</div>
+    <textarea id="payterms" style="min-height:110px;" placeholder="Zahlung immer zuerst, dann Content.&#10;PayPal nur als Freunde & Familie senden.&#10;Keine Rückerstattungen.&#10;Nach Zahlung kurz Screenshot schicken."></textarea>
+    <div class="row" style="margin-top:10px;">
+      <button class="sec" onclick="loadPayTerms()">Laden</button>
+      <button onclick="savePayTerms()">Zahlungsbedingungen speichern</button>
+      <span id="payMsg" class="msg dim"></span>
+    </div>
+  </div>
+
   <!-- Aus Gewinner-Chats lernen -->
   <div class="card">
     <h2>🏆 Aus Gewinner-Chats lernen</h2>
@@ -314,6 +326,14 @@ async function savePriceList(){
   try { const r=await fetch(base()+'/price-list',{method:'POST',headers:jhdr(),body:JSON.stringify({price_list:$('pricelist').value})}); if(!r.ok) throw new Error('HTTP '+r.status); $('priceMsg').textContent='gespeichert ✓ — Preise sind jetzt verbindlich'; $('priceMsg').className='msg ok'; }
   catch(e){ $('priceMsg').textContent='Fehler: '+e.message; $('priceMsg').className='msg err'; }
 }
+async function loadPayTerms(){
+  try { const r=await fetch(base()+'/payment-terms',{headers:hdr()}); const d=await r.json(); $('payterms').value=d.payment_terms||''; $('payMsg').textContent='geladen'; $('payMsg').className='msg dim'; }
+  catch(e){ $('payMsg').textContent='Fehler: '+e.message; $('payMsg').className='msg err'; }
+}
+async function savePayTerms(){
+  try { const r=await fetch(base()+'/payment-terms',{method:'POST',headers:jhdr(),body:JSON.stringify({payment_terms:$('payterms').value})}); if(!r.ok) throw new Error('HTTP '+r.status); $('payMsg').textContent='gespeichert ✓ — die AI kennt die Bedingungen jetzt'; $('payMsg').className='msg ok'; }
+  catch(e){ $('payMsg').textContent='Fehler: '+e.message; $('payMsg').className='msg err'; }
+}
 async function mineWinning(){
   $('mineBtn').disabled=true; $('mineMsg').textContent='werte aus…'; $('mineMsg').className='msg dim';
   try { const r=await fetch(base()+'/mine-winning',{method:'POST',headers:hdr()}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
@@ -405,7 +425,7 @@ if($('chatIn')){
 }
 
 // Auto-load persona + knowledge if connection is already set (und Admin)
-if (!window.__AI_BLOCKED__ && $('url') && $('url').value && $('token').value) { loadConfig(); loadKnowledge(); loadPriceList(); }
+if (!window.__AI_BLOCKED__ && $('url') && $('url').value && $('token').value) { loadConfig(); loadKnowledge(); loadPriceList(); loadPayTerms(); }
 </script>
 </body>
 </html>
