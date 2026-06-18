@@ -1617,6 +1617,7 @@
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-ppvpay" type="checkbox"> PPV nur nach bestätigter Zahlung</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-followup" type="checkbox"> Auto-Follow-up (stille Fans nachfassen)</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-online" type="checkbox"> Online-Fans persönlich anschreiben</label>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;" title="Scannt laufend ALLE Chats und geht aktiv Verkaufschancen an: warme Leads ohne Antwort, Kaufsignale, abgekühlte Whales"><input id="ai-pilot-hunt" type="checkbox"> 🎯 Chancen-Jagd (Sales-Chancen aktiv suchen)</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-human" type="checkbox"> Menschliches Tippen (Tipp-Anzeige + Pause)</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;" title="Antwortet während eines Calls per Text weiter; PPV/Call/Bilder werden während des Calls übersprungen, um Abbrüche zu vermeiden"><input id="ai-pilot-during-calls" type="checkbox"> Auch während Calls antworten (nur Text)</label>
         <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">KI-Reichweite</label>
@@ -6522,6 +6523,7 @@ async function loadAIPilot() {
     const p = document.getElementById('ai-pilot-ppvpay'); if (p) p.checked = d.ppv_needs_payment !== false;
     const fu = document.getElementById('ai-pilot-followup'); if (fu) fu.checked = !!d.followup_enabled;
     const ol = document.getElementById('ai-pilot-online'); if (ol) ol.checked = !!d.online_outreach;
+    const ht = document.getElementById('ai-pilot-hunt'); if (ht) ht.checked = !!d.hunt_enabled;
     const sc = document.getElementById('ai-pilot-scope'); if (sc) sc.value = d.scope || 'all';
     const hu = document.getElementById('ai-pilot-human'); if (hu) hu.checked = d.human_typing !== false;
     const dc = document.getElementById('ai-pilot-during-calls'); if (dc) dc.checked = d.during_calls !== false;
@@ -6544,6 +6546,7 @@ async function saveAIPilot() {
     ppv_needs_payment: document.getElementById('ai-pilot-ppvpay').checked,
     followup_enabled: document.getElementById('ai-pilot-followup').checked,
     online_outreach: document.getElementById('ai-pilot-online').checked,
+    hunt_enabled: document.getElementById('ai-pilot-hunt').checked,
     scope: document.getElementById('ai-pilot-scope').value,
     human_typing: document.getElementById('ai-pilot-human').checked,
     during_calls: document.getElementById('ai-pilot-during-calls').checked,
