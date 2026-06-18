@@ -156,6 +156,11 @@
       <button onclick="mineWinning()" id="mineBtn">Gewinner-Chats auswerten</button>
       <span id="mineMsg" class="msg dim"></span>
     </div>
+    <div class="sub" style="margin:14px 0 8px;">Einwand-Bibliothek: legt bewährte Konter zu den häufigsten Einwänden („zu teuer", „bist du echt?", „zahl ich und du ghostest mich?") als Gold-Beispiele an. Danach unter „Antwort vorgeben" verfeinerbar.</div>
+    <div class="row">
+      <button class="sec" onclick="seedObjections()" id="seedBtn">Einwand-Bibliothek anlegen</button>
+      <span id="seedMsg" class="msg dim"></span>
+    </div>
   </div>
 
   <!-- Wissen & Regeln -->
@@ -333,6 +338,13 @@ async function loadPayTerms(){
 async function savePayTerms(){
   try { const r=await fetch(base()+'/payment-terms',{method:'POST',headers:jhdr(),body:JSON.stringify({payment_terms:$('payterms').value})}); if(!r.ok) throw new Error('HTTP '+r.status); $('payMsg').textContent='gespeichert ✓ — die AI kennt die Bedingungen jetzt'; $('payMsg').className='msg ok'; }
   catch(e){ $('payMsg').textContent='Fehler: '+e.message; $('payMsg').className='msg err'; }
+}
+async function seedObjections(){
+  $('seedBtn').disabled=true; $('seedMsg').textContent='lege an…'; $('seedMsg').className='msg dim';
+  try { const r=await fetch(base()+'/seed-objections',{method:'POST',headers:hdr()}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
+    $('seedMsg').textContent = d.skipped ? (d.note||'schon angelegt') : ('fertig ✓ '+(d.seeded||0)+' Einwand-Antworten angelegt'); $('seedMsg').className='msg ok';
+  } catch(e){ $('seedMsg').textContent='Fehler: '+e.message; $('seedMsg').className='msg err'; }
+  $('seedBtn').disabled=false;
 }
 async function mineWinning(){
   $('mineBtn').disabled=true; $('mineMsg').textContent='werte aus…'; $('mineMsg').className='msg dim';

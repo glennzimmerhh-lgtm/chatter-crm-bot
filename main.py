@@ -844,6 +844,7 @@ async def start_userbot():
                 # Autonomous AI chatter — only on real text; master-switched, defaults OFF
                 if event.text:
                     asyncio.create_task(_ai_autorespond(tg_id, text))
+                    asyncio.create_task(_ai_refresh_memory_bg(tg_id))
 
             @tg_client.on(events.NewMessage(outgoing=True, func=lambda e: e.is_private))
             async def on_outgoing_dm(event):
@@ -1260,6 +1261,119 @@ async def _ai_autorespond(tg_id: str, incoming_text: str):
         pass
 
 
+async def _ai_refresh_memory_bg(tg_id: str):
+    """Fire-and-forget: keep the engine's per-fan memory current. Self-throttles engine-side."""
+    if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+        return
+    loop = asyncio.get_event_loop()
+
+    def _call():
+        req = _ureq_ai.Request(AI_ENGINE_URL + '/refresh-memory',
+                               data=_json_ai.dumps({'tg_id': tg_id}).encode(),
+                               headers={'Content-Type': 'application/json',
+                                        'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+        with _ureq_ai.urlopen(req, timeout=40) as r:
+            return r.read()
+    try:
+        await loop.run_in_executor(None, _call)
+    except Exception as e:
+        print(f'memory refresh error {tg_id}: {e}')
+
+
+# ── AUTO FOLLOW-UP (re-engage silent fans who got an offer but didn't reply) ──
+async def _do_followup_cycle():
+    global _tg_priority
+    try:
+        min_h = int(get_setting('ai_followup_min_h', '8') or 8)
+        max_h = int(get_setting('ai_followup_max_h', '72') or 72)
+        batch = int(get_setting('ai_followup_batch', '5') or 5)
+    except Exception:
+        min_h, max_h, batch = 8, 72, 5
+    now = datetime.now()
+    hi = (now - timedelta(hours=min_h)).isoformat()   # newer bound (at least min_h old)
+    lo = (now - timedelta(hours=max_h)).isoformat()   # older bound (at most max_h old)
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('''
+                SELECT c.tg_id, c.tg_access_hash, c.is_muted
+                FROM conversations c
+                JOIN LATERAL (SELECT direction, timestamp FROM messages
+                              WHERE tg_id=c.tg_id ORDER BY id DESC LIMIT 1) m ON true
+                WHERE m.direction='out' AND m.timestamp <= %s AND m.timestamp >= %s
+                ORDER BY m.timestamp DESC LIMIT 80
+            ''', (hi, lo))
+            rows = c.fetchall()
+    except Exception as e:
+        print(f'followup query error: {e}')
+        return
+    cutoff = (now - timedelta(hours=24)).isoformat()
+    cands = []
+    for r in rows:
+        if len(cands) >= batch:
+            break
+        if r.get('is_muted'):
+            continue
+        try:
+            with db() as conn, conn.cursor() as c:
+                c.execute("SELECT 1 FROM ai_action_log WHERE tg_id=%s AND kind='followup' AND ts>=%s LIMIT 1",
+                          (r['tg_id'], cutoff))
+                if c.fetchone():
+                    continue
+        except Exception:
+            pass
+        cands.append(r)
+
+    loop = asyncio.get_event_loop()
+    for r in cands:
+        tg_id = r['tg_id']
+        _ai_last_action[tg_id] = datetime.now()
+        payload = {'tg_id': tg_id}
+
+        def _call_fu(p=payload):
+            req = _ureq_ai.Request(AI_ENGINE_URL + '/followup', data=_json_ai.dumps(p).encode(),
+                                   headers={'Content-Type': 'application/json',
+                                            'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+            with _ureq_ai.urlopen(req, timeout=45) as resp:
+                return _json_ai.loads(resp.read())
+        try:
+            res = await loop.run_in_executor(None, _call_fu)
+        except Exception as e:
+            print(f'followup engine error {tg_id}: {e}')
+            continue
+        reply = (res.get('reply') or '').strip()
+        if res.get('handoff') or not reply:
+            _ai_log(tg_id, 'followup_skip', 'handoff/empty', False)
+            continue
+        try:
+            ah = int(r['tg_access_hash']) if r['tg_access_hash'] else 0
+            peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+            _tg_priority += 1
+            try:
+                sent = await tg_client.send_message(peer, reply)
+                await loop.run_in_executor(None, lambda: save_msg(tg_id, reply, 'out', 'KI-Followup', sent.id))
+                await ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id, 'text': reply,
+                    'direction': 'out', 'timestamp': datetime.now().isoformat()})
+                _ai_log(tg_id, 'followup', reply[:200], True)
+            finally:
+                _tg_priority = max(0, _tg_priority - 1)
+        except Exception as e:
+            print(f'followup send error {tg_id}: {e}')
+            _ai_log(tg_id, 'followup_error', str(e)[:200], False)
+        await asyncio.sleep(4)
+
+async def _run_ai_followups():
+    await asyncio.sleep(40)
+    while True:
+        try:
+            if (get_setting('ai_autosend_enabled', '0') == '1'
+                    and get_setting('ai_followup_enabled', '0') == '1'
+                    and AI_ENGINE_URL and AI_ENGINE_TOKEN and _ai_within_hours()):
+                await _do_followup_cycle()
+        except Exception as e:
+            print(f'followup loop error: {e}')
+        await asyncio.sleep(900)   # every 15 min
+
+
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1272,6 +1386,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(start_userbot())
     asyncio.create_task(_run_scheduled_broadcasts())
     asyncio.create_task(_run_paypal_poller())
+    asyncio.create_task(_run_ai_followups())
     # PyTgCalls is now initialized inside start_userbot() on every connect cycle
     # via _reinit_calls() — no separate _init_calls task needed.
     yield
@@ -1996,6 +2111,7 @@ class AIControlIn(BaseModel):
     work_hours: Optional[str] = None        # "9-23" or "" for always
     min_gap_sec: Optional[int] = None
     ppv_needs_payment: Optional[bool] = None
+    followup_enabled: Optional[bool] = None
 
 @app.get('/ai/control')
 def ai_control_get():
@@ -2004,6 +2120,7 @@ def ai_control_get():
         'work_hours': get_setting('ai_work_hours', ''),
         'min_gap_sec': int(get_setting('ai_min_gap_sec', '20') or 20),
         'ppv_needs_payment': get_setting('ai_ppv_needs_payment', '1') == '1',
+        'followup_enabled': get_setting('ai_followup_enabled', '0') == '1',
         'engine_configured': bool(AI_ENGINE_URL and AI_ENGINE_TOKEN),
     }
 
@@ -2017,6 +2134,8 @@ def ai_control_set(body: AIControlIn):
         set_setting('ai_min_gap_sec', str(max(0, int(body.min_gap_sec))))
     if body.ppv_needs_payment is not None:
         set_setting('ai_ppv_needs_payment', '1' if body.ppv_needs_payment else '0')
+    if body.followup_enabled is not None:
+        set_setting('ai_followup_enabled', '1' if body.followup_enabled else '0')
     return {'ok': True}
 
 @app.get('/ai/action-log')
