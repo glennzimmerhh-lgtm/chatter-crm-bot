@@ -1321,7 +1321,10 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
             tool = act.get('tool')
             args = act.get('args') or {}
             try:
-                if tool == 'log_sale':
+                if tool == 'log_sale' and not image_b64:
+                    # hard guard: never log a sale without a fresh payment screenshot in THIS turn
+                    _ai_log(tg_id, 'log_sale_blocked', 'kein frischer Zahlungs-Screenshot', False)
+                elif tool == 'log_sale':
                     try:
                         amount = float(args.get('amount') or 0)
                     except Exception:
