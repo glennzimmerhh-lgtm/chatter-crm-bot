@@ -4260,7 +4260,18 @@ if (checkAuth()) {
   setTimeout(loadRadar, 3000);
   setInterval(loadRadar, 60000);
 
+  // Debounce: coalesce rapid WS-triggered rebuilds into one render (~smoother, keeps scroll)
+  let _convRenderPending = null, _convRenderTimer = null;
   function renderConvList(convs) {
+    _convRenderPending = convs;
+    if (_convRenderTimer) return;
+    _convRenderTimer = setTimeout(() => {
+      _convRenderTimer = null;
+      const data = _convRenderPending; _convRenderPending = null;
+      try { _doRenderConvList(data); } catch (e) { console.error('renderConvList', e); }
+    }, 120);
+  }
+  function _doRenderConvList(convs) {
     const el = document.getElementById('conv-list-body');
     if (!convs.length) {
       el.innerHTML = '<div class="chat-empty" style="height:200px;">No conversations</div>';
