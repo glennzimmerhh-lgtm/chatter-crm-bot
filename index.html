@@ -2103,6 +2103,8 @@
           <button id="fake-call-btn" onclick="openFakeCallModal()" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:8px;color:#22c55e;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;gap:5px;align-items:center;white-space:nowrap;" title="Start pre-recorded call">
             📞 Start Call
           </button>
+          <!-- KI-Coach Button (admin only) — feedback on this chat -->
+          <button id="ai-coach-btn" class="admin-only" onclick="openCoach()" style="background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.4);border-radius:8px;color:#a78bfa;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" title="KI-Feedback zu diesem Chat">🔍 KI-Coach</button>
         </div>
         <!-- Active Call Banner -->
         <div id="active-call-bar" style="display:none;padding:10px 16px;background:rgba(34,197,94,0.12);border-bottom:2px solid #22c55e;">
@@ -6464,6 +6466,55 @@ async function saveAIPilot() {
   } catch (e) { alert('Fehler: ' + e.message); }
 }
 
+// ── KI-Coach (per-chat feedback + discussion, admin only) ──
+let _coachHistory = [];
+function coachBubble(role, text) {
+  const log = document.getElementById('coach-log'); if (!log) return null;
+  const d = document.createElement('div');
+  const me = role === 'user';
+  d.style.cssText = 'max-width:85%;padding:10px 13px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap;' + (me ? 'align-self:flex-end;background:#3b6cf6;color:#fff;' : 'align-self:flex-start;background:var(--bg3);color:var(--text);');
+  d.textContent = text;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  return d;
+}
+function _coachTg() {
+  if (typeof currentChatTgId !== 'undefined' && currentChatTgId) return currentChatTgId;
+  return (window._getCurrentTgId && window._getCurrentTgId()) || null;
+}
+async function openCoach() {
+  const tg = _coachTg();
+  if (!tg) { alert('Öffne zuerst einen Chat.'); return; }
+  document.getElementById('coach-name').textContent = (document.getElementById('msg-conv-name')?.textContent) || tg;
+  document.getElementById('coach-log').innerHTML = '';
+  _coachHistory = [];
+  document.getElementById('coach-overlay').style.display = 'flex';
+  const loading = coachBubble('assistant', 'Analysiere den Chat…');
+  try {
+    const r = await fetch('/api/ai/coach', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tg, messages: [] }) });
+    const d = await r.json();
+    if (loading) loading.remove();
+    const reply = d.reply || (d.detail ? 'Fehler: ' + d.detail : '(keine Antwort)');
+    coachBubble('assistant', reply);
+    _coachHistory = [{ role: 'assistant', content: reply }];
+  } catch (e) { if (loading) loading.remove(); coachBubble('assistant', 'Fehler: ' + e.message); }
+}
+function closeCoach() { const o = document.getElementById('coach-overlay'); if (o) o.style.display = 'none'; }
+async function coachSend() {
+  const inp = document.getElementById('coach-input'); const t = (inp.value || '').trim(); if (!t) return;
+  const tg = _coachTg(); if (!tg) return;
+  inp.value = ''; coachBubble('user', t); _coachHistory.push({ role: 'user', content: t });
+  const btn = document.getElementById('coach-send'); if (btn) btn.disabled = true;
+  const loading = coachBubble('assistant', '…');
+  try {
+    const r = await fetch('/api/ai/coach', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tg, messages: _coachHistory }) });
+    const d = await r.json();
+    if (loading) loading.remove();
+    const reply = d.reply || (d.detail ? 'Fehler: ' + d.detail : '(keine Antwort)');
+    coachBubble('assistant', reply); _coachHistory.push({ role: 'assistant', content: reply });
+  } catch (e) { if (loading) loading.remove(); coachBubble('assistant', 'Fehler: ' + e.message); }
+  if (btn) btn.disabled = false;
+}
+
 let _bcSending = false; // guard against double-click / double-send
 
 async function startBroadcast() {
@@ -6606,6 +6657,21 @@ window.showPage = function(page) {
   if (page === 'broadcast') { loadScheduledBroadcasts(); loadBroadcastExcludeLists(); loadAIPilot(); }
 };
 </script>
+
+<!-- KI-COACH MODAL (admin) -->
+<div id="coach-overlay" onclick="if(event.target===this)closeCoach()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:650;align-items:center;justify-content:center;">
+  <div style="background:var(--sidebar,#15151f);border:1px solid rgba(255,255,255,.12);border-radius:16px;width:580px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;">
+      <strong style="font-size:15px;">🔍 KI-Coach — <span id="coach-name"></span></strong>
+      <button onclick="closeCoach()" style="background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div id="coach-log" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px;min-height:200px;"></div>
+    <div style="padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:8px;">
+      <input id="coach-input" placeholder="Deine Meinung / Rückfrage an die KI…" onkeydown="if(event.key==='Enter'){event.preventDefault();coachSend();}" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:13px;padding:10px 12px;outline:none;">
+      <button onclick="coachSend()" id="coach-send" style="background:#a78bfa;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;">Senden</button>
+    </div>
+  </div>
+</div>
 
 <!-- MEDIA GALLERY MODAL -->
 <div id="media-gallery-overlay" onclick="if(event.target===this)closeMediaGallery()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:600;align-items:center;justify-content:center;">

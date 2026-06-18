@@ -2145,6 +2145,29 @@ def ai_action_log_get(limit: int = 100):
             c.execute('SELECT tg_id, kind, detail, executed, ts FROM ai_action_log ORDER BY id DESC LIMIT %s', (limit,))
             return c.fetchall()
 
+# Per-chat coach (admin): proxy to the engine so the token stays server-side
+class CoachProxyIn(BaseModel):
+    tg_id: str
+    messages: list = []
+
+@app.post('/ai/coach')
+async def ai_coach(body: CoachProxyIn):
+    if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+        raise HTTPException(503, 'AI-Engine nicht konfiguriert (AI_ENGINE_URL / AI_ENGINE_TOKEN fehlen)')
+    loop = asyncio.get_event_loop()
+    payload = {'tg_id': body.tg_id, 'messages': body.messages}
+
+    def _call():
+        req = _ureq_ai.Request(AI_ENGINE_URL + '/coach', data=_json_ai.dumps(payload).encode(),
+                               headers={'Content-Type': 'application/json',
+                                        'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+        with _ureq_ai.urlopen(req, timeout=60) as r:
+            return _json_ai.loads(r.read())
+    try:
+        return await loop.run_in_executor(None, _call)
+    except Exception as e:
+        raise HTTPException(502, f'Engine-Fehler: {e}')
+
 
 class TranslateIn(BaseModel):
     text: str

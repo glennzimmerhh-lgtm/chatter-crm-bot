@@ -124,6 +124,18 @@
     </div>
   </div>
 
+  <!-- Sales-Fokus -->
+  <div class="card">
+    <h2>🎯 Sales-Fokus (wie hart sie verkauft)</h2>
+    <div class="sub" style="margin:0 0 8px;">Standard ist „Sales Warrior": max. ein Satz Smalltalk, dann immer Richtung Verkauf lenken — kein endloses Hin-und-her. Leer lassen = harter Standard. Wenn dir das zu aggressiv ist, schreib hier deine eigene Anweisung (z.B. „erst 2–3 Nachrichten Vertrauen, dann verkaufen").</div>
+    <textarea id="salesdrive" style="min-height:90px;" placeholder="Leer lassen = harter Sales-Warrior-Standard. Oder eigene Vorgabe…"></textarea>
+    <div class="row" style="margin-top:10px;">
+      <button class="sec" onclick="loadSalesDrive()">Laden</button>
+      <button onclick="saveSalesDrive()">Sales-Fokus speichern</button>
+      <span id="sdMsg" class="msg dim"></span>
+    </div>
+  </div>
+
   <!-- Preisliste -->
   <div class="card">
     <h2>💶 Preisliste (verbindlich)</h2>
@@ -161,6 +173,17 @@
       <button class="sec" onclick="seedObjections()" id="seedBtn">Einwand-Bibliothek anlegen</button>
       <span id="seedMsg" class="msg dim"></span>
     </div>
+  </div>
+
+  <!-- Chat-QA Coach -->
+  <div class="card">
+    <h2>🔍 Heutige Chats prüfen (Coaching)</h2>
+    <div class="sub" style="margin:0 0 8px;">Die KI liest die heutigen Chats und zeigt dir, wo ein Chatter verkackt hat — verpasste Kaufsignale, kein Pitch, kein Close, zu pushy/langsam. Mit Score und konkretem Verbesserungstipp.</div>
+    <div class="row">
+      <button onclick="reviewToday()" id="reviewBtn">Heutige Chats analysieren</button>
+      <span id="reviewMsg" class="msg dim"></span>
+    </div>
+    <div id="reviewOut" style="margin-top:12px;"></div>
   </div>
 
   <!-- Wissen & Regeln -->
@@ -331,6 +354,14 @@ async function savePriceList(){
   try { const r=await fetch(base()+'/price-list',{method:'POST',headers:jhdr(),body:JSON.stringify({price_list:$('pricelist').value})}); if(!r.ok) throw new Error('HTTP '+r.status); $('priceMsg').textContent='gespeichert ✓ — Preise sind jetzt verbindlich'; $('priceMsg').className='msg ok'; }
   catch(e){ $('priceMsg').textContent='Fehler: '+e.message; $('priceMsg').className='msg err'; }
 }
+async function loadSalesDrive(){
+  try { const r=await fetch(base()+'/sales-drive',{headers:hdr()}); const d=await r.json(); $('salesdrive').value=(d.sales_drive&&d.sales_drive!==d.default)?d.sales_drive:''; $('sdMsg').textContent='geladen'; $('sdMsg').className='msg dim'; }
+  catch(e){ $('sdMsg').textContent='Fehler: '+e.message; $('sdMsg').className='msg err'; }
+}
+async function saveSalesDrive(){
+  try { const v=$('salesdrive').value.trim(); const r=await fetch(base()+'/sales-drive',{method:'POST',headers:jhdr(),body:JSON.stringify({sales_drive:v})}); if(!r.ok) throw new Error('HTTP '+r.status); $('sdMsg').textContent=v?'gespeichert ✓':'auf harten Standard gesetzt ✓'; $('sdMsg').className='msg ok'; }
+  catch(e){ $('sdMsg').textContent='Fehler: '+e.message; $('sdMsg').className='msg err'; }
+}
 async function loadPayTerms(){
   try { const r=await fetch(base()+'/payment-terms',{headers:hdr()}); const d=await r.json(); $('payterms').value=d.payment_terms||''; $('payMsg').textContent='geladen'; $('payMsg').className='msg dim'; }
   catch(e){ $('payMsg').textContent='Fehler: '+e.message; $('payMsg').className='msg err'; }
@@ -338,6 +369,26 @@ async function loadPayTerms(){
 async function savePayTerms(){
   try { const r=await fetch(base()+'/payment-terms',{method:'POST',headers:jhdr(),body:JSON.stringify({payment_terms:$('payterms').value})}); if(!r.ok) throw new Error('HTTP '+r.status); $('payMsg').textContent='gespeichert ✓ — die AI kennt die Bedingungen jetzt'; $('payMsg').className='msg ok'; }
   catch(e){ $('payMsg').textContent='Fehler: '+e.message; $('payMsg').className='msg err'; }
+}
+async function reviewToday(){
+  $('reviewBtn').disabled=true; $('reviewMsg').textContent='analysiere…'; $('reviewMsg').className='msg dim'; $('reviewOut').innerHTML='';
+  try {
+    const r=await fetch(base()+'/review-today',{method:'POST',headers:hdr()}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
+    $('reviewMsg').textContent=(d.reviewed||0)+' Chats geprüft · '+(d.flagged||0)+' auffällig'; $('reviewMsg').className='msg ok';
+    const items=d.items||[];
+    if(!items.length){ $('reviewOut').innerHTML='<span class="dim" style="font-size:13px;">Keine auffälligen Chats heute 👌</span>'; }
+    else { $('reviewOut').innerHTML=items.map(function(it){
+      var col=it.score<=4?'#ff5c7a':(it.score<=6?'#ffd166':'#00d4aa');
+      var issues=(it.issues||[]).map(function(x){return '<li>'+escapeHtml(x)+'</li>';}).join('');
+      return '<div class="pill" style="margin-bottom:8px;text-align:left;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;"><strong>'+escapeHtml(it.name||it.tg_id)+'</strong>'
+        +'<span style="font-weight:800;color:'+col+'">Score '+it.score+'/10</span></div>'
+        +'<div class="dim" style="font-size:12px;margin:2px 0 6px;">Chatter: '+escapeHtml(it.chatter||'?')+(it.sold_today?' · ✅ heute verkauft':' · ❌ kein Verkauf')+'</div>'
+        +(issues?'<ul style="margin:0 0 6px 16px;font-size:13px;">'+issues+'</ul>':'')
+        +(it.fix?'<div style="font-size:13px;"><strong>Besser:</strong> '+escapeHtml(it.fix)+'</div>':'')+'</div>';
+    }).join(''); }
+  } catch(e){ $('reviewMsg').textContent='Fehler: '+e.message; $('reviewMsg').className='msg err'; }
+  $('reviewBtn').disabled=false;
 }
 async function seedObjections(){
   $('seedBtn').disabled=true; $('seedMsg').textContent='lege an…'; $('seedMsg').className='msg dim';
@@ -437,7 +488,7 @@ if($('chatIn')){
 }
 
 // Auto-load persona + knowledge if connection is already set (und Admin)
-if (!window.__AI_BLOCKED__ && $('url') && $('url').value && $('token').value) { loadConfig(); loadKnowledge(); loadPriceList(); loadPayTerms(); }
+if (!window.__AI_BLOCKED__ && $('url') && $('url').value && $('token').value) { loadConfig(); loadKnowledge(); loadPriceList(); loadPayTerms(); loadSalesDrive(); }
 </script>
 </body>
 </html>
