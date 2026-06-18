@@ -2057,6 +2057,14 @@
           <div style="font-size:10px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">🟢 Jetzt online</div>
           <div id="online-list" style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto;"></div>
         </div>
+        <!-- Follow-up Radar -->
+        <div id="radar-panel" style="display:none;padding:8px 12px;background:rgba(255,92,122,0.10);border-bottom:1px solid rgba(255,92,122,0.25);">
+          <div onclick="toggleRadarList()" style="font-size:11px;font-weight:800;color:#ff5c7a;display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+            <span>🔴 <span id="radar-count">0</span> Chats brauchen dich</span>
+            <span id="radar-toggle" style="font-size:10px;color:var(--text3);font-weight:600;">anzeigen ▾</span>
+          </div>
+          <div id="radar-list" style="display:none;flex-direction:column;gap:3px;margin-top:6px;max-height:180px;overflow-y:auto;"></div>
+        </div>
         <div class="conv-search" style="display:flex;align-items:center;gap:6px;">
           <input type="text" placeholder="Suchen..." id="conv-search-input" oninput="filterConvs(this.value)" style="flex:1;">
           <button onclick="openListsModal()" title="Listen verwalten" style="background:none;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;color:#666;cursor:pointer;font-size:13px;flex-shrink:0;" >📋</button>
@@ -4203,6 +4211,48 @@ if (checkAuth()) {
     renderConvList(applyConvFilters(allConvs));
   }
 
+  // ── Follow-up Radar (helps chatters: which chats need attention) ──
+  window._radarMap = {};
+  let _radarItems = [];
+  let _radarOpen = false;
+  function _escRadar(s){ return (s||'').replace(/[&<>"']/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+  function _fmtAge(mins){ if(mins<60) return mins+' Min'; if(mins<1440) return Math.floor(mins/60)+' Std'; return Math.floor(mins/1440)+' Tg'; }
+  async function loadRadar() {
+    try {
+      const items = await chatApiGet('/followup-radar');
+      _radarItems = Array.isArray(items) ? items : [];
+      const map = {}; _radarItems.forEach(it => { map[it.tg_id] = it; });
+      window._radarMap = map;
+      const panel = document.getElementById('radar-panel');
+      const cnt = document.getElementById('radar-count');
+      if (cnt) cnt.textContent = _radarItems.length;
+      if (panel) panel.style.display = _radarItems.length ? 'block' : 'none';
+      renderRadarList();
+      if (typeof allConvs !== 'undefined' && allConvs && typeof applyConvFilters === 'function') renderConvList(applyConvFilters(allConvs));
+    } catch (e) {}
+  }
+  function toggleRadarList() {
+    _radarOpen = !_radarOpen;
+    const list = document.getElementById('radar-list');
+    const tog = document.getElementById('radar-toggle');
+    if (list) list.style.display = _radarOpen ? 'flex' : 'none';
+    if (tog) tog.textContent = _radarOpen ? 'verbergen ▴' : 'anzeigen ▾';
+  }
+  function renderRadarList() {
+    const list = document.getElementById('radar-list');
+    if (!list) return;
+    list.innerHTML = _radarItems.slice(0, 60).map(it => {
+      const col = it.kind === 'waiting' ? '#ff5c7a' : '#ffd166';
+      return `<div onclick="openConv('${it.tg_id}','${it.anon_id||''}')" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 7px;border-radius:7px;background:rgba(255,255,255,.04);cursor:pointer;font-size:12px;">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_escRadar(it.name||it.tg_id)}</span>
+        <span style="flex-shrink:0;color:${col};font-weight:700;">${it.kind==='waiting'?'wartet':'Follow-up'} · ${_fmtAge(it.mins)}</span>
+      </div>`;
+    }).join('');
+  }
+  window.loadRadar = loadRadar; window.toggleRadarList = toggleRadarList;
+  setTimeout(loadRadar, 3000);
+  setInterval(loadRadar, 60000);
+
   function renderConvList(convs) {
     const el = document.getElementById('conv-list-body');
     if (!convs.length) {
@@ -4224,7 +4274,8 @@ if (checkAuth()) {
       const twTier = getTimeWasterBadge(c.time_waster);
       const twBadge = twTier ? `<span class="tier-badge ${twTier.cls}" style="font-size:9px;padding:1px 5px;margin-left:3px;">${twTier.label}</span>` : '';
       const mutedBadge = c.is_muted ? `<span class="tier-badge tier-muted" style="font-size:9px;padding:1px 5px;margin-left:3px;">🔇 Muted</span>` : '';
-      const followupBadge = '';
+      const radar = (window._radarMap || {})[c.tg_id];
+      const followupBadge = radar ? `<span class="tier-badge" style="font-size:9px;padding:1px 5px;margin-left:3px;background:rgba(255,92,122,.18);color:#ff5c7a;border:1px solid rgba(255,92,122,.4);">🔴 ${radar.kind==='waiting'?'wartet':'Follow-up'}</span>` : '';
       const onlineDot = c.is_online
         ? `<span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border:2px solid var(--bg2);border-radius:50%;"></span>`
         : '';
@@ -4241,7 +4292,7 @@ if (checkAuth()) {
         ? { border: '#555', bg: 'rgba(80,80,80,0.10)' }
         : (tierColorMap[tier.key] || tierColorMap.new);
       const mutedClass = c.is_muted ? ' is-muted' : '';
-      return `<div class="conv-item ${active}${mutedClass}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;border-left:4px solid ${tc.border};${tc.bg?`background:${tc.bg};`:''}">
+      return `<div class="conv-item ${active}${mutedClass}" onclick="openConv('${c.tg_id}','${c.anon_id}')" style="align-items:center;border-left:4px solid ${radar?'#ff5c7a':tc.border};${radar?'background:rgba(255,92,122,0.08);':(tc.bg?`background:${tc.bg};`:'')}">
         <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;margin-right:10px;">
           <div class="conv-avatar" style="margin:0;position:relative;">${avatarImg(c.tg_id, letter)}${onlineDot}</div>
           <div class="spend-pill ${pillCls}">${pillAmt}</div>
@@ -4503,8 +4554,8 @@ if (checkAuth()) {
     const profileSpending = getSubscriberSpending(tgId);
     const profileTier = getSpendingTier(profileSpending);
     const spendingEuros = profileSpending.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    const firstDate = p.first_time ? new Date(p.first_time).toLocaleDateString('de-DE') : '—';
-    const lastDate  = p.last_time  ? new Date(p.last_time).toLocaleDateString('de-DE')  : '—';
+    const firstDate = p.first_time ? parseTs(p.first_time).toLocaleDateString('de-DE') : '—';
+    const lastDate  = p.last_time  ? parseTs(p.last_time).toLocaleDateString('de-DE')  : '—';
     panel.innerHTML = `
       <div class="profile-header">
         <div class="profile-big-avatar">${avatarImg(tgId, letter)}</div>
@@ -6024,7 +6075,7 @@ if (checkAuth()) {
     voiceEl.style.display = 'none';
 
     const dirLabel = item.direction === 'in' ? '↙ Received' : '↗ Sent';
-    const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleString('de-DE') : '';
+    const dateStr = item.timestamp ? parseTs(item.timestamp).toLocaleString('de-DE') : '';
     infoEl.textContent = `${dirLabel} · ${dateStr}${item.chatter ? ' · ' + item.chatter : ''} · ${idx+1}/${_mgFiltered.length}`;
 
     if (item.type === 'photo' || item.type === 'video') {
@@ -6341,7 +6392,7 @@ async function loadReengagement(days) {
   document.getElementById('reeng-list').innerHTML = cold.slice(0, 20).map(c =>
     `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
       <span style="color:var(--text);">${c.internal_name || c.anon_id}</span>
-      <span style="color:var(--text3);">${new Date(c.last_time).toLocaleDateString('de-DE')}</span>
+      <span style="color:var(--text3);">${parseTs(c.last_time).toLocaleDateString('de-DE')}</span>
     </div>`
   ).join('') + (cold.length > 20 ? `<div style="color:var(--text3);font-size:11px;margin-top:6px;">+${cold.length-20} weitere...</div>` : '');
 
@@ -7962,7 +8013,7 @@ function renderPledgesPage() {
     const isOver = p.overdue;
     const isPaid = p.status === 'paid';
     const dl = p.deadline ? new Date(p.deadline).toLocaleDateString('de-DE') : '—';
-    const created = p.created_at ? new Date(p.created_at).toLocaleDateString('de-DE') : '—';
+    const created = p.created_at ? parseTs(p.created_at).toLocaleDateString('de-DE') : '—';
     const borderCol = isPaid ? 'rgba(0,212,170,.3)' : isOver ? 'rgba(255,92,122,.3)' : 'rgba(255,209,102,.3)';
     const statusBadge = isPaid
       ? '<span style="background:rgba(0,212,170,.15);color:#00d4aa;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">✅ Paid</span>'
