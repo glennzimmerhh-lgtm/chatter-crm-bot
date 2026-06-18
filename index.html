@@ -1617,6 +1617,12 @@
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-ppvpay" type="checkbox"> PPV nur nach bestätigter Zahlung</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-followup" type="checkbox"> Auto-Follow-up (stille Fans nachfassen)</label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-online" type="checkbox"> Online-Fans persönlich anschreiben</label>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-human" type="checkbox"> Menschliches Tippen (Tipp-Anzeige + Pause)</label>
+        <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">KI-Reichweite</label>
+          <select id="ai-pilot-scope" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 10px;outline:none;">
+            <option value="all">Alle Fans</option>
+            <option value="test">Nur Test-Fans</option>
+          </select></div>
         <button onclick="saveAIPilot()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;">Speichern</button>
         <span id="ai-pilot-msg" style="font-size:12px;color:var(--teal);"></span>
       </div>
@@ -2114,6 +2120,8 @@
           </button>
           <!-- KI-Coach Button (admin only) — feedback on this chat -->
           <button id="ai-coach-btn" class="admin-only" onclick="openCoach()" style="background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.4);border-radius:8px;color:#a78bfa;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" title="KI-Feedback zu diesem Chat">🔍 KI-Coach</button>
+          <!-- KI-für-diesen-Fan Schalter (admin only, Test-Modus) -->
+          <button id="ai-fan-btn" class="admin-only" onclick="toggleAiFan()" data-on="0" style="background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" title="KI für diesen Fan an/aus (greift im Test-Modus)">🤖 KI: aus</button>
         </div>
         <!-- Active Call Banner -->
         <div id="active-call-bar" style="display:none;padding:10px 16px;background:rgba(34,197,94,0.12);border-bottom:2px solid #22c55e;">
@@ -4354,6 +4362,7 @@ if (checkAuth()) {
 
   window.openConv = async function openConv(tgId, anonId) {
     currentChatTgId = tgId;
+    if (typeof refreshAiFanBtn === 'function') refreshAiFanBtn(tgId);
     document.getElementById('msg-conv-name').textContent = anonId;
     const _conv = allConvs.find(x => x.tg_id === tgId) || {};
     const _topbarLetter = anonLetter(_conv.internal_name, anonId, _conv.tg_username);
@@ -6512,6 +6521,8 @@ async function loadAIPilot() {
     const p = document.getElementById('ai-pilot-ppvpay'); if (p) p.checked = d.ppv_needs_payment !== false;
     const fu = document.getElementById('ai-pilot-followup'); if (fu) fu.checked = !!d.followup_enabled;
     const ol = document.getElementById('ai-pilot-online'); if (ol) ol.checked = !!d.online_outreach;
+    const sc = document.getElementById('ai-pilot-scope'); if (sc) sc.value = d.scope || 'all';
+    const hu = document.getElementById('ai-pilot-human'); if (hu) hu.checked = d.human_typing !== false;
     const w = document.getElementById('ai-pilot-warn'); if (w) w.style.display = d.engine_configured ? 'none' : 'block';
     renderAIPilot();
   } catch (e) {}
@@ -6531,6 +6542,8 @@ async function saveAIPilot() {
     ppv_needs_payment: document.getElementById('ai-pilot-ppvpay').checked,
     followup_enabled: document.getElementById('ai-pilot-followup').checked,
     online_outreach: document.getElementById('ai-pilot-online').checked,
+    scope: document.getElementById('ai-pilot-scope').value,
+    human_typing: document.getElementById('ai-pilot-human').checked,
   };
   try {
     await fetch('/api/ai/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -6586,6 +6599,31 @@ async function coachSend() {
   } catch (e) { if (loading) loading.remove(); coachBubble('assistant', 'Fehler: ' + e.message); }
   if (btn) btn.disabled = false;
 }
+
+// ── Pro-Fan KI-Schalter (Test-Modus) ──
+async function refreshAiFanBtn(tgId) {
+  const btn = document.getElementById('ai-fan-btn'); if (!btn) return;
+  try {
+    const d = await fetch('/api/ai/fan/' + tgId).then(r => r.json());
+    const on = !!d.enabled;
+    btn.dataset.on = on ? '1' : '0';
+    btn.textContent = '🤖 KI: ' + (on ? 'an' : 'aus');
+    btn.style.background = on ? 'rgba(0,212,170,.18)' : 'rgba(255,255,255,.04)';
+    btn.style.color = on ? '#00d4aa' : 'var(--text2)';
+    btn.style.borderColor = on ? 'rgba(0,212,170,.5)' : 'var(--border)';
+  } catch (e) {}
+}
+async function toggleAiFan() {
+  const tg = (typeof currentChatTgId !== 'undefined' && currentChatTgId) || (window._getCurrentTgId && window._getCurrentTgId());
+  if (!tg) return;
+  const btn = document.getElementById('ai-fan-btn');
+  const next = !(btn && btn.dataset.on === '1');
+  try {
+    await fetch('/api/ai/fan/' + tg, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: next }) });
+    refreshAiFanBtn(tg);
+  } catch (e) { alert('Fehler: ' + e.message); }
+}
+window.toggleAiFan = toggleAiFan; window.refreshAiFanBtn = refreshAiFanBtn;
 
 let _bcSending = false; // guard against double-click / double-send
 

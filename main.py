@@ -585,9 +585,13 @@ def _send_auto_online_msg(tg_id: str):
     import threading
     def _do():
         try:
+            if active_calls:
+                return  # don't send while a call is live (protects the call connection)
             use_ai = (get_setting('ai_online_outreach', '0') == '1'
                       and get_setting('ai_autosend_enabled', '0') == '1'
                       and bool(AI_ENGINE_URL) and bool(AI_ENGINE_TOKEN))
+            if use_ai and not _ai_allowed(tg_id):
+                use_ai = False   # test scope: AI online-outreach only for whitelisted fans
             fixed_text = get_setting('auto_online_text', '').strip()
             if get_setting('auto_online_enabled', '0') != '1' and not use_ai:
                 return
@@ -1185,12 +1189,65 @@ def _ai_within_hours() -> bool:
     except Exception:
         return True
 
+def _ai_test_set() -> set:
+    raw = get_setting('ai_test_ids', '') or ''
+    return {x.strip() for x in raw.split(',') if x.strip()}
+
+def _ai_allowed(tg_id: str) -> bool:
+    """In 'test' scope the AI only acts for whitelisted fans; in 'all' scope for everyone."""
+    if get_setting('ai_scope', 'all') != 'test':
+        return True
+    return str(tg_id) in _ai_test_set()
+
+
+def _split_human(text: str):
+    """Split a reply into 2-3 natural messages (paragraphs). Never butcher a long block / price list."""
+    text = (text or '').strip()
+    if not text:
+        return []
+    parts = [p.strip() for p in text.split('\n\n') if p.strip()]
+    if len(parts) <= 1 or len(parts) > 3:
+        return [text]
+    return parts
+
+async def _human_send(peer, tg_id, reply, sender):
+    """Send a reply like a human: typing indicator + realistic delay, optionally split into parts."""
+    loop = asyncio.get_event_loop()
+    human = get_setting('ai_human_typing', '1') == '1'
+    parts = _split_human(reply) if human else [(reply or '').strip()]
+    parts = [p for p in parts if p]
+    last_id = 0
+    for i, part in enumerate(parts):
+        if human:
+            delay = min(1.0 + len(part) / 25.0, 6.0)   # think + type time, capped
+            try:
+                async with tg_client.action(peer, 'typing'):
+                    await asyncio.sleep(delay)
+            except Exception:
+                await asyncio.sleep(delay)
+        sent = await tg_client.send_message(peer, part)
+        last_id = sent.id
+        await loop.run_in_executor(None, lambda p=part, sid=sent.id: save_msg(tg_id, p, 'out', sender, sid))
+        try:
+            await ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id, 'text': part,
+                'direction': 'out', 'timestamp': datetime.now().isoformat()})
+        except Exception:
+            pass
+        if human and i < len(parts) - 1:
+            await asyncio.sleep(0.5)
+    return last_id
+
+
 async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
     """Master-switched autonomous responder. Defaults OFF — nothing happens until enabled."""
     if get_setting('ai_autosend_enabled', '0') != '1':
         return
     if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
         return
+    if active_calls:
+        return  # never compete with a live call — it would lag/drop it
+    if not _ai_allowed(tg_id):
+        return  # test scope: only act for whitelisted fans
     if not _ai_within_hours():
         return
     try:
@@ -1251,10 +1308,7 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
     try:
         if reply:
             try:
-                sent = await tg_client.send_message(peer, reply)
-                await loop.run_in_executor(None, lambda: save_msg(tg_id, reply, 'out', 'KI', sent.id))
-                await ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id, 'text': reply,
-                    'direction': 'out', 'timestamp': datetime.now().isoformat()})
+                await _human_send(peer, tg_id, reply, 'KI')
                 _ai_log(tg_id, 'reply', reply[:200], True)
             except Exception as e:
                 print(f'AI reply send error: {e}')
@@ -1340,6 +1394,8 @@ async def _ai_refresh_memory_bg(tg_id: str):
     """Fire-and-forget: keep the engine's per-fan memory current. Self-throttles engine-side."""
     if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
         return
+    if active_calls:
+        return  # don't add load during a live call
     loop = asyncio.get_event_loop()
 
     def _call():
@@ -1357,6 +1413,10 @@ async def _ai_refresh_memory_bg(tg_id: str):
 
 async def _ai_handle_photo(event, tg_id):
     """Download an incoming photo and let the AI 'see' it (e.g. payment screenshots)."""
+    if active_calls:
+        return  # downloading media via MTProto during a call can drop the call
+    if not _ai_allowed(tg_id):
+        return  # test scope: only whitelisted fans
     try:
         import base64
         data = await event.download_media(file=bytes)
@@ -1406,6 +1466,8 @@ def _followup_due(tg_id: str) -> bool:
 
 async def _do_followup_cycle():
     global _tg_priority
+    if active_calls:
+        return  # don't send follow-ups while a call is live
     try:
         batch = int(get_setting('ai_followup_batch', '8') or 8)
     except Exception:
@@ -1436,6 +1498,8 @@ async def _do_followup_cycle():
         scanned += 1
         if r.get('is_muted'):
             continue
+        if not _ai_allowed(r['tg_id']):
+            continue
         if _followup_due(r['tg_id']):
             cands.append(r)
 
@@ -1465,10 +1529,7 @@ async def _do_followup_cycle():
             peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
             _tg_priority += 1
             try:
-                sent = await tg_client.send_message(peer, reply)
-                await loop.run_in_executor(None, lambda: save_msg(tg_id, reply, 'out', 'KI-Followup', sent.id))
-                await ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id, 'text': reply,
-                    'direction': 'out', 'timestamp': datetime.now().isoformat()})
+                await _human_send(peer, tg_id, reply, 'KI-Followup')
                 _ai_log(tg_id, 'followup', reply[:200], True)
             finally:
                 _tg_priority = max(0, _tg_priority - 1)
@@ -2229,6 +2290,8 @@ class AIControlIn(BaseModel):
     ppv_needs_payment: Optional[bool] = None
     followup_enabled: Optional[bool] = None
     online_outreach: Optional[bool] = None
+    scope: Optional[str] = None            # 'all' or 'test'
+    human_typing: Optional[bool] = None
 
 @app.get('/ai/control')
 def ai_control_get():
@@ -2239,6 +2302,9 @@ def ai_control_get():
         'ppv_needs_payment': get_setting('ai_ppv_needs_payment', '1') == '1',
         'followup_enabled': get_setting('ai_followup_enabled', '0') == '1',
         'online_outreach': get_setting('ai_online_outreach', '0') == '1',
+        'scope': get_setting('ai_scope', 'all'),
+        'human_typing': get_setting('ai_human_typing', '1') == '1',
+        'test_count': len(_ai_test_set()),
         'engine_configured': bool(AI_ENGINE_URL and AI_ENGINE_TOKEN),
     }
 
@@ -2256,7 +2322,30 @@ def ai_control_set(body: AIControlIn):
         set_setting('ai_followup_enabled', '1' if body.followup_enabled else '0')
     if body.online_outreach is not None:
         set_setting('ai_online_outreach', '1' if body.online_outreach else '0')
+    if body.scope is not None:
+        set_setting('ai_scope', 'test' if body.scope == 'test' else 'all')
+    if body.human_typing is not None:
+        set_setting('ai_human_typing', '1' if body.human_typing else '0')
     return {'ok': True}
+
+# Per-fan AI toggle (for test scope) — add/remove a fan from the whitelist
+class AIFanIn(BaseModel):
+    enabled: bool
+
+@app.get('/ai/fan/{tg_id}')
+def ai_fan_get(tg_id: str):
+    return {'tg_id': tg_id, 'enabled': str(tg_id) in _ai_test_set(),
+            'scope': get_setting('ai_scope', 'all')}
+
+@app.post('/ai/fan/{tg_id}')
+def ai_fan_set(tg_id: str, body: AIFanIn):
+    ids = _ai_test_set()
+    if body.enabled:
+        ids.add(str(tg_id))
+    else:
+        ids.discard(str(tg_id))
+    set_setting('ai_test_ids', ','.join(sorted(ids)))
+    return {'ok': True, 'enabled': body.enabled, 'count': len(ids)}
 
 @app.get('/ai/action-log')
 def ai_action_log_get(limit: int = 100):
@@ -3689,6 +3778,48 @@ def export_subscribers_csv():
         media_type='text/csv',
         headers={'Content-Disposition': 'attachment; filename="subscriber_backup.csv"'}
     )
+
+# ── FOLLOW-UP RADAR (helps human chatters: who needs attention now) ───────────
+@app.get('/followup-radar')
+def followup_radar():
+    """Chats needing a chatter's attention: fan waiting unanswered, or fan went quiet after we wrote."""
+    now = datetime.now()
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute('''
+                    SELECT c.tg_id, c.anon_id, c.internal_name, c.is_muted,
+                           m.direction AS last_dir, m.timestamp AS last_ts
+                    FROM conversations c
+                    JOIN LATERAL (SELECT direction, timestamp FROM messages
+                                  WHERE tg_id=c.tg_id ORDER BY id DESC LIMIT 1) m ON true
+                    WHERE COALESCE(c.is_muted, false) = false
+                ''')
+                rows = c.fetchall()
+    except Exception as e:
+        print(f'followup-radar error: {e}')
+        return []
+    items = []
+    for r in rows:
+        try:
+            last = datetime.fromisoformat(str(r['last_ts']))
+        except Exception:
+            continue
+        age_min = (now - last).total_seconds() / 60.0
+        name = r['internal_name'] or r['anon_id']
+        if r['last_dir'] == 'in':
+            if age_min >= 10:   # fan wrote last and is waiting >=10 min
+                items.append({'tg_id': r['tg_id'], 'anon_id': r['anon_id'], 'name': name,
+                              'kind': 'waiting', 'reason': 'wartet auf Antwort',
+                              'mins': int(age_min), 'priority': 2})
+        else:
+            if 180 <= age_min <= 60 * 24 * 14:   # we wrote last, silent 3h..14d → follow-up due
+                items.append({'tg_id': r['tg_id'], 'anon_id': r['anon_id'], 'name': name,
+                              'kind': 'followup', 'reason': 'Follow-up fällig',
+                              'mins': int(age_min), 'priority': 1})
+    items.sort(key=lambda x: (-x['priority'], -x['mins']))
+    return items[:200]
+
 
 # ── FAKE CALLS ───────────────────────────────────────────────────────────────
 
