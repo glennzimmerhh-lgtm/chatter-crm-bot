@@ -7041,21 +7041,29 @@ function _notifDiag(msg) {
   el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
 
-const PAYPAL_LOGO = '<span style="background:#fff;border-radius:5px;padding:2px 6px;font-weight:800;font-style:italic;font-size:12px;line-height:1.4;display:inline-block;white-space:nowrap;"><span style="color:#003087">Pay</span><span style="color:#009cde">Pal</span></span>';
+let _ppLogoN = 0;
+function paypalLogo(size) {
+  const gid = 'ppg' + (++_ppLogoN);
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;display:block;">'
+    + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22a4e0"/><stop offset="1" stop-color="#003087"/></linearGradient></defs>'
+    + '<rect width="28" height="28" rx="7" fill="url(#' + gid + ')"/>'
+    + '<path transform="translate(2 2)" fill="#fff" d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 0 0-.607-.541c-.013.076-.026.175-.041.254-.93 4.778-4.005 7.201-9.138 7.201h-2.19a.563.563 0 0 0-.556.479l-1.187 7.527h-.506l-.24 1.516a.56.56 0 0 0 .554.647h3.882c.46 0 .85-.334.922-.788.06-.26.76-4.852.816-5.09a.932.932 0 0 1 .923-.788h.58c3.76 0 6.705-1.528 7.565-5.946.36-1.847.174-3.388-.777-4.471z"/></svg>';
+}
 function showPaypalToast(text) {
   let host = document.getElementById('paypal-toast-host');
   if (!host) {
     host = document.createElement('div');
     host.id = 'paypal-toast-host';
-    host.style.cssText = 'position:fixed;top:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;';
+    host.style.cssText = 'position:fixed;top:18px;right:18px;z-index:99999;display:flex;flex-direction:column;gap:10px;';
     document.body.appendChild(host);
   }
   const t = document.createElement('div');
-  t.style.cssText = 'background:#003087;color:#fff;border:1px solid #0070ba;border-radius:12px;padding:12px 16px;font-size:13px;font-weight:700;box-shadow:0 6px 24px rgba(0,0,0,.4);display:flex;align-items:center;gap:10px;min-width:240px;cursor:pointer;';
-  t.innerHTML = PAYPAL_LOGO + '<span>' + text + '</span>';
+  t.style.cssText = 'background:#003087;color:#fff;border:1px solid #0070ba;border-radius:16px;padding:20px 26px;font-size:17px;font-weight:800;box-shadow:0 12px 40px rgba(0,0,0,.55);display:flex;align-items:center;gap:16px;min-width:330px;max-width:440px;cursor:pointer;transform:scale(.6);opacity:0;transition:transform .28s cubic-bezier(.2,1.35,.4,1),opacity .28s;';
+  t.innerHTML = paypalLogo(40) + '<span>' + text + '</span>';
   t.onclick = () => t.remove();
   host.appendChild(t);
-  setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 600); }, 30000);
+  requestAnimationFrame(() => { t.style.transform = 'scale(1)'; t.style.opacity = '1'; });
+  setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'scale(.9)'; setTimeout(() => t.remove(), 600); }, 30000);
 }
 
 window.loadNotifications = async function loadNotifications() {
@@ -7150,7 +7158,7 @@ function renderNotifications() {
   feed.innerHTML = items.map(n => {
     const isSale = n.type === 'sale';
     const isPaypal = n.type === 'paypal';
-    const iconHtml = isPaypal ? PAYPAL_LOGO : ('<span style="font-size:22px;">' + (isSale ? '💰' : '🆕') + '</span>');
+    const iconHtml = isPaypal ? paypalLogo(30) : ('<span style="font-size:22px;">' + (isSale ? '💰' : '🆕') + '</span>');
     const color = isPaypal ? '#0070ba' : (isSale ? '#ffd166' : '#4a9eff');
     const label = isPaypal ? 'PayPal' : (isSale ? 'Sale' : 'New Subscriber');
     const d = parseTs(n.ts);
