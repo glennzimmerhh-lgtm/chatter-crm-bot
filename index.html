@@ -1599,6 +1599,27 @@
       <h1 class="page-title">📣 Broadcast</h1>
       <p style="color:var(--text2);font-size:13px;margin-top:4px;">Send a message to multiple subscribers at once.</p>
     </div>
+
+    <!-- KI-AUTOPILOT (admin only, master switch, starts OFF) -->
+    <div class="admin-only" style="background:var(--bg2);border:1px solid rgba(167,139,250,0.3);border-radius:14px;padding:18px 20px;margin-bottom:20px;max-width:900px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--text);">🤖 KI-Autopilot <span id="ai-pilot-state" style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:10px;margin-left:6px;"></span></div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;">Wenn AKTIV, beantwortet die KI eingehende Nachrichten selbst und handelt (PPV, Funnel, Call). Startet immer AUS.</div>
+        </div>
+        <button id="ai-pilot-btn" onclick="toggleAIPilot()" style="border:none;border-radius:10px;padding:12px 22px;font-weight:800;font-size:14px;cursor:pointer;color:#fff;">…</button>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;align-items:flex-end;">
+        <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">Arbeitszeiten (z.B. 9-23, leer = immer)</label>
+          <input id="ai-pilot-hours" placeholder="9-23" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 10px;width:140px;outline:none;"></div>
+        <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:4px;">Min. Pause/Chat (Sek.)</label>
+          <input id="ai-pilot-gap" type="number" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 10px;width:120px;outline:none;"></div>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="ai-pilot-ppvpay" type="checkbox"> PPV nur nach bestätigter Zahlung</label>
+        <button onclick="saveAIPilot()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;">Speichern</button>
+        <span id="ai-pilot-msg" style="font-size:12px;color:var(--teal);"></span>
+      </div>
+      <div id="ai-pilot-warn" style="font-size:11px;color:#ffd166;margin-top:8px;display:none;">⚠️ Engine nicht verbunden (AI_ENGINE_URL / AI_ENGINE_TOKEN im Worker fehlen) — Autopilot bleibt wirkungslos, bis das gesetzt ist.</div>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;max-width:900px;">
       <!-- Message -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;">
@@ -6402,6 +6423,44 @@ function bcTierExcludedIds() {
   return out;
 }
 
+// ── KI-Autopilot control ──
+let _aiPilotOn = false;
+function renderAIPilot() {
+  const st = document.getElementById('ai-pilot-state'), btn = document.getElementById('ai-pilot-btn');
+  if (st) { st.textContent = _aiPilotOn ? 'AKTIV' : 'AUS'; st.style.background = _aiPilotOn ? 'rgba(34,197,94,.15)' : 'rgba(255,92,122,.12)'; st.style.color = _aiPilotOn ? '#22c55e' : '#ff5c7a'; }
+  if (btn) { btn.textContent = _aiPilotOn ? '■ Autopilot stoppen' : '▶ Autopilot starten'; btn.style.background = _aiPilotOn ? '#ff5c7a' : '#22c55e'; }
+}
+async function loadAIPilot() {
+  try {
+    const d = await fetch('/api/ai/control').then(r => r.json());
+    _aiPilotOn = !!d.enabled;
+    const h = document.getElementById('ai-pilot-hours'); if (h) h.value = d.work_hours || '';
+    const g = document.getElementById('ai-pilot-gap'); if (g) g.value = (d.min_gap_sec != null ? d.min_gap_sec : 20);
+    const p = document.getElementById('ai-pilot-ppvpay'); if (p) p.checked = d.ppv_needs_payment !== false;
+    const w = document.getElementById('ai-pilot-warn'); if (w) w.style.display = d.engine_configured ? 'none' : 'block';
+    renderAIPilot();
+  } catch (e) {}
+}
+async function toggleAIPilot() {
+  const next = !_aiPilotOn;
+  if (next && !confirm('KI-Autopilot SCHARF schalten?\n\nDie KI antwortet dann selbstständig auf eingehende Nachrichten und kann PPV senden, Funnel ändern und Calls starten.')) return;
+  try {
+    await fetch('/api/ai/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: next }) });
+    _aiPilotOn = next; renderAIPilot();
+  } catch (e) { alert('Fehler: ' + e.message); }
+}
+async function saveAIPilot() {
+  const body = {
+    work_hours: (document.getElementById('ai-pilot-hours').value || '').trim(),
+    min_gap_sec: parseInt(document.getElementById('ai-pilot-gap').value) || 20,
+    ppv_needs_payment: document.getElementById('ai-pilot-ppvpay').checked,
+  };
+  try {
+    await fetch('/api/ai/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const m = document.getElementById('ai-pilot-msg'); if (m) { m.textContent = 'gespeichert ✓'; setTimeout(() => m.textContent = '', 2000); }
+  } catch (e) { alert('Fehler: ' + e.message); }
+}
+
 let _bcSending = false; // guard against double-click / double-send
 
 async function startBroadcast() {
@@ -6541,7 +6600,7 @@ async function cancelScheduledBroadcast(id) {
 const _origShowPage = window.showPage;
 window.showPage = function(page) {
   if (_origShowPage) _origShowPage(page);
-  if (page === 'broadcast') { loadScheduledBroadcasts(); loadBroadcastExcludeLists(); }
+  if (page === 'broadcast') { loadScheduledBroadcasts(); loadBroadcastExcludeLists(); loadAIPilot(); }
 };
 </script>
 
@@ -6982,6 +7041,7 @@ function _notifDiag(msg) {
   el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
 
+const PAYPAL_LOGO = '<span style="background:#fff;border-radius:5px;padding:2px 6px;font-weight:800;font-style:italic;font-size:12px;line-height:1.4;display:inline-block;white-space:nowrap;"><span style="color:#003087">Pay</span><span style="color:#009cde">Pal</span></span>';
 function showPaypalToast(text) {
   let host = document.getElementById('paypal-toast-host');
   if (!host) {
@@ -6991,11 +7051,11 @@ function showPaypalToast(text) {
     document.body.appendChild(host);
   }
   const t = document.createElement('div');
-  t.style.cssText = 'background:#003087;color:#fff;border:1px solid #0070ba;border-radius:12px;padding:12px 16px;font-size:13px;font-weight:700;box-shadow:0 6px 24px rgba(0,0,0,.4);display:flex;align-items:center;gap:10px;min-width:220px;cursor:pointer;';
-  t.innerHTML = '<span style="font-size:20px;">💰</span><span>PayPal — ' + text + '</span>';
+  t.style.cssText = 'background:#003087;color:#fff;border:1px solid #0070ba;border-radius:12px;padding:12px 16px;font-size:13px;font-weight:700;box-shadow:0 6px 24px rgba(0,0,0,.4);display:flex;align-items:center;gap:10px;min-width:240px;cursor:pointer;';
+  t.innerHTML = PAYPAL_LOGO + '<span>' + text + '</span>';
   t.onclick = () => t.remove();
   host.appendChild(t);
-  setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 9000);
+  setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 600); }, 30000);
 }
 
 window.loadNotifications = async function loadNotifications() {
@@ -7090,7 +7150,7 @@ function renderNotifications() {
   feed.innerHTML = items.map(n => {
     const isSale = n.type === 'sale';
     const isPaypal = n.type === 'paypal';
-    const icon  = isPaypal ? '💰' : (isSale ? '💰' : '🆕');
+    const iconHtml = isPaypal ? PAYPAL_LOGO : ('<span style="font-size:22px;">' + (isSale ? '💰' : '🆕') + '</span>');
     const color = isPaypal ? '#0070ba' : (isSale ? '#ffd166' : '#4a9eff');
     const label = isPaypal ? 'PayPal' : (isSale ? 'Sale' : 'New Subscriber');
     const d = parseTs(n.ts);
@@ -7107,7 +7167,7 @@ function renderNotifications() {
     return `<div ${clickAttr}
       style="display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:12px;${isPaypal?'':'cursor:pointer;'}transition:background .15s;"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
-      <div style="font-size:22px;flex-shrink:0;">${icon}</div>
+      <div style="flex-shrink:0;display:flex;align-items:center;">${iconHtml}</div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:11px;color:${color};font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;">${label}</div>
         <div style="font-size:13px;color:var(--text);">${detail}</div>

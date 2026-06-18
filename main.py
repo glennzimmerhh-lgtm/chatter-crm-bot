@@ -934,7 +934,7 @@ def _pp_decode(s):
         return str(s)
 
 def _pp_parse_amount(text: str):
-    """Best-effort (amount_str, currency) from a PayPal subject line."""
+    """Best-effort (amount_str, currency) from PayPal text (subject or body)."""
     cur_map = {'€': 'EUR', 'EUR': 'EUR', '$': 'USD', 'USD': 'USD', '£': 'GBP', 'GBP': 'GBP'}
     m = re.search(r'(€|EUR|\$|USD|£|GBP)\s*([0-9][0-9.,]*[0-9])', text, re.I)
     if m:
@@ -943,6 +943,39 @@ def _pp_parse_amount(text: str):
     if m:
         return m.group(1), cur_map.get(m.group(2).upper(), m.group(2))
     return '', ''
+
+def _pp_body_text(msg) -> str:
+    """Readable text from an email message — prefers text/plain, else stripped HTML."""
+    try:
+        import html as _html
+        html_txt, plain_txt = '', ''
+        if msg.is_multipart():
+            for part in msg.walk():
+                ct = part.get_content_type()
+                payload = part.get_payload(decode=True)
+                if not payload:
+                    continue
+                txt = payload.decode(part.get_content_charset() or 'utf-8', 'ignore')
+                if ct == 'text/plain' and not plain_txt:
+                    plain_txt = txt
+                elif ct == 'text/html' and not html_txt:
+                    html_txt = txt
+        else:
+            payload = msg.get_payload(decode=True)
+            if payload:
+                txt = payload.decode(msg.get_content_charset() or 'utf-8', 'ignore')
+                if msg.get_content_type() == 'text/html':
+                    html_txt = txt
+                else:
+                    plain_txt = txt
+        raw = plain_txt or html_txt
+        if not raw:
+            return ''
+        raw = re.sub(r'<[^>]+>', ' ', raw)
+        raw = _html.unescape(raw).replace('\xa0', ' ')
+        return re.sub(r'\s+', ' ', raw)
+    except Exception:
+        return ''
 
 def _paypal_imap_check():
     """Blocking: return list of payment-received mails as dicts (newest 30, last 3 days)."""
@@ -962,20 +995,23 @@ def _paypal_imap_check():
         if typ != 'OK' or not data or not data[0]:
             return []
         for num in data[0].split()[-30:]:
-            typ, msgdata = M.fetch(num, '(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM MESSAGE-ID DATE)])')
+            typ, msgdata = M.fetch(num, '(BODY.PEEK[])')
             if typ != 'OK' or not msgdata or not msgdata[0]:
                 continue
-            hdr = _email.message_from_bytes(msgdata[0][1])
-            subject = _pp_decode(hdr.get('Subject'))
+            msg = _email.message_from_bytes(msgdata[0][1])
+            subject = _pp_decode(msg.get('Subject'))
             low = subject.lower()
             if not any(k in low for k in ('received', 'erhalten', 'sent you', 'gesendet',
                                           'payment', 'zahlung', 'geld')):
                 continue
-            msgid = (hdr.get('Message-ID') or hdr.get('Message-Id') or '').strip()
-            uid = msgid or (subject + '|' + (hdr.get('Date') or ''))
+            msgid = (msg.get('Message-ID') or msg.get('Message-Id') or '').strip()
+            uid = msgid or (subject + '|' + (msg.get('Date') or ''))
+            # Amount: try subject first, then the email body (PayPal puts it in the body)
             amount, currency = _pp_parse_amount(subject)
+            if not amount:
+                amount, currency = _pp_parse_amount(_pp_body_text(msg))
             new_items.append({'mail_uid': uid, 'amount': amount, 'currency': currency,
-                              'sender': _pp_decode(hdr.get('From')), 'subject': subject})
+                              'sender': _pp_decode(msg.get('From')), 'subject': subject})
     except Exception as e:
         print(f'PayPal IMAP error: {e}')
     finally:
