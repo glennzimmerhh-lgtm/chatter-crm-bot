@@ -2499,6 +2499,7 @@ class AIControlIn(BaseModel):
     followup_enabled: Optional[bool] = None
     online_outreach: Optional[bool] = None
     hunt_enabled: Optional[bool] = None     # proactive opportunity hunter
+    postcall_followup: Optional[bool] = None  # auto sale-push after a call
     scope: Optional[str] = None            # 'all' or 'test'
     human_typing: Optional[bool] = None
     during_calls: Optional[bool] = None
@@ -2513,6 +2514,7 @@ def ai_control_get():
         'followup_enabled': get_setting('ai_followup_enabled', '0') == '1',
         'online_outreach': get_setting('ai_online_outreach', '0') == '1',
         'hunt_enabled': get_setting('ai_hunt_enabled', '0') == '1',
+        'postcall_followup': get_setting('ai_postcall_followup', '1') == '1',
         'scope': get_setting('ai_scope', 'all'),
         'human_typing': get_setting('ai_human_typing', '1') == '1',
         'during_calls': get_setting('ai_during_calls', '1') == '1',
@@ -2536,6 +2538,8 @@ def ai_control_set(body: AIControlIn):
         set_setting('ai_online_outreach', '1' if body.online_outreach else '0')
     if body.hunt_enabled is not None:
         set_setting('ai_hunt_enabled', '1' if body.hunt_enabled else '0')
+    if body.postcall_followup is not None:
+        set_setting('ai_postcall_followup', '1' if body.postcall_followup else '0')
     if body.scope is not None:
         set_setting('ai_scope', 'test' if body.scope == 'test' else 'all')
     if body.human_typing is not None:
@@ -4285,6 +4289,74 @@ class CallStartIn(BaseModel):
     url: str = ''      # Google Drive or direct URL — skips local file lookup
 
 
+async def _ai_post_call_followup(tg_id: str, folder: str = ''):
+    """After a call ends, the AI strikes immediately for the sale — covering the classic
+    chatter mistake of doing a fake check and then going silent (= losing the sub)."""
+    try:
+        if get_setting('ai_autosend_enabled', '0') != '1':
+            return
+        if get_setting('ai_postcall_followup', '1') != '1':
+            return
+        if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+            return
+        if not _ai_allowed(tg_id):
+            return
+        if not _ai_within_hours():
+            return
+        try:
+            delay = int(get_setting('ai_postcall_delay_sec', '8') or 8)
+        except Exception:
+            delay = 8
+        await asyncio.sleep(max(0, delay))
+        if active_calls:
+            return  # a new call started — don't interrupt
+        if folder == 'paid_calls':
+            ctx = ("Du hast GERADE einen bezahlten Call mit dem Fan gemacht. Bedanke dich warm, frag "
+                   "wie es war, und biete direkt den naechsten Schritt / ein passendes Upsell an "
+                   "(weiteres Content/Call). Bleib am Ball, lass ihn nicht abkuehlen.")
+        else:
+            ctx = ("Du hast GERADE einen Fake-Check / Call mit dem Fan gemacht — er hat dich LIVE "
+                   "gesehen, das ist der heisseste Moment ueberhaupt. Schreib JETZT sofort, knuepf "
+                   "locker an den Call an (z.B. 'und, hat dir der check gefallen? 🥰') und fuehr ihn "
+                   "selbstbewusst und direkt zum Kauf: konkretes Angebot aus der Preisliste + "
+                   "Zahlungsweg (PayPal zuerst). Auf keinen Fall jetzt verstummen — genau das verliert "
+                   "den Sub. Geh sofort auf den Sale.")
+        loop = asyncio.get_event_loop()
+        payload = {'tg_id': tg_id, 'context': ctx}
+
+        def _call_fu(p=payload):
+            req = _ureq_ai.Request(AI_ENGINE_URL + '/followup', data=_json_ai.dumps(p).encode(),
+                                   headers={'Content-Type': 'application/json',
+                                            'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+            with _ureq_ai.urlopen(req, timeout=45) as resp:
+                return _json_ai.loads(resp.read())
+        try:
+            res = await loop.run_in_executor(None, _call_fu)
+        except Exception as e:
+            print(f'postcall followup engine error {tg_id}: {e}')
+            _ai_log(tg_id, 'postcall_error', str(e)[:200], False)
+            return
+        reply = (res.get('reply') or '').strip()
+        if res.get('handoff') or not reply:
+            _ai_log(tg_id, 'postcall_skip', 'handoff/empty', False)
+            return
+        with db() as conn, conn.cursor() as c:
+            c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+            row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        global _tg_priority
+        _tg_priority += 1
+        try:
+            await _human_send(peer, tg_id, reply, 'KI-PostCall')
+            _ai_last_action[tg_id] = datetime.now()
+            _ai_log(tg_id, 'postcall_followup', reply[:200], True)
+        finally:
+            _tg_priority = max(0, _tg_priority - 1)
+    except Exception as e:
+        print(f'postcall followup error {tg_id}: {e}')
+
+
 async def _call_timed_hangup(tg_id_str: str, media_src: str):
     """Auto-hang up after the media duration + 3s buffer."""
     try:
@@ -4303,6 +4375,7 @@ async def _call_timed_hangup(tg_id_str: str, media_src: str):
     if tg_id_str not in active_calls:
         return  # already hung up
     print(f'⏰ Auto-hanging up {tg_id_str}')
+    _folder = (active_calls.get(tg_id_str) or {}).get('folder', '')
     try:
         if hasattr(calls_client, 'leave_call'):
             await calls_client.leave_call(int(tg_id_str))
@@ -4312,6 +4385,8 @@ async def _call_timed_hangup(tg_id_str: str, media_src: str):
         print(f'⚠️ Auto-hangup leave_call error: {_e}')
     active_calls.pop(tg_id_str, None)
     await ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str})
+    # Strike for the sale right after the call — don't let the sub cool off.
+    asyncio.create_task(_ai_post_call_followup(tg_id_str, _folder))
 
 
 async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str):
@@ -4520,6 +4595,7 @@ async def start_fake_call(body: CallStartIn):
         'chatter': body.chatter,
         'started_at': now_ts,
         'type': 'video' if is_video else 'audio',
+        'folder': body.folder or '',
     }
     save_msg(body.tg_id, f'[📞 Pre-recorded {"Video" if is_video else "Audio"} Call – {label}]', 'out', body.chatter)
     asyncio.create_task(ws_manager.broadcast({
@@ -4544,6 +4620,7 @@ async def stop_fake_call(tg_id: str):
     if not calls_client:
         raise HTTPException(503, 'Calls client not ready.')
     peer = int(tg_id)
+    _folder = (active_calls.get(tg_id) or {}).get('folder', '')
     try:
         if hasattr(calls_client, 'leave_call'):
             await calls_client.leave_call(peer)
@@ -4553,6 +4630,8 @@ async def stop_fake_call(tg_id: str):
         print(f'leave_call error (may already be ended): {e}')
     active_calls.pop(tg_id, None)
     asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id}))
+    # Strike for the sale right after the call — don't let the sub cool off.
+    asyncio.create_task(_ai_post_call_followup(tg_id, _folder))
     return {'ok': True}
 
 # ── START ─────────────────────────────────────────────────────────────────────
