@@ -1241,15 +1241,19 @@ async def _human_send(peer, tg_id, reply, sender):
 async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
     """Master-switched autonomous responder. Defaults OFF — nothing happens until enabled."""
     if get_setting('ai_autosend_enabled', '0') != '1':
-        return
+        return  # master switch OFF — intentional, don't log (would spam)
     if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+        _ai_log(tg_id, 'skip_no_engine', 'AI_ENGINE_URL/TOKEN nicht gesetzt', False)
         return
     in_call = bool(active_calls)
     if in_call and get_setting('ai_during_calls', '1') != '1':
+        _ai_log(tg_id, 'skip_in_call', 'Call aktiv + "waehrend Calls" ist AUS', False)
         return  # call-protection off-switch: pause AI entirely during a live call
     if not _ai_allowed(tg_id):
+        _ai_log(tg_id, 'skip_not_allowed', 'Test-Scope: Fan nicht freigeschaltet', False)
         return  # test scope: only act for whitelisted fans
     if not _ai_within_hours():
+        _ai_log(tg_id, 'skip_work_hours', 'ausserhalb Arbeitszeiten (' + get_setting('ai_work_hours', '') + ')', False)
         return
     try:
         min_gap = int(get_setting('ai_min_gap_sec', '20') or 20)
@@ -1257,7 +1261,7 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
         min_gap = 20
     last = _ai_last_action.get(tg_id)
     if last and (datetime.now() - last).total_seconds() < min_gap:
-        return
+        return  # rapid-fire throttle — normal, don't log
     _ai_last_action[tg_id] = datetime.now()
 
     payment_ok = _ai_payment_confirmed(tg_id)
@@ -1329,6 +1333,9 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
             except Exception as e:
                 print(f'AI reply send error: {e}')
                 _ai_log(tg_id, 'reply_error', str(e)[:200], False)
+        elif not actions:
+            # Engine returned nothing to say AND nothing to do → fan gets silence.
+            _ai_log(tg_id, 'empty_reply', 'Engine lieferte weder Text noch Aktion (' + incoming_text[:60] + ')', False)
 
         ppv_needs_payment = get_setting('ai_ppv_needs_payment', '1') == '1'
         # process log_sale first so paid content can unlock within the same turn
