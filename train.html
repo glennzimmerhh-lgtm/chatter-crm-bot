@@ -215,6 +215,18 @@
     <div id="reviewOut" style="margin-top:12px;"></div>
   </div>
 
+  <!-- Was die KI noch wissen muss -->
+  <div class="card">
+    <h2>🎓 Was die KI noch wissen muss</h2>
+    <div class="sub" style="margin:0 0 8px;">Die KI sagt dir, was ihr noch fehlt, um wie du zu chatten & zu verkaufen. Beantworte die offenen Fragen — jede Antwort wird sofort dauerhaftes Wissen.</div>
+    <div class="row">
+      <button onclick="genTrainQ()" id="tqGenBtn">Offene Fragen generieren</button>
+      <button class="sec" onclick="loadTrainQ()">Aktualisieren</button>
+      <span id="tqMsg" class="msg dim"></span>
+    </div>
+    <div id="tq_list" style="margin-top:12px;display:flex;flex-direction:column;gap:10px;"></div>
+  </div>
+
   <!-- Wissen & Regeln -->
   <div class="card">
     <h2>Wissen & Regeln (fernab der Chats)</h2>
@@ -462,6 +474,47 @@ async function addKnowledge(){
   catch(e){ alert('Fehler: '+e.message); }
 }
 async function delKnowledge(id){ try { await fetch(base()+'/knowledge/'+id,{method:'DELETE',headers:hdr()}); loadKnowledge(); } catch(e){} }
+
+// ── Was die KI noch wissen muss (Onboarding-Fragen) ──
+function _escTq(s){ return (s||'').replace(/[&<>"']/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+async function loadTrainQ(){
+  if(!connOk()){ refreshConnWarn(); return; }
+  try {
+    const r=await fetch(base()+'/training-questions',{headers:hdr()}); const d=await r.json();
+    const items=d.items||[]; const box=$('tq_list');
+    if(!items.length){ box.innerHTML='<div class="msg dim">Keine offenen Fragen. Klick „Offene Fragen generieren".</div>'; return; }
+    box.innerHTML=items.map(q=>`<div style="background:#14161c;border:1px solid #262a33;border-radius:10px;padding:11px;">
+      <div style="font-size:14px;color:#e8e8ee;margin-bottom:8px;">🙋 ${_escTq(q.question)}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <input id="tq-ans-${q.id}" placeholder="Deine Antwort…" onkeydown="if(event.key==='Enter')answerTrainQ(${q.id})" style="flex:1;min-width:200px;">
+        <button onclick="answerTrainQ(${q.id})">Beantworten</button>
+        <button class="sec" onclick="dismissTrainQ(${q.id})">Überspringen</button>
+      </div>
+      <div id="tq-msg-${q.id}" class="msg dim" style="margin-top:5px;"></div>
+    </div>`).join('');
+  } catch(e){ $('tq_list').innerHTML='<div class="msg err">Fehler: '+e.message+'</div>'; }
+}
+async function genTrainQ(){
+  if(!connOk()){ refreshConnWarn(); $('tqMsg').textContent='⚠️ Erst Engine-URL + Token oben eintragen.'; $('tqMsg').className='msg err'; return; }
+  $('tqGenBtn').disabled=true; $('tqMsg').textContent='KI überlegt, was ihr noch fehlt…'; $('tqMsg').className='msg dim';
+  try {
+    const r=await fetch(base()+'/training-questions/generate',{method:'POST',headers:hdr()}); const d=await r.json();
+    if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
+    $('tqMsg').textContent=(d.added||0)+' neue Fragen'; $('tqMsg').className='msg ok'; loadTrainQ();
+  } catch(e){ const hint=/JSON|Unexpected token/i.test(e.message)?'Engine-URL/Token oben prüfen.':e.message; $('tqMsg').textContent='Fehler: '+hint; $('tqMsg').className='msg err'; }
+  $('tqGenBtn').disabled=false;
+}
+async function answerTrainQ(id){
+  const inp=$('tq-ans-'+id); const msg=$('tq-msg-'+id); const ans=(inp&&inp.value||'').trim();
+  if(!ans){ if(msg){msg.textContent='Bitte Antwort eintippen.'; msg.className='msg err';} return; }
+  if(msg){ msg.textContent='speichere…'; msg.className='msg dim'; }
+  try {
+    const r=await fetch(base()+'/training-questions/'+id+'/answer',{method:'POST',headers:jhdr(),body:JSON.stringify({answer:ans})});
+    const d=await r.json(); if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
+    loadTrainQ(); if(typeof loadKnowledge==='function') loadKnowledge();
+  } catch(e){ if(msg){msg.textContent='Fehler: '+e.message; msg.className='msg err';} }
+}
+async function dismissTrainQ(id){ try { await fetch(base()+'/training-questions/'+id+'/dismiss',{method:'POST',headers:hdr()}); loadTrainQ(); } catch(e){} }
 async function playSend(){
   const m=$('pg_in').value.trim(); if(!m) return;
   if(!connOk()){ refreshConnWarn(); $('pgMsg').textContent='⚠️ Erst oben Engine-URL + Token eintragen und Speichern.'; $('pgMsg').className='msg err'; return; }
@@ -536,7 +589,7 @@ if($('chatIn')){
 }
 
 // Auto-load persona + knowledge if connection is already set (und Admin)
-if (!window.__AI_BLOCKED__ && $('url') && $('url').value && $('token').value) { loadConfig(); loadKnowledge(); loadPriceList(); loadPayTerms(); loadSalesDrive(); loadNegotiation(); loadContentGuide(); }
+if (!window.__AI_BLOCKED__ && $('url') && $('url').value && $('token').value) { loadConfig(); loadKnowledge(); loadPriceList(); loadPayTerms(); loadSalesDrive(); loadNegotiation(); loadContentGuide(); loadTrainQ(); }
 </script>
 </body>
 </html>
