@@ -4605,6 +4605,7 @@ if (checkAuth()) {
         <button onclick="insertPricelistCalls()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,209,102,.35);background:rgba(255,209,102,.08);color:#ffd166;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">📞 Pricelist Calls</button>
         <button onclick="insertPricelistSexchat()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,92,122,.35);background:rgba(255,92,122,.08);color:#ff5c7a;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💬 Pricelist Sexchat</button>
         <button onclick="insertPricelistContent()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:10px;">🎬 Pricelist Content</button>
+        <button onclick="openHandSigns()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">✋ Fake Check Hand Signs</button>
         <button onclick="insertPayPal()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💙 Insert PayPal</button>
         <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
         <button onclick="insertPaysafecard()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);color:#ffa500;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🎫 Paysafecard</button>
@@ -7903,6 +7904,110 @@ async function sendVaultFile(filename) {
 }
 
 // vault loading is handled directly in showPage
+
+// ── FAKE CHECK HAND SIGNS ─────────────────────────────────────────────────────
+// Dedicated picker for Marie's hand-sign clips/photos, stored in their own vault
+// folder. Upload all kinds of hand signs here, then click one to send it to the
+// current fan as a live "proof" during a fake check.
+const HANDSIGN_FOLDER = 'Fake Check Hand Signs';
+
+function _hsEnsureOverlay() {
+  if (document.getElementById('handsign-overlay')) return;
+  const ov = document.createElement('div');
+  ov.id = 'handsign-overlay';
+  ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;align-items:center;justify-content:center;padding:20px;';
+  ov.onclick = function(e){ if (e.target === ov) ov.style.display='none'; };
+  ov.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:84vh;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);">
+        <div style="font-size:15px;font-weight:700;color:var(--text);">✋ Fake Check Hand Signs</div>
+        <button onclick="document.getElementById('handsign-overlay').style.display='none'" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1;">×</button>
+      </div>
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;border:1px solid rgba(0,212,170,.4);background:rgba(0,212,170,.1);color:var(--teal);font-size:13px;font-weight:700;cursor:pointer;">
+          ⬆️ Hand Signs hochladen
+          <input type="file" accept="image/*,video/*" multiple style="display:none;" onchange="hsUpload(this)">
+        </label>
+        <span id="handsign-status" style="font-size:12px;color:var(--text2);"></span>
+      </div>
+      <div id="handsign-grid" style="padding:14px 16px;overflow-y:auto;column-count:3;column-gap:8px;"></div>
+    </div>`;
+  document.body.appendChild(ov);
+}
+
+function openHandSigns() {
+  const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
+  if (!tgId) { alert('Erst einen Chat öffnen.'); return; }
+  _hsEnsureOverlay();
+  document.getElementById('handsign-overlay').style.display = 'flex';
+  loadHandSigns();
+}
+
+async function loadHandSigns() {
+  const grid = document.getElementById('handsign-grid');
+  const status = document.getElementById('handsign-status');
+  if (grid) grid.innerHTML = '<div style="color:var(--text3);font-size:13px;">Lade…</div>';
+  try {
+    const r = await fetch('/api/vault?folder=' + encodeURIComponent(HANDSIGN_FOLDER));
+    const files = r.ok ? await r.json() : [];
+    if (!files.length) {
+      grid.innerHTML = '<div style="color:var(--text3);font-size:13px;">Noch keine Hand Signs. Lade welche hoch.</div>';
+      if (status) status.textContent = '';
+      return;
+    }
+    if (status) status.textContent = files.length + ' Hand Signs — zum Senden klicken';
+    grid.innerHTML = files.map(f => {
+      const rel = f.name.split('/').map(encodeURIComponent).join('/');
+      const thumb = '/api/vault/thumb/' + rel;
+      const isVid = f.type === 'video';
+      return `<div style="break-inside:avoid;margin-bottom:8px;position:relative;border-radius:8px;overflow:hidden;background:var(--bg3);cursor:pointer;line-height:0;"
+        onmouseover="this.style.opacity='.82'" onmouseout="this.style.opacity='1'" onclick="sendHandSign('${f.name.replace(/'/g,"\\'")}')">
+        <img src="${thumb}" loading="lazy" style="width:100%;height:auto;display:block;background:var(--bg2);" onerror="this.onerror=null;this.style.opacity='.15'">
+        ${isVid ? '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:30px;height:30px;background:rgba(0,0,0,.55);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;pointer-events:none;">▶</div>' : ''}
+        <button onclick="event.stopPropagation();hsDelete('${f.name.replace(/'/g,"\\'")}')" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.55);border:none;color:#ff5c7a;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:13px;line-height:1;">✕</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    grid.innerHTML = '<div style="color:#ff5c7a;font-size:13px;">Fehler beim Laden: ' + (e && e.message) + '</div>';
+  }
+}
+
+async function hsUpload(input) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  const status = document.getElementById('handsign-status');
+  let done = 0;
+  for (const file of files) {
+    if (status) status.textContent = '⏳ Lade hoch ' + done + ' / ' + files.length + '…';
+    const fd = new FormData(); fd.append('file', file);
+    const res = await _vaultDoUpload(fd, HANDSIGN_FOLDER);
+    if (res.ok) done++;
+    else if (status) { status.textContent = '❌ ' + res.error; }
+  }
+  input.value = '';
+  if (status) status.textContent = '✓ ' + done + ' hochgeladen';
+  loadHandSigns();
+}
+
+async function sendHandSign(filename) {
+  const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
+  if (!tgId) { alert('Kein Chat offen.'); return; }
+  const ov = document.getElementById('handsign-overlay');
+  try {
+    const r = await fetch('/api/vault/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tgId, filename }) });
+    let d = {}; try { d = await r.json(); } catch(_) {}
+    if (r.ok && d.ok) { if (ov) ov.style.display='none'; setTimeout(function(){ if (window.loadMsgs) loadMsgs(); }, 800); }
+    else { alert('Senden fehlgeschlagen: ' + (d.detail || ('HTTP ' + r.status))); }
+  } catch(e) { alert('Fehler: ' + (e && e.message)); }
+}
+
+async function hsDelete(filename) {
+  if (!confirm('Diesen Hand Sign löschen?')) return;
+  try {
+    await fetch('/api/vault/file/' + filename.split('/').map(encodeURIComponent).join('/'), { method: 'DELETE' });
+    loadHandSigns();
+  } catch(e) { alert('Fehler: ' + (e && e.message)); }
+}
 
 // ── PAYMENTS / YOUSAFE CSV IMPORT ────────────────────────────────────────────
 function handleCsvDrop(e) {

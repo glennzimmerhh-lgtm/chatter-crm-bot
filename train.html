@@ -67,6 +67,11 @@
   <h1>🧠 KI-Training</h1>
   <div class="sub">Hier bringst du der AI bei, wie sie antworten soll. Tippe eine Fan-Nachricht + die perfekte Antwort, oder hol dir einen Vorschlag und korrigiere ihn.</div>
 
+  <!-- Verbindungs-Warnung: erscheint, wenn Engine-URL/Token in diesem Browser fehlen -->
+  <div id="connWarn" style="display:none;background:rgba(255,90,90,.12);border:1px solid rgba(255,90,90,.5);border-radius:10px;padding:12px 14px;margin:14px 0;color:#ffb4b4;font-size:14px;line-height:1.5;">
+    ⚠️ <b>Verbindung fehlt.</b> Trag unten in der Karte <b>„Verbindung"</b> die <b>Engine-URL</b> und das <b>API-Token</b> ein und klick <b>Speichern</b> — sonst lädt nichts und du siehst Fehler wie „is not valid JSON". Diese Angaben werden pro Browser/Gerät gespeichert, also muss sie jeder Nutzer einmal selbst eintragen.
+  </div>
+
   <!-- Verbindung -->
   <div class="card">
     <h2>Verbindung</h2>
@@ -290,8 +295,10 @@ function base(){ return ($('url').value || '').replace(/\/$/,''); }
 function hdr(){ const t=$('token').value.trim(); return t ? {'Authorization':'Bearer '+t} : {}; }
 function jhdr(){ return Object.assign({'Content-Type':'application/json'}, hdr()); }
 
-function saveConn(){ localStorage.setItem('aieng_url',$('url').value.trim()); localStorage.setItem('aieng_token',$('token').value.trim()); $('health').textContent='gespeichert ✓'; $('health').className='msg ok'; }
-(function(){ $('url').value=localStorage.getItem('aieng_url')||''; $('token').value=localStorage.getItem('aieng_token')||''; })();
+function connOk(){ return !!(($('url').value||'').trim() && ($('token').value||'').trim()); }
+function refreshConnWarn(){ const w=$('connWarn'); if(w) w.style.display = connOk() ? 'none' : 'block'; }
+function saveConn(){ localStorage.setItem('aieng_url',$('url').value.trim()); localStorage.setItem('aieng_token',$('token').value.trim()); $('health').textContent='gespeichert ✓'; $('health').className='msg ok'; refreshConnWarn(); }
+(function(){ $('url').value=localStorage.getItem('aieng_url')||''; $('token').value=localStorage.getItem('aieng_token')||''; if(!window.__AI_BLOCKED__) refreshConnWarn(); })();
 
 async function checkHealth(){
   $('health').textContent='…'; $('health').className='msg dim';
@@ -457,10 +464,11 @@ async function addKnowledge(){
 async function delKnowledge(id){ try { await fetch(base()+'/knowledge/'+id,{method:'DELETE',headers:hdr()}); loadKnowledge(); } catch(e){} }
 async function playSend(){
   const m=$('pg_in').value.trim(); if(!m) return;
+  if(!connOk()){ refreshConnWarn(); $('pgMsg').textContent='⚠️ Erst oben Engine-URL + Token eintragen und Speichern.'; $('pgMsg').className='msg err'; return; }
   $('pgBtn').disabled=true; $('pgMsg').textContent='…'; $('pgMsg').className='msg dim';
   try { const r=await fetch(base()+'/playground',{method:'POST',headers:jhdr(),body:JSON.stringify({message:m})}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
     $('pg_out').style.display='block'; $('pg_out').textContent=d.reply||''; $('pgMsg').textContent=d.handoff?'⚠️ Übergabe empfohlen':''; $('pgMsg').className='msg dim'; }
-  catch(e){ $('pgMsg').textContent='Fehler: '+e.message; $('pgMsg').className='msg err'; }
+  catch(e){ const hint=/JSON|Unexpected token/i.test(e.message)?'Engine-URL/Token oben prüfen (Verbindung fehlt oder falsch).':e.message; $('pgMsg').textContent='Fehler: '+hint; $('pgMsg').className='msg err'; refreshConnWarn(); }
   $('pgBtn').disabled=false;
 }
 
