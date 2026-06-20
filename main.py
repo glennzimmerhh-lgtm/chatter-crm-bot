@@ -395,6 +395,17 @@ def init_db():
                 executed INTEGER DEFAULT 0,
                 ts       TEXT NOT NULL
             )''')
+            # Questions the AI asks the operator when it's unsure (instead of guessing).
+            c.execute('''CREATE TABLE IF NOT EXISTS ai_questions (
+                id          SERIAL PRIMARY KEY,
+                tg_id       TEXT,
+                question    TEXT,
+                fan_message TEXT DEFAULT '',
+                answer      TEXT DEFAULT '',
+                status      TEXT DEFAULT 'open',
+                created_at  TEXT NOT NULL,
+                answered_at TEXT DEFAULT ''
+            )''')
             # PayPal payment-received notifications (parsed from email)
             c.execute('''CREATE TABLE IF NOT EXISTS paypal_notifications (
                 id        SERIAL PRIMARY KEY,
@@ -1187,6 +1198,27 @@ def _ai_log(tg_id, kind, detail, executed):
     except Exception as e:
         print(f'ai log error: {e}')
 
+def _ai_save_question(tg_id: str, question: str, fan_message: str = ''):
+    """The AI is unsure and asks the operator. Store it (one open question per fan) and notify."""
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT id FROM ai_questions WHERE tg_id=%s AND status='open' ORDER BY id DESC LIMIT 1", (tg_id,))
+            row = c.fetchone()
+            if row:
+                # refresh the existing open question instead of piling up duplicates
+                c.execute("UPDATE ai_questions SET question=%s, fan_message=%s, created_at=%s WHERE id=%s",
+                          (question[:1000], (fan_message or '')[:500], datetime.now().isoformat(), row['id']))
+            else:
+                c.execute("INSERT INTO ai_questions (tg_id,question,fan_message,status,created_at) "
+                          "VALUES (%s,%s,%s,'open',%s)",
+                          (tg_id, question[:1000], (fan_message or '')[:500], datetime.now().isoformat()))
+        _ai_log(tg_id, 'ask_admin', question[:200], True)
+        asyncio.create_task(ws_manager.broadcast({'type': 'notification', 'notif_type': 'ai_question',
+            'tg_id': tg_id, 'text': 'KI fragt: ' + question[:140],
+            'timestamp': datetime.now().isoformat()}))
+    except Exception as e:
+        print(f'ai save question error: {e}')
+
 def _ai_within_hours() -> bool:
     hrs = get_setting('ai_work_hours', '')   # "9-23"; empty = always on
     if not hrs or '-' not in hrs:
@@ -1334,8 +1366,12 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
 
     global _tg_priority
     _tg_priority += 1
+    # If the AI is unsure it asks the operator instead of guessing → suppress the fan reply.
+    asked_admin = any((a.get('tool') == 'ask_admin') for a in actions)
     try:
-        if reply:
+        if asked_admin:
+            pass  # don't send anything to the fan; the ask_admin action (handled below) holds the chat
+        elif reply:
             try:
                 await _human_send(peer, tg_id, reply, 'KI')
                 _ai_log(tg_id, 'reply', reply[:200], True)
@@ -1388,6 +1424,10 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
                         except Exception as e:
                             print(f'log_sale error: {e}')
                             _ai_log(tg_id, 'log_sale_error', str(e)[:200], False)
+                elif tool == 'ask_admin':
+                    q = (args.get('question') or '').strip()
+                    if q:
+                        _ai_save_question(tg_id, q, incoming_text)
                 elif tool == 'set_funnel_stage':
                     stage = args.get('stage', '')
                     if stage in ('kalt', 'warm', 'hot', 'angebot', 'gebucht', 'done'):
@@ -2582,6 +2622,96 @@ def ai_action_log_get(limit: int = 100):
         with conn.cursor() as c:
             c.execute('SELECT tg_id, kind, detail, executed, ts FROM ai_action_log ORDER BY id DESC LIMIT %s', (limit,))
             return c.fetchall()
+
+# ── AI ASKS THE OPERATOR (questions queue) ────────────────────────────────────
+@app.get('/ai/questions')
+def ai_questions_get(status: str = 'open'):
+    """Open questions the AI raised, newest first, with the fan's name for context."""
+    with db() as conn, conn.cursor() as c:
+        if status == 'all':
+            c.execute("""SELECT q.id, q.tg_id, q.question, q.fan_message, q.answer, q.status,
+                                q.created_at, q.answered_at, c.internal_name, c.anon_id
+                         FROM ai_questions q LEFT JOIN conversations c ON c.tg_id=q.tg_id
+                         ORDER BY q.id DESC LIMIT 100""")
+        else:
+            c.execute("""SELECT q.id, q.tg_id, q.question, q.fan_message, q.answer, q.status,
+                                q.created_at, q.answered_at, c.internal_name, c.anon_id
+                         FROM ai_questions q LEFT JOIN conversations c ON c.tg_id=q.tg_id
+                         WHERE q.status='open' ORDER BY q.id DESC LIMIT 100""")
+        return c.fetchall()
+
+class AIAnswerIn(BaseModel):
+    answer: str
+    learn: bool = True   # also store the Q+A as a permanent rule the AI remembers
+
+@app.post('/ai/questions/{qid}/answer')
+async def ai_question_answer(qid: int, body: AIAnswerIn):
+    """Operator answers the AI's question → AI writes the fan a natural reply using that answer,
+    and (optionally) remembers it so it never has to ask again."""
+    ans = (body.answer or '').strip()
+    if not ans:
+        raise HTTPException(400, 'Keine Antwort angegeben.')
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT tg_id, question, status FROM ai_questions WHERE id=%s', (qid,))
+        row = c.fetchone()
+    if not row:
+        raise HTTPException(404, 'Frage nicht gefunden.')
+    tg_id = row['tg_id']; question = row['question'] or ''
+    with db() as conn, conn.cursor() as c:
+        c.execute("UPDATE ai_questions SET answer=%s, status='answered', answered_at=%s WHERE id=%s",
+                  (ans[:2000], datetime.now().isoformat(), qid))
+
+    # 1) Let the engine turn the operator's answer into a fan-facing reply, then send it.
+    sent = False
+    if AI_ENGINE_URL and AI_ENGINE_TOKEN and tg_client and tg_client.is_connected():
+        loop = asyncio.get_event_loop()
+        payload = {'tg_id': tg_id, 'guidance': ans, 'question': question}
+
+        def _compose():
+            req = _ureq_ai.Request(AI_ENGINE_URL + '/compose', data=_json_ai.dumps(payload).encode(),
+                                   headers={'Content-Type': 'application/json',
+                                            'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+            with _ureq_ai.urlopen(req, timeout=45) as r:
+                return _json_ai.loads(r.read())
+        try:
+            res = await loop.run_in_executor(None, _compose)
+            reply = (res.get('reply') or '').strip()
+            if reply:
+                with db() as conn, conn.cursor() as c:
+                    c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+                    r2 = c.fetchone()
+                ah = int(r2['tg_access_hash']) if r2 and r2['tg_access_hash'] else 0
+                peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+                global _tg_priority
+                _tg_priority += 1
+                try:
+                    await _human_send(peer, tg_id, reply, 'KI')
+                    _ai_log(tg_id, 'answered_reply', reply[:200], True)
+                    sent = True
+                finally:
+                    _tg_priority = max(0, _tg_priority - 1)
+        except Exception as e:
+            print(f'compose/send after answer error: {e}')
+            _ai_log(tg_id, 'answer_compose_error', str(e)[:200], False)
+
+    # 2) Teach it permanently so it won't need to ask this again.
+    if body.learn and AI_ENGINE_URL and AI_ENGINE_TOKEN:
+        loop = asyncio.get_event_loop()
+        fact = f'Frage: {question}\nAntwort/Regel: {ans}'
+        kpayload = {'content': fact}
+
+        def _learn():
+            req = _ureq_ai.Request(AI_ENGINE_URL + '/knowledge', data=_json_ai.dumps(kpayload).encode(),
+                                   headers={'Content-Type': 'application/json',
+                                            'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+            with _ureq_ai.urlopen(req, timeout=30) as r:
+                return r.read()
+        try:
+            await loop.run_in_executor(None, _learn)
+        except Exception as e:
+            print(f'learn-from-answer error: {e}')
+
+    return {'ok': True, 'sent': sent}
 
 # Per-chat coach (admin): proxy to the engine so the token stays server-side
 class CoachProxyIn(BaseModel):

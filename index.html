@@ -2066,6 +2066,14 @@
           <div style="font-size:10px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">🟢 Jetzt online</div>
           <div id="online-list" style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto;"></div>
         </div>
+        <!-- KI fragt dich -->
+        <div id="aiq-panel" style="display:none;padding:8px 12px;background:rgba(99,102,241,0.12);border-bottom:1px solid rgba(99,102,241,0.3);">
+          <div onclick="toggleAiqList()" style="font-size:11px;font-weight:800;color:#a5b4fc;display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+            <span>🙋 KI fragt dich (<span id="aiq-count">0</span>)</span>
+            <span id="aiq-toggle" style="font-size:10px;color:var(--text3);font-weight:600;">anzeigen ▾</span>
+          </div>
+          <div id="aiq-list" style="display:none;flex-direction:column;gap:8px;margin-top:8px;max-height:300px;overflow-y:auto;"></div>
+        </div>
         <!-- Follow-up Radar -->
         <div id="radar-panel" style="display:none;padding:8px 12px;background:rgba(255,92,122,0.10);border-bottom:1px solid rgba(255,92,122,0.25);">
           <div onclick="toggleRadarList()" style="font-size:11px;font-weight:800;color:#ff5c7a;display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
@@ -4271,6 +4279,69 @@ if (checkAuth()) {
   setTimeout(loadRadar, 3000);
   setInterval(loadRadar, 60000);
 
+  // ── KI fragt dich (questions the AI raises when unsure) ──
+  let _aiqItems = [];
+  let _aiqOpen = false;
+  async function loadAiq() {
+    try {
+      const items = await chatApiGet('/ai/questions');
+      _aiqItems = Array.isArray(items) ? items : [];
+      const panel = document.getElementById('aiq-panel');
+      const cnt = document.getElementById('aiq-count');
+      if (cnt) cnt.textContent = _aiqItems.length;
+      if (panel) panel.style.display = _aiqItems.length ? 'block' : 'none';
+      // auto-open the list when there are questions so they don't get missed
+      if (_aiqItems.length && !_aiqOpen) toggleAiqList();
+      if (!_aiqItems.length) _aiqOpen = false;
+      renderAiqList();
+    } catch (e) {}
+  }
+  function toggleAiqList() {
+    _aiqOpen = !_aiqOpen;
+    const list = document.getElementById('aiq-list');
+    const tog = document.getElementById('aiq-toggle');
+    if (list) list.style.display = _aiqOpen ? 'flex' : 'none';
+    if (tog) tog.textContent = _aiqOpen ? 'verbergen ▴' : 'anzeigen ▾';
+  }
+  function renderAiqList() {
+    const list = document.getElementById('aiq-list');
+    if (!list) return;
+    if (!_aiqItems.length) { list.innerHTML = ''; return; }
+    list.innerHTML = _aiqItems.map(q => {
+      const name = _escRadar(q.internal_name || q.anon_id || q.tg_id);
+      const fanMsg = q.fan_message ? `<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Fan: „${_escRadar(q.fan_message)}"</div>` : '';
+      return `<div style="background:rgba(255,255,255,.04);border:1px solid rgba(99,102,241,.25);border-radius:9px;padding:9px;">
+        <div style="font-size:11px;color:#a5b4fc;font-weight:700;margin-bottom:3px;cursor:pointer;" onclick="openConv('${q.tg_id}','${q.anon_id||''}')">💬 ${name}</div>
+        ${fanMsg}
+        <div style="font-size:13px;color:var(--text);margin-bottom:7px;">🙋 ${_escRadar(q.question)}</div>
+        <div style="display:flex;gap:6px;">
+          <input id="aiq-ans-${q.id}" placeholder="Deine Antwort…" onkeydown="if(event.key==='Enter')answerAiq(${q.id})" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;padding:6px 8px;">
+          <button onclick="answerAiq(${q.id})" style="background:#6366f1;border:none;border-radius:7px;color:#fff;font-size:12px;font-weight:700;padding:6px 12px;cursor:pointer;flex-shrink:0;">Senden</button>
+        </div>
+        <div id="aiq-msg-${q.id}" style="font-size:11px;color:var(--text3);margin-top:4px;"></div>
+      </div>`;
+    }).join('');
+  }
+  async function answerAiq(qid) {
+    const inp = document.getElementById('aiq-ans-' + qid);
+    const msg = document.getElementById('aiq-msg-' + qid);
+    const ans = (inp && inp.value || '').trim();
+    if (!ans) { if (msg) msg.textContent = 'Bitte eine Antwort eintippen.'; return; }
+    if (msg) msg.textContent = '⏳ KI antwortet dem Fan…';
+    try {
+      const r = await chatApiFetch('/ai/questions/' + qid + '/answer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer: ans, learn: true })
+      });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok && d.ok) { loadAiq(); }
+      else if (msg) msg.textContent = 'Fehler: ' + (d.detail || ('HTTP ' + r.status));
+    } catch(e) { if (msg) msg.textContent = 'Fehler: ' + (e && e.message); }
+  }
+  window.loadAiq = loadAiq; window.toggleAiqList = toggleAiqList; window.answerAiq = answerAiq;
+  setTimeout(loadAiq, 3500);
+  setInterval(loadAiq, 45000);
+
   // Debounce: coalesce rapid WS-triggered rebuilds into one render (~smoother, keeps scroll)
   let _convRenderPending = null, _convRenderTimer = null;
   function renderConvList(convs) {
@@ -5417,6 +5488,7 @@ if (checkAuth()) {
         break;
       case 'notification': {
         if (msg.notif_type === 'paypal' || msg.notif_type === 'revolut') { try { showPayToast(msg.text || 'Money received', msg.notif_type); } catch(e){} }
+        if (msg.notif_type === 'ai_question') { try { if (window.loadAiq) loadAiq(); } catch(e){} }
         // Only badge for new_sub and sale — NOT messages
         if (msg.notif_type === 'message') break;
         const nb = document.getElementById('notif-badge');
