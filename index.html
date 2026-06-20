@@ -4606,6 +4606,7 @@ if (checkAuth()) {
         <button onclick="insertPricelistSexchat()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,92,122,.35);background:rgba(255,92,122,.08);color:#ff5c7a;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💬 Pricelist Sexchat</button>
         <button onclick="insertPricelistContent()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:10px;">🎬 Pricelist Content</button>
         <button onclick="openHandSigns()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">✋ Fake Check Hand Signs</button>
+        <button onclick="openVoiceNote()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(236,72,153,.4);background:rgba(236,72,153,.1);color:#ec5c9c;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🎤 Voice Note (Maries Stimme)</button>
         <button onclick="insertPayPal()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💙 Insert PayPal</button>
         <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
         <button onclick="insertPaysafecard()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);color:#ffa500;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🎫 Paysafecard</button>
@@ -7904,6 +7905,72 @@ async function sendVaultFile(filename) {
 }
 
 // vault loading is handled directly in showPage
+
+// ── VOICE NOTES (Marie's cloned voice via ElevenLabs) ─────────────────────────
+function _vnEnsureOverlay() {
+  if (document.getElementById('voicenote-overlay')) return;
+  const ov = document.createElement('div');
+  ov.id = 'voicenote-overlay';
+  ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;align-items:center;justify-content:center;padding:20px;';
+  ov.onclick = function(e){ if (e.target === ov) ov.style.display='none'; };
+  ov.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:460px;width:100%;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);">
+        <div style="font-size:15px;font-weight:700;color:var(--text);">🎤 Voice Note in Maries Stimme</div>
+        <button onclick="document.getElementById('voicenote-overlay').style.display='none'" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1;">×</button>
+      </div>
+      <div style="padding:16px;">
+        <textarea id="voicenote-text" rows="4" maxlength="800" placeholder="Text eintippen, der als Sprachnachricht gesendet wird…" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;padding:10px;resize:vertical;"></textarea>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;gap:10px;">
+          <span id="voicenote-status" style="font-size:12px;color:var(--text2);"></span>
+          <button id="voicenote-send" onclick="sendVoiceNote()" style="padding:9px 18px;border-radius:8px;border:none;background:#ec5c9c;color:#fff;font-size:13px;font-weight:700;cursor:pointer;">🎤 Senden</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+}
+
+async function openVoiceNote() {
+  const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
+  if (!tgId) { alert('Erst einen Chat öffnen.'); return; }
+  _vnEnsureOverlay();
+  document.getElementById('voicenote-overlay').style.display = 'flex';
+  const ta = document.getElementById('voicenote-text');
+  const st = document.getElementById('voicenote-status');
+  if (st) st.textContent = '';
+  if (ta) { ta.value = ''; setTimeout(()=>ta.focus(), 50); }
+  // Hint if the voice feature isn't configured yet
+  try {
+    const r = await fetch('/api/voice/status');
+    const d = r.ok ? await r.json() : {};
+    if (!d.configured && st) { st.style.color = '#ffb4b4'; st.textContent = '⚠️ ElevenLabs noch nicht eingerichtet (Railway-Variablen).'; }
+  } catch(_) {}
+}
+
+async function sendVoiceNote() {
+  const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
+  if (!tgId) { alert('Kein Chat offen.'); return; }
+  const ta = document.getElementById('voicenote-text');
+  const st = document.getElementById('voicenote-status');
+  const btn = document.getElementById('voicenote-send');
+  const text = (ta.value || '').trim();
+  if (!text) { if (st){ st.style.color='#ffb4b4'; st.textContent='Bitte Text eintippen.'; } return; }
+  if (btn) btn.disabled = true;
+  if (st) { st.style.color = 'var(--text2)'; st.textContent = '⏳ Erzeuge Stimme…'; }
+  try {
+    const r = await fetch('/api/voice/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tgId, text }) });
+    let d = {}; try { d = await r.json(); } catch(_) {}
+    if (r.ok && d.ok) {
+      document.getElementById('voicenote-overlay').style.display = 'none';
+      setTimeout(function(){ if (window.loadMsgs) loadMsgs(); }, 1500);
+    } else {
+      if (st) { st.style.color = '#ffb4b4'; st.textContent = 'Fehler: ' + (d.detail || ('HTTP ' + r.status)); }
+    }
+  } catch(e) {
+    if (st) { st.style.color = '#ffb4b4'; st.textContent = 'Fehler: ' + (e && e.message); }
+  }
+  if (btn) btn.disabled = false;
+}
 
 // ── FAKE CHECK HAND SIGNS ─────────────────────────────────────────────────────
 // Dedicated picker for Marie's hand-sign clips/photos, stored in their own vault

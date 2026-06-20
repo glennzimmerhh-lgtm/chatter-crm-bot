@@ -42,6 +42,15 @@ os.makedirs(CALLS_DIR, exist_ok=True)
 for _f in CALL_FOLDERS:
     os.makedirs(os.path.join(CALLS_DIR, _f), exist_ok=True)
 
+# ── ElevenLabs voice notes (Marie's cloned voice) ─────────────────────────────
+# Set these in Railway → Worker → Variables (never in code):
+#   ELEVENLABS_API_KEY   your ElevenLabs API key
+#   ELEVENLABS_VOICE_ID  the voice_id of Marie's cloned voice
+#   ELEVENLABS_MODEL     (optional) default 'eleven_multilingual_v2'
+ELEVENLABS_API_KEY = os.environ.get('ELEVENLABS_API_KEY', '')
+ELEVENLABS_VOICE_ID = os.environ.get('ELEVENLABS_VOICE_ID', '')
+ELEVENLABS_MODEL = os.environ.get('ELEVENLABS_MODEL', 'eleven_multilingual_v2')
+
 # ── pytgcalls (optional — fake call feature) ──────────────────────────────────
 _PYTGCALLS_ERR = None
 try:
@@ -2993,6 +3002,97 @@ async def vault_send(body: VaultSendIn):
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'File not found in vault')
     asyncio.create_task(_send_vault_file_bg(body, fpath))
+    return {'ok': True}
+
+# ── VOICE NOTES (Marie's cloned voice via ElevenLabs) ─────────────────────────
+class VoiceSendIn(BaseModel):
+    tg_id: str
+    text: str
+
+def _elevenlabs_tts_mp3(text: str) -> bytes:
+    """Call ElevenLabs and return MP3 audio bytes for the given text in Marie's voice."""
+    import json as _json_v
+    url = f'https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}'
+    payload = _json_v.dumps({
+        'text': text,
+        'model_id': ELEVENLABS_MODEL,
+        'voice_settings': {'stability': 0.5, 'similarity_boost': 0.85, 'style': 0.3, 'use_speaker_boost': True},
+    }).encode()
+    req = _urllib_req.Request(url, data=payload, method='POST', headers={
+        'xi-api-key': ELEVENLABS_API_KEY,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg',
+    })
+    with _urllib_req.urlopen(req, timeout=60) as r:
+        return r.read()
+
+def _mp3_to_ogg_opus(mp3_path: str, ogg_path: str) -> float:
+    """Convert MP3 → OGG/Opus (Telegram voice-note format). Returns duration in seconds."""
+    import subprocess, json as _json_v
+    subprocess.run(
+        ['ffmpeg', '-y', '-i', mp3_path, '-c:a', 'libopus', '-b:a', '48k', '-ar', '48000', '-ac', '1', ogg_path],
+        capture_output=True, timeout=60, check=True)
+    try:
+        res = subprocess.run(['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', ogg_path],
+                             capture_output=True, text=True, timeout=10)
+        return float(_json_v.loads(res.stdout)['format']['duration'])
+    except Exception:
+        return 0.0
+
+async def _send_voice_note_bg(tg_id: str, text: str):
+    global _tg_priority
+    _tg_priority += 1
+    import tempfile
+    mp3_path = ogg_path = None
+    loop = asyncio.get_event_loop()
+    try:
+        mp3 = await loop.run_in_executor(None, _elevenlabs_tts_mp3, text)
+        fd1, mp3_path = tempfile.mkstemp(suffix='.mp3'); os.close(fd1)
+        with open(mp3_path, 'wb') as f:
+            f.write(mp3)
+        fd2, ogg_path = tempfile.mkstemp(suffix='.ogg'); os.close(fd2)
+        dur = await loop.run_in_executor(None, _mp3_to_ogg_opus, mp3_path, ogg_path)
+        with db() as conn, conn.cursor() as c:
+            c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
+            row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        attrs = [types.DocumentAttributeAudio(duration=int(dur or 0), voice=True)]
+        await tg_client.send_file(peer, ogg_path, voice_note=True, attributes=attrs)
+        save_msg(tg_id, '[🎤 Voice Note]', 'out', 'Voice')
+        await ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id,
+            'text': '[🎤 Voice Note]', 'direction': 'out', 'timestamp': datetime.now().isoformat()})
+    except Exception as e:
+        print(f'❌ voice note error for {tg_id}: {e}')
+        try:
+            await ws_manager.broadcast({'type': 'notification', 'notif_type': 'error', 'tg_id': tg_id,
+                'text': f'Voice Note fehlgeschlagen: {e}', 'timestamp': datetime.now().isoformat()})
+        except Exception:
+            pass
+    finally:
+        for p in (mp3_path, ogg_path):
+            if p:
+                try: os.remove(p)
+                except Exception: pass
+        _tg_priority = max(0, _tg_priority - 1)
+
+@app.get('/voice/status')
+def voice_status():
+    """Tells the UI whether the voice feature is configured (so the button can hint)."""
+    return {'configured': bool(ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID)}
+
+@app.post('/voice/send')
+async def voice_send(body: VoiceSendIn):
+    if not (ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID):
+        raise HTTPException(400, 'Voice nicht konfiguriert: ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID in Railway setzen.')
+    txt = (body.text or '').strip()
+    if not txt:
+        raise HTTPException(400, 'Kein Text angegeben.')
+    if len(txt) > 800:
+        raise HTTPException(400, 'Text zu lang (max 800 Zeichen).')
+    if not tg_client or not tg_client.is_connected():
+        raise HTTPException(503, 'Userbot nicht verbunden')
+    asyncio.create_task(_send_voice_note_bg(body.tg_id, txt))
     return {'ok': True}
 
 VIDEO_EXTS = ('mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
