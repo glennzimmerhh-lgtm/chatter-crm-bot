@@ -4566,6 +4566,15 @@ if (checkAuth()) {
     inp.focus();
   };
 
+  window.insertBankTransfer = function() {
+    const inp = document.getElementById('chat-input');
+    if (!inp) return;
+    inp.value = `Marie Böhmer\nLT77 3250 0927 2566 1770\nBIC: REVOLT21\n✨✨\nWichtig: Verwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
+    inp.focus();
+  };
+
   window.insertPricelistCalls = function() {
     const inp = document.getElementById('chat-input');
     if (!inp) return;
@@ -4679,6 +4688,7 @@ if (checkAuth()) {
         <button onclick="openHandSigns()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">✋ Fake Check Hand Signs</button>
         <button onclick="openVoiceNote()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(236,72,153,.4);background:rgba(236,72,153,.1);color:#ec5c9c;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🎤 Voice Note (Maries Stimme)</button>
         <button onclick="insertPayPal()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💙 Insert PayPal</button>
+        <button onclick="insertBankTransfer()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(120,200,140,.35);background:rgba(120,200,140,.1);color:#7ec88c;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🏦 Bank Transfer</button>
         <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
         <button onclick="insertPaysafecard()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);color:#ffa500;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🎫 Paysafecard</button>
       </div>
@@ -5331,6 +5341,9 @@ if (checkAuth()) {
         /(📷|photo|image|jpeg|png|gif|foto)/i.test(m.text);
       const isVideo = m.tg_msg_id > 0 &&
         /(🎬|video|mp4|mov)/i.test(m.text);
+      // Document messages (PDF, audio, zip, any file) — were not openable before.
+      const isDoc = m.tg_msg_id > 0 && !isPhoto && !isVideo &&
+        /(📎|document|dokument|datei|\.pdf|\.zip|\.docx?|\.xlsx?|\.txt|\.mp3|\.ogg|\.wav|voice|sticker)/i.test(m.text);
 
       let mediaEl = '';
       if ((isPhoto || isVideo) && dir === 'in') {
@@ -5344,6 +5357,9 @@ if (checkAuth()) {
               onerror="this.onerror=null;this.style.display='none';if(this.nextSibling)this.nextSibling.style.display='inline'"
               title="Drag into sale proof area">`
           : `<div style="padding:8px;background:rgba(0,0,0,.2);border-radius:8px;font-size:11px;color:var(--text3);margin-bottom:4px;">🎬 Video — <button onclick="attachMsgAsProof('${currentChatTgId}',${m.tg_msg_id})" style="background:none;border:none;color:#ffd166;cursor:pointer;font-size:11px;font-weight:700;">📎 Attach as proof</button></div>`;
+      } else if (isDoc && dir === 'in') {
+        const mediaUrl = `/api/messages/${currentChatTgId}/${m.tg_msg_id}/media`;
+        mediaEl = `<a href="${mediaUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;padding:7px 11px;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.35);border-radius:8px;font-size:12px;color:#4a9eff;font-weight:700;text-decoration:none;margin-bottom:4px;">📎 Dokument öffnen</a>`;
       }
 
       // 📎 Attach-to-sale — only if has media and no inline preview OR for video
