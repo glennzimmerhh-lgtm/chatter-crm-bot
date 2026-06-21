@@ -3120,6 +3120,8 @@ class VaultSendIn(BaseModel):
     filename: str   # can be "folder/file.jpg" or "file.jpg"
     caption: str = ''
 
+_recent_vault_sends = {}   # (tg_id|filename) -> datetime of last queued send (de-dupe guard)
+
 @app.post('/vault/send')
 async def vault_send(body: VaultSendIn):
     """Queue a vault file for sending. Returns instantly; the upload runs in the background
@@ -3130,7 +3132,19 @@ async def vault_send(body: VaultSendIn):
         raise HTTPException(400, 'Invalid path')
     fpath = os.path.join(VAULT_DIR, body.filename)
     if not os.path.isfile(fpath):
-        raise HTTPException(404, 'File not found in vault')
+        raise HTTPException(404, 'Diese Datei ist im Vault nicht (mehr) vorhanden — bitte neu hochladen.')
+    # De-dupe: ignore the SAME file to the SAME chat within 90s. This kills the "sent 2-3 times"
+    # problem caused by chatters re-clicking when a slow upload shows no immediate feedback.
+    now = datetime.now()
+    key = f'{body.tg_id}|{body.filename}'
+    last = _recent_vault_sends.get(key)
+    if last and (now - last).total_seconds() < 90:
+        raise HTTPException(429, 'Diese Datei wird gerade an diesen Chat gesendet — bitte einen Moment warten (kein doppeltes Senden).')
+    _recent_vault_sends[key] = now
+    # prune old entries so the dict can't grow forever
+    if len(_recent_vault_sends) > 500:
+        for k in [k for k, t in _recent_vault_sends.items() if (now - t).total_seconds() > 300]:
+            _recent_vault_sends.pop(k, None)
     asyncio.create_task(_send_vault_file_bg(body, fpath))
     return {'ok': True}
 
@@ -3300,8 +3314,17 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
         try:
             await tg_client.send_file(peer, fpath, **send_kwargs)
         except Exception as send_err:
-            # Last-resort fallback: deliver as a plain document so it never silently fails.
-            print(f'⚠️  video/file send failed ({send_err}); retrying as document')
+            # IMPORTANT: a timeout / flood / connection drop on a SLOW upload may mean the file
+            # ACTUALLY went through — retrying then sends it twice (the duplicate bug the chatters
+            # saw). So only fall back to a plain document for genuine FORMAT rejections, never for
+            # timeout/connection errors.
+            _es = str(send_err).lower()
+            _maybe_delivered = isinstance(send_err, (asyncio.TimeoutError, TimeoutError)) or any(
+                k in _es for k in ('flood', 'timeout', 'timed out', 'connection', 'disconnect', 'reset'))
+            if _maybe_delivered:
+                print(f'⚠️  vault send error ({send_err}) — NOT retrying to avoid a duplicate')
+                raise
+            print(f'⚠️  media rejected ({send_err}); retrying ONCE as document')
             await tg_client.send_file(peer, fpath, caption=body.caption or None,
                                       force_document=True)
         display_name = body.filename.split('/')[-1]

@@ -7959,20 +7959,28 @@ function closeVaultPicker(e) {
   document.getElementById('vault-picker-overlay').style.display = 'none';
 }
 
+window._vaultSendingSet = window._vaultSendingSet || {};
 async function sendVaultFile(filename) {
   const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
   if (!tgId) return;
+  // Guard: block a second click for the SAME file+chat while one is in flight (stops 2-3x sends)
+  const key = tgId + '|' + filename;
+  if (window._vaultSendingSet[key]) { return; }
+  window._vaultSendingSet[key] = true;
+  setTimeout(function(){ delete window._vaultSendingSet[key]; }, 90000);
   const ov = document.getElementById('vault-picker-overlay');
   if (ov) ov.style.display = 'none';
-  // Plain fetch (no abort timeout) — backend queues the upload and returns instantly
+  try { if (window.showToast) showToast('📤 wird gesendet…'); } catch(_) {}
   try {
     const r = await fetch('/api/vault/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tgId, filename }) });
     let d = {}; try { d = await r.json(); } catch(_) {}
     if (r.ok && d.ok) { setTimeout(function(){ if (window.loadMsgs) loadMsgs(); }, 800); }
-    else if (!r.ok) { alert('Send failed: ' + (d.detail || ('HTTP ' + r.status))); }
+    else if (r.status === 429) { /* duplicate guard on server — already sending, do nothing */ }
+    else if (!r.ok) { delete window._vaultSendingSet[key]; alert('Senden fehlgeschlagen: ' + (d.detail || ('HTTP ' + r.status))); }
   } catch(e) {
+    delete window._vaultSendingSet[key];
     if (e && e.name === 'AbortError') return;
-    alert('Error: ' + (e && e.message));
+    alert('Fehler: ' + (e && e.message));
   }
 }
 
@@ -8131,13 +8139,19 @@ async function hsUpload(input) {
 async function sendHandSign(filename) {
   const tgId = window._getCurrentTgId ? window._getCurrentTgId() : null;
   if (!tgId) { alert('Kein Chat offen.'); return; }
+  const key = tgId + '|' + filename;
+  window._vaultSendingSet = window._vaultSendingSet || {};
+  if (window._vaultSendingSet[key]) { return; }
+  window._vaultSendingSet[key] = true;
+  setTimeout(function(){ delete window._vaultSendingSet[key]; }, 90000);
   const ov = document.getElementById('handsign-overlay');
   try {
     const r = await fetch('/api/vault/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tgId, filename }) });
     let d = {}; try { d = await r.json(); } catch(_) {}
     if (r.ok && d.ok) { if (ov) ov.style.display='none'; setTimeout(function(){ if (window.loadMsgs) loadMsgs(); }, 800); }
-    else { alert('Senden fehlgeschlagen: ' + (d.detail || ('HTTP ' + r.status))); }
-  } catch(e) { alert('Fehler: ' + (e && e.message)); }
+    else if (r.status === 429) { if (ov) ov.style.display='none'; }
+    else { delete window._vaultSendingSet[key]; alert('Senden fehlgeschlagen: ' + (d.detail || ('HTTP ' + r.status))); }
+  } catch(e) { delete window._vaultSendingSet[key]; alert('Fehler: ' + (e && e.message)); }
 }
 
 async function hsDelete(filename) {
