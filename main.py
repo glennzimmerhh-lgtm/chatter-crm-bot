@@ -51,6 +51,9 @@ ELEVENLABS_API_KEY = os.environ.get('ELEVENLABS_API_KEY', '')
 ELEVENLABS_VOICE_ID = os.environ.get('ELEVENLABS_VOICE_ID', '')
 ELEVENLABS_MODEL = os.environ.get('ELEVENLABS_MODEL', 'eleven_multilingual_v2')
 
+# Secret token protecting the inbound payment webhook (Revolut etc.). Set in Railway.
+PAYMENT_WEBHOOK_TOKEN = os.environ.get('PAYMENT_WEBHOOK_TOKEN', '')
+
 # ── pytgcalls (optional — fake call feature) ──────────────────────────────────
 _PYTGCALLS_ERR = None
 try:
@@ -2921,6 +2924,133 @@ def get_notifications(limit: int = 80):
     # Sort all events by timestamp desc, return top N
     events.sort(key=lambda x: x['ts'], reverse=True)
     return events[:limit]
+
+# ── INBOUND PAYMENT WEBHOOK (for Revolut etc. that send no email) ─────────────
+# Push a received payment in from outside (Revolut Business webhook, or a phone
+# automation that catches the Revolut push notification) → same real-time toast
+# + feed entry as PayPal. Protected by a secret token you set in Railway.
+class PaymentWebhookIn(BaseModel):
+    amount: str = ''
+    currency: str = 'EUR'
+    sender: str = ''
+    note: str = ''
+    provider: str = 'revolut'
+
+_recent_webhook_pays = {}   # de-dupe identical forwards
+
+@app.post('/webhook/payment')
+async def payment_webhook(body: PaymentWebhookIn, token: str = ''):
+    if not PAYMENT_WEBHOOK_TOKEN:
+        raise HTTPException(503, 'Webhook nicht konfiguriert: PAYMENT_WEBHOOK_TOKEN in Railway setzen.')
+    if token != PAYMENT_WEBHOOK_TOKEN:
+        raise HTTPException(403, 'invalid token')
+    amount = str(body.amount or '').replace(',', '.').strip()
+    # keep only number-ish chars in case "€12.50" or "12.50 EUR" is forwarded
+    import re as _re_w
+    m = _re_w.search(r'\d+(?:\.\d+)?', amount)
+    amount = m.group(0) if m else amount
+    currency = (body.currency or 'EUR').strip()[:8]
+    provider = (body.provider or 'revolut').strip().lower()[:20]
+    sender = (body.sender or body.note or '').strip()[:200]
+    now = datetime.now()
+    # de-dupe: same provider+amount+sender within 120s = one payment forwarded twice
+    dkey = f'{provider}|{amount}|{sender}'
+    last = _recent_webhook_pays.get(dkey)
+    if last and (now - last).total_seconds() < 120:
+        return {'ok': True, 'deduped': True}
+    _recent_webhook_pays[dkey] = now
+    if len(_recent_webhook_pays) > 300:
+        for k in [k for k, t in _recent_webhook_pays.items() if (now - t).total_seconds() > 300]:
+            _recent_webhook_pays.pop(k, None)
+    uid = f'wh_{provider}_{int(now.timestamp()*1000)}'
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('''INSERT INTO paypal_notifications
+                (mail_uid, amount, currency, sender, subject, provider, ts, seen)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,0)''',
+                (uid, amount, currency, sender, body.note[:300], provider, now.isoformat()))
+    except Exception as e:
+        print(f'webhook payment store error: {e}')
+    amt = (amount + ' ' + currency).strip() or 'Betrag unbekannt'
+    await ws_manager.broadcast({
+        'type': 'notification', 'notif_type': provider,
+        'amount': amount, 'currency': currency,
+        'text': f'Money received ({amt})', 'timestamp': now.isoformat(),
+    })
+    print(f'💰 webhook {provider} received: {amt}')
+    return {'ok': True}
+
+# ── VERIFY A PAYMENT SCREENSHOT (chatter clicks the screenshot → AI reads it) ──
+class VerifyScreenshotIn(BaseModel):
+    tg_id: str
+    msg_id: int
+
+@app.post('/payment/verify')
+async def payment_verify(body: VerifyScreenshotIn):
+    if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+        raise HTTPException(503, 'AI-Engine nicht konfiguriert (AI_ENGINE_URL / AI_ENGINE_TOKEN fehlen)')
+    if not tg_client or not tg_client.is_connected():
+        raise HTTPException(503, 'Userbot nicht verbunden')
+    import base64
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
+            row = c.fetchone()
+        ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
+        peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+        msgs = await tg_client.get_messages(peer, ids=body.msg_id)
+        if not msgs or not msgs.media:
+            raise HTTPException(404, 'Keine Bilddatei in dieser Nachricht')
+        data = await msgs.download_media(file=bytes)
+        if not data:
+            raise HTTPException(404, 'Download fehlgeschlagen')
+        if len(data) > 9_000_000:
+            raise HTTPException(413, 'Bild zu groß')
+        b64 = base64.b64encode(data).decode()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f'Download-Fehler: {e}')
+
+    loop = asyncio.get_event_loop()
+    payload = {'image_b64': b64}
+
+    def _call():
+        req = _ureq_ai.Request(AI_ENGINE_URL + '/verify-payment', data=_json_ai.dumps(payload).encode(),
+                               headers={'Content-Type': 'application/json',
+                                        'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+        with _ureq_ai.urlopen(req, timeout=60) as r:
+            return _json_ai.loads(r.read())
+    try:
+        res = await loop.run_in_executor(None, _call)
+    except Exception as e:
+        raise HTTPException(502, f'Engine-Fehler: {e}')
+
+    if res.get('completed') and res.get('amount'):
+        amount = str(res.get('amount'))
+        currency = (res.get('currency') or 'EUR')
+        provider_raw = (res.get('provider') or 'revolut').lower()
+        prov_key = 'revolut' if 'revol' in provider_raw else ('paypal' if 'paypal' in provider_raw else provider_raw)
+        now = datetime.now()
+        uid = f'shot_{body.tg_id}_{body.msg_id}'
+        try:
+            with db() as conn, conn.cursor() as c:
+                c.execute('SELECT 1 FROM paypal_notifications WHERE mail_uid=%s', (uid,))
+                if not c.fetchone():
+                    c.execute('''INSERT INTO paypal_notifications
+                        (mail_uid, amount, currency, sender, subject, provider, ts, seen)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,0)''',
+                        (uid, amount, currency, str(body.tg_id), 'per Screenshot bestätigt', prov_key, now.isoformat()))
+        except Exception as e:
+            print(f'verify store error: {e}')
+        amt = (amount + ' ' + currency).strip()
+        await ws_manager.broadcast({
+            'type': 'notification', 'notif_type': prov_key,
+            'amount': amount, 'currency': currency,
+            'text': f'Money received ({amt})', 'timestamp': now.isoformat(),
+        })
+        print(f'💰 screenshot verified {prov_key}: {amt}')
+    return res
 
 # ── VAULT ────────────────────────────────────────────────────────────────────
 ALLOWED_TYPES = {

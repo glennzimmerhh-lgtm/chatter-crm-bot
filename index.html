@@ -5367,8 +5367,13 @@ if (checkAuth()) {
         ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;">↑ Drag image into Report Sale to attach as proof</div>`
         : '';
 
+      // 💰 Verify-payment — on incoming photos (likely a payment screenshot)
+      const payBtn = isPhoto && dir === 'in'
+        ? `<button onclick="verifyPayment('${currentChatTgId}',${m.tg_msg_id},this)" style="display:inline-block;margin-top:3px;padding:4px 9px;background:rgba(120,200,140,.12);border:1px solid rgba(120,200,140,.4);border-radius:7px;font-size:11px;color:#7ec88c;font-weight:700;cursor:pointer;">💰 Zahlung prüfen</button>`
+        : '';
+
       return `<div class="msg-row">
-        <div class="msg-bubble msg-${dir}" id="${msgBubbleId}">${mediaEl}${displayText}${transBtn}${meta}</div>
+        <div class="msg-bubble msg-${dir}" id="${msgBubbleId}">${mediaEl}${displayText}${transBtn}${meta}${payBtn}</div>
         ${attachBtn}
       </div>`;
     }).join('');
@@ -5503,7 +5508,7 @@ if (checkAuth()) {
         if (msg.tg_id === currentChatTgId) loadMsgs();
         break;
       case 'notification': {
-        if (msg.notif_type === 'paypal' || msg.notif_type === 'revolut') { try { showPayToast(msg.text || 'Money received', msg.notif_type); } catch(e){} }
+        if (msg.notif_type === 'paypal' || msg.notif_type === 'revolut' || (msg.text && /money received/i.test(msg.text))) { try { showPayToast(msg.text || 'Money received', msg.notif_type); } catch(e){} }
         if (msg.notif_type === 'ai_question') { try { if (window.loadAiq) loadAiq(); } catch(e){} }
         // Only badge for new_sub and sale — NOT messages
         if (msg.notif_type === 'message') break;
@@ -8001,6 +8006,28 @@ async function sendVaultFile(filename) {
 }
 
 // vault loading is handled directly in showPage
+
+// ── VERIFY PAYMENT SCREENSHOT (chatter clicks → AI reads → Money received) ─────
+async function verifyPayment(tgId, msgId, btn) {
+  if (!tgId || !msgId) return;
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ KI prüft…'; }
+  try {
+    const r = await fetch('/api/payment/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tgId, msg_id: msgId }) });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) { if (btn){ btn.disabled=false; btn.textContent=old; } alert('Fehler: ' + (d.detail || ('HTTP ' + r.status))); return; }
+    if (d.completed && d.amount) {
+      if (btn) { btn.textContent = '✅ Zahlung bestätigt · ' + d.amount + ' ' + (d.currency||''); btn.style.color = '#7ec88c'; btn.style.borderColor = 'rgba(120,200,140,.7)'; }
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = '❌ keine gültige Zahlung'; btn.style.color = '#ff5c7a'; btn.style.borderColor = 'rgba(255,92,122,.5)'; }
+      const why = d.reason ? ('\n\n' + d.reason) : '';
+      alert('Die KI hat KEINE abgeschlossene Zahlung erkannt — also kein „Money received".' + why);
+    }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = old; }
+    alert('Fehler: ' + (e && e.message));
+  }
+}
 
 // ── VOICE NOTES (Marie's cloned voice via ElevenLabs) ─────────────────────────
 function _vnEnsureOverlay() {
