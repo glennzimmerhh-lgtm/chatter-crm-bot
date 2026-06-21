@@ -3270,6 +3270,36 @@ def _ffprobe_video_meta(fpath: str):
         print(f'ffprobe meta error: {e}')
         return 0, 0, 0
 
+IMAGE_EXTS = ('jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'bmp', 'tiff', 'tif')
+
+def _compress_image_for_send(fpath: str):
+    """Big vault images (chatters allow up to ~40MB) are far too large for a fast Telegram photo
+    and over 10MB can't even go as an inline photo. Downscale to max 2048px long edge as a
+    high-quality JPEG so it sends in seconds and shows inline. The ORIGINAL is left untouched.
+    Returns a temp path to send, or None to send the original as-is."""
+    try:
+        size = os.path.getsize(fpath)
+    except Exception:
+        return None
+    # Small images already send fast — leave them alone.
+    if size < 1_200_000:
+        return None
+    try:
+        import subprocess, tempfile
+        fd, out = tempfile.mkstemp(suffix='.jpg'); os.close(fd)
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', fpath,
+             '-vf', "scale='min(2048,iw)':'min(2048,ih)':force_original_aspect_ratio=decrease",
+             '-q:v', '3', out],
+            capture_output=True, timeout=40, check=True)
+        if os.path.isfile(out) and os.path.getsize(out) > 0:
+            return out
+        try: os.remove(out)
+        except Exception: pass
+    except Exception as e:
+        print(f'image compress error ({fpath}): {e}')
+    return None
+
 def _make_video_thumb(fpath: str):
     """Generate a JPEG thumbnail from a video via ffmpeg. Returns path or None."""
     try:
@@ -3301,6 +3331,8 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
         ext = body.filename.rsplit('.', 1)[-1].lower() if '.' in body.filename else ''
         send_kwargs = {'caption': body.caption or None}
         loop = asyncio.get_event_loop()
+        send_path = fpath
+        img_to_clean = None
         if ext in VIDEO_EXTS:
             dur, w, h = await loop.run_in_executor(None, _ffprobe_video_meta, fpath)
             thumb_to_clean = await loop.run_in_executor(None, _make_video_thumb, fpath)
@@ -3311,8 +3343,14 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
                     duration=dur or 0, w=w, h=h, supports_streaming=True)]
             if thumb_to_clean:
                 send_kwargs['thumb'] = thumb_to_clean
+        elif ext in IMAGE_EXTS:
+            # Big images (up to ~40MB) are the cause of the 10-minute photo sends. Downscale to a
+            # high-quality JPEG so it sends in seconds AND shows as an inline photo, not a slow file.
+            img_to_clean = await loop.run_in_executor(None, _compress_image_for_send, fpath)
+            if img_to_clean:
+                send_path = img_to_clean
         try:
-            await tg_client.send_file(peer, fpath, **send_kwargs)
+            await tg_client.send_file(peer, send_path, **send_kwargs)
         except Exception as send_err:
             # IMPORTANT: a timeout / flood / connection drop on a SLOW upload may mean the file
             # ACTUALLY went through — retrying then sends it twice (the duplicate bug the chatters
@@ -3325,7 +3363,7 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
                 print(f'⚠️  vault send error ({send_err}) — NOT retrying to avoid a duplicate')
                 raise
             print(f'⚠️  media rejected ({send_err}); retrying ONCE as document')
-            await tg_client.send_file(peer, fpath, caption=body.caption or None,
+            await tg_client.send_file(peer, send_path, caption=body.caption or None,
                                       force_document=True)
         display_name = body.filename.split('/')[-1]
         save_msg(body.tg_id, f'[📎 {display_name}]', 'out', 'Vault')
@@ -3344,11 +3382,12 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
         except Exception:
             pass
     finally:
-        if thumb_to_clean:
-            try:
-                os.remove(thumb_to_clean)
-            except Exception:
-                pass
+        for _tmp in (thumb_to_clean, locals().get('img_to_clean')):
+            if _tmp:
+                try:
+                    os.remove(_tmp)
+                except Exception:
+                    pass
         _tg_priority = max(0, _tg_priority - 1)
 
 # ── PLEDGES ──────────────────────────────────────────────────────────────────
