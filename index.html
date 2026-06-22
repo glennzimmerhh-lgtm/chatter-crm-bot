@@ -5439,8 +5439,17 @@ if (checkAuth()) {
   window.sendChatReply = async function sendChatReply() {
     const input = document.getElementById('chat-input');
     const sendBtn = document.querySelector('button[onclick="sendChatReply()"]') || document.getElementById('send-btn');
-    const text = input.value.trim();
+    let text = input.value.trim();
     if (!text || !currentChatTgId) return;
+    // Auto-translate English → German if the toggle is on (skips fixed scripts).
+    if (window._toGermanForSend && window._autoDE && window._autoDE()) {
+      const _orig = text;
+      if (sendBtn) { sendBtn.disabled = true; }
+      const prevPh = input.placeholder; input.value = ''; input.placeholder = '→ Deutsch…';
+      try { text = await window._toGermanForSend(_orig); } catch(_) {}
+      input.placeholder = prevPh;
+      if (sendBtn) { sendBtn.disabled = false; }
+    }
     input.value = ''; input.style.height = 'auto';
     const user = localStorage.getItem('crm_user') || 'Chatter';
 
@@ -7199,6 +7208,15 @@ window.showPage = function(page) {
       const sendBtn = rb.querySelector('button');
       rb.insertBefore(btn, sendBtn);
       btn.onclick = () => window.translateInput();
+      // Auto-DE toggle: when on, English text is auto-translated to German on send (chat + voice).
+      const autoBtn = document.createElement('button');
+      autoBtn.id = 'auto-de-btn';
+      autoBtn.title = 'Auto-Übersetzen: Englisch getippt → Deutsch gesendet (auch bei Voice). Skripte mit IBAN/PayPal/Preisen bleiben unverändert.';
+      autoBtn.style.cssText = 'border:1px solid rgba(34,197,94,.4);border-radius:12px;padding:10px 12px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap;';
+      function _renderAutoDE(){ const on = window._autoDE(); autoBtn.textContent = on ? '🇩🇪 Auto: AN' : '🇩🇪 Auto: aus'; autoBtn.style.background = on ? 'rgba(34,197,94,.18)' : 'rgba(255,255,255,.05)'; autoBtn.style.color = on ? '#22c55e' : 'var(--text3)'; }
+      autoBtn.onclick = () => { localStorage.setItem('crm_auto_de', window._autoDE() ? '0' : '1'); _renderAutoDE(); };
+      rb.insertBefore(autoBtn, sendBtn);
+      _renderAutoDE();
       // Add AI suggest button
       const suggestBtn = document.createElement('button');
       suggestBtn.id = 'ai-suggest-btn';
@@ -7300,6 +7318,19 @@ window.showPage = function(page) {
     const result = await _marieStyle(original);
     if (btn) { btn.textContent = '✨ DE'; btn.disabled = false; }
     if (result) inp.value = result;
+  };
+
+  // Expose for use by chat-send + voice-note flows
+  window._marieStyle = _marieStyle;
+  window._autoDE = function(){ return localStorage.getItem('crm_auto_de') !== '0'; }; // default ON
+  // Translate English → German on send, but leave fixed scripts (IBAN/PayPal/prices) untouched.
+  window._toGermanForSend = async function(text){
+    try {
+      if (!text || !window._autoDE || !window._autoDE()) return text;
+      if (/paypal\.me|revolut\.me|\bBIC\b|\bIBAN\b|€|\bLT\d{2}\b|\d{4}\s?\d{4}\s?\d{4}/i.test(text)) return text;
+      const de = await window._marieStyle(text);
+      return de || text;
+    } catch(_) { return text; }
   };
 })();
 </script>
@@ -8173,9 +8204,14 @@ async function sendVoiceNote() {
   const ta = document.getElementById('voicenote-text');
   const st = document.getElementById('voicenote-status');
   const btn = document.getElementById('voicenote-send');
-  const text = (ta.value || '').trim();
+  let text = (ta.value || '').trim();
   if (!text) { if (st){ st.style.color='#ffb4b4'; st.textContent='Bitte Text eintippen.'; } return; }
   if (btn) btn.disabled = true;
+  // Marie's voice is German → translate the chatter's English text first (when Auto-DE is on).
+  if (window._toGermanForSend && window._autoDE && window._autoDE()) {
+    if (st) { st.style.color = 'var(--text2)'; st.textContent = '→ Deutsch…'; }
+    try { const de = await window._toGermanForSend(text); if (de) { text = de; ta.value = de; } } catch(_) {}
+  }
   if (st) { st.style.color = 'var(--text2)'; st.textContent = '⏳ Erzeuge Stimme…'; }
   try {
     const r = await fetch('/api/voice/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tg_id: tgId, text }) });
