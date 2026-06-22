@@ -1846,6 +1846,8 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <div id="vault-upload-status" style="font-size:13px;display:none;"></div>
+        <span id="vault-tag-status" style="font-size:12px;color:var(--text2);"></span>
+        <button onclick="vaultTagAll()" id="vault-tag-btn" title="Die KI schaut sich jedes Bild/Video an und taggt es, damit sie beim Verkauf den perfekten PPV wählt" style="background:rgba(99,102,241,.15);color:#a5b4fc;border:1px solid rgba(99,102,241,.4);border-radius:8px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;">🏷️ KI-Tags generieren</button>
         <label id="vault-upload-label" style="background:var(--teal);color:#000;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;">
           ⬆️ Upload
           <input type="file" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,image/heic,image/heif,image/x-adobe-dng,image/dng,image/tiff,video/mp4,video/quicktime,.dng,.heic,.heif,.tiff,.jpg,.jpeg,.png" multiple onchange="vaultUpload(this)" style="display:none;">
@@ -3783,6 +3785,14 @@ function renderSalesPage() {
       <img src="/api${s.screenshot_url}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--border);">
     </a></td>`;
   }
+  const _adminSale = (typeof isAdmin === 'function' && isAdmin());
+  function _adminSaleBtns(s) {
+    if (!_adminSale || !s.id) return '';
+    return `<div style="margin-top:4px;display:flex;gap:4px;">
+      <button onclick="editSaleAdmin(${s.id})" title="Betrag/Produkt korrigieren" style="background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.35);color:#4a9eff;border-radius:5px;font-size:10px;font-weight:700;padding:2px 6px;cursor:pointer;">✏️ Korr.</button>
+      <button onclick="deleteSaleAdmin(${s.id})" title="Sale löschen" style="background:rgba(255,92,122,.12);border:1px solid rgba(255,92,122,.35);color:#ff5c7a;border-radius:5px;font-size:10px;font-weight:700;padding:2px 6px;cursor:pointer;">🗑️</button>
+    </div>`;
+  }
 
   // CRM sales rows (from Railway backend)
   const crmRows = [...filteredCrm].sort((a,b) => parseTs(b.timestamp)-parseTs(a.timestamp)).map(s => {
@@ -3796,7 +3806,7 @@ function renderSalesPage() {
       <td>${s.chatter||'—'}</td>
       <td style="color:#00d4aa;font-weight:600">${fmt(s.amount||0)}</td>
       <td style="color:#8888a0">${s.product||'—'}${s.notes ? ' · '+s.notes : ''}</td>
-      <td>${_statusBadge(s.status||'approved')}</td>
+      <td>${_statusBadge(s.status||'approved')}${_adminSaleBtns(s)}</td>
       ${_proofCell(s)}
     </tr>`;
   }).join('');
@@ -3825,6 +3835,41 @@ function renderSalesPage() {
     const panel = document.getElementById('pending-sales-panel');
     if (panel) { panel.style.display = 'block'; loadPendingSales(); }
   }
+}
+
+// ── ADMIN: Sale korrigieren / löschen ──
+function _reloadSalesLog() {
+  fetch('/api/sales').then(r => r.json()).then(data => {
+    if (window._setCrmSalesData) window._setCrmSalesData(data);
+    renderSalesPage();
+  }).catch(() => {});
+}
+async function editSaleAdmin(saleId) {
+  let cur = null;
+  try { cur = (crmSalesData || []).find(s => String(s.id) === String(saleId)); } catch(_) {}
+  const curAmt = cur ? (cur.amount || 0) : '';
+  const newAmt = prompt('Neuer Betrag in € für diesen Sale:', curAmt);
+  if (newAmt === null) return;
+  const amount = parseFloat(String(newAmt).replace(',', '.'));
+  if (isNaN(amount) || amount < 0) { alert('Ungültiger Betrag.'); return; }
+  const body = { amount };
+  const newProd = prompt('Produkt/Notiz (leer lassen = unverändert):', cur ? (cur.product || '') : '');
+  if (newProd !== null && newProd.trim() !== '') body.product = newProd.trim();
+  try {
+    const r = await fetch('/api/sales/' + saleId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) { alert('Fehler: ' + (d.detail || ('HTTP ' + r.status))); return; }
+    _reloadSalesLog();
+  } catch(e) { alert('Fehler: ' + (e && e.message)); }
+}
+async function deleteSaleAdmin(saleId) {
+  if (!confirm('Diesen Sale wirklich löschen? Das entfernt ihn auch aus dem Umsatz.')) return;
+  try {
+    const r = await fetch('/api/sales/' + saleId, { method: 'DELETE' });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) { alert('Fehler: ' + (d.detail || ('HTTP ' + r.status))); return; }
+    _reloadSalesLog();
+  } catch(e) { alert('Fehler: ' + (e && e.message)); }
 }
 
 // ── PENDING SALES ─────────────────────────────────────────────────────────────
@@ -6437,7 +6482,7 @@ async function refreshOnlinePanel() {
       }
     }
 
-    // Dashboard widget
+    // Dashboard widget — only the COUNT + the top spenders who are online (no 500-username list)
     const dashWidget = document.getElementById('dash-online-widget');
     const dashList = document.getElementById('dash-online-list');
     const dashCount = document.getElementById('dash-online-count');
@@ -6446,15 +6491,27 @@ async function refreshOnlinePanel() {
       else {
         dashWidget.style.display = 'block';
         if (dashCount) dashCount.textContent = online.length + ' online';
-        dashList.innerHTML = online.map(u => {
-          const name = u.internal_name || u.anon_id;
-          const spent = u.total_spent > 0 ? `${u.total_spent.toFixed(0)}€` : '—';
-          return `<div onclick="openConv('${u.tg_id}','${u.anon_id}');showPage('chat')" style="cursor:pointer;display:flex;align-items:center;gap:6px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:6px 10px;">
-            <span style="width:8px;height:8px;background:#22c55e;border-radius:50;flex-shrink:0;animation:pulse 1.5s infinite;"></span>
-            <span style="font-size:13px;font-weight:600;color:var(--text);">${name}</span>
-            <span style="font-size:11px;color:#22c55e;margin-left:4px;">${spent}</span>
-          </div>`;
-        }).join('');
+        // Top 5 by lifetime spend, only those who actually spent — the ones worth your attention
+        const topSpenders = [...online]
+          .sort((a, b) => (b.total_spent || 0) - (a.total_spent || 0))
+          .filter(u => (u.total_spent || 0) > 0)
+          .slice(0, 5);
+        if (!topSpenders.length) {
+          dashList.innerHTML = `<div style="font-size:12px;color:var(--text3);">${online.length} online — aktuell keine Top-Spender darunter.</div>`;
+        } else {
+          dashList.innerHTML = `<div style="font-size:11px;color:var(--text3);width:100%;margin-bottom:2px;">⭐ Top-Spender gerade online:</div>` +
+            topSpenders.map((u, i) => {
+              const name = u.internal_name || u.anon_id;
+              const spent = `${(u.total_spent || 0).toFixed(0)}€`;
+              const medal = ['🥇','🥈','🥉','4.','5.'][i] || '';
+              return `<div onclick="openConv('${u.tg_id}','${u.anon_id}');showPage('chat')" style="cursor:pointer;display:flex;align-items:center;gap:6px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:6px 10px;">
+                <span style="font-size:12px;">${medal}</span>
+                <span style="width:8px;height:8px;background:#22c55e;border-radius:50%;flex-shrink:0;animation:pulse 1.5s infinite;"></span>
+                <span style="font-size:13px;font-weight:600;color:var(--text);">${name}</span>
+                <span style="font-size:12px;font-weight:700;color:#22c55e;margin-left:4px;">${spent}</span>
+              </div>`;
+            }).join('');
+        }
       }
     }
   } catch(e) {}
@@ -7687,6 +7744,7 @@ async function loadVaultPage() {
   }
   _vaultFolders = folders || [];
   _vaultFiles   = files   || [];
+  try { await loadVaultTags(); } catch(_) {}
   renderVaultFolderList();
   renderVaultGrid(grid, _vaultFiles, false);
   const cnt = document.getElementById('vault-file-count');
@@ -7737,6 +7795,9 @@ function renderVaultGrid(grid, files, isPicker) {
     const label = f.name.split('/').pop();
     const folderTag = (!isPicker && f.folder)
       ? `<div style="font-size:9px;color:var(--teal);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📂 ${f.folder}</div>` : '';
+    const _tg = (!isPicker && window._vaultTagMap) ? window._vaultTagMap[f.name] : null;
+    const tagDesc = (_tg && _tg.description)
+      ? `<div title="${(_tg.description||'').replace(/"/g,'&quot;')}" style="font-size:9px;color:#a5b4fc;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🏷️ ${(_tg.description||'').replace(/</g,'&lt;')}</div>` : '';
 
     // Thumbnail — small server-generated preview (fast & clean); videos get a frame too
     const thumbSrc = '/api/vault/thumb/' + f.name.split('/').map(encodeURIComponent).join('/');
@@ -7769,6 +7830,7 @@ function renderVaultGrid(grid, files, isPicker) {
           ${!isPicker ? `<button onclick="event.stopPropagation();deleteVaultFile('${f.name}',this)" style="background:none;border:none;color:#ff5c7a;cursor:pointer;font-size:13px;padding:0 0 0 4px;flex-shrink:0;">✕</button>` : ''}
         </div>
         ${folderTag}
+        ${tagDesc}
       </div>
     </div>`;
   }).join('');
@@ -8006,6 +8068,41 @@ async function sendVaultFile(filename) {
 }
 
 // vault loading is handled directly in showPage
+
+// ── AUTO-TAG VAULT (KI beschreibt jeden Inhalt → wählt beim Verkauf den perfekten PPV) ──
+window._vaultTagMap = window._vaultTagMap || {};
+async function loadVaultTags() {
+  try {
+    const r = await fetch('/api/vault/tags');
+    window._vaultTagMap = r.ok ? await r.json() : {};
+  } catch(_) { window._vaultTagMap = {}; }
+}
+async function vaultTagAll() {
+  const btn = document.getElementById('vault-tag-btn');
+  const st = document.getElementById('vault-tag-status');
+  if (btn) btn.disabled = true;
+  let totalTagged = 0;
+  try {
+    while (true) {
+      if (st) st.textContent = '🏷️ KI taggt… (' + totalTagged + ')';
+      const r = await fetch('/api/vault/tag-all?limit=8', { method: 'POST' });
+      const d = await r.json().catch(()=>({}));
+      if (!r.ok) { if (st) st.textContent = 'Fehler: ' + (d.detail || ('HTTP ' + r.status)); break; }
+      totalTagged += (d.tagged_now || 0);
+      if (st) st.textContent = '🏷️ KI taggt… ' + totalTagged + ' / ' + (d.total || '?');
+      if ((d.remaining || 0) <= 0 || (d.tagged_now || 0) === 0) break;
+    }
+    // Compile the tags into the content guide the selling AI uses
+    if (st) st.textContent = '📚 baue Content-Guide…';
+    try { await fetch('/api/vault/build-content-guide', { method: 'POST' }); } catch(_) {}
+    await loadVaultTags();
+    if (typeof loadVaultPage === 'function') loadVaultPage();
+    if (st) st.textContent = '✓ ' + totalTagged + ' getaggt — KI kennt jetzt den Vault';
+  } catch(e) {
+    if (st) st.textContent = 'Fehler: ' + (e && e.message);
+  }
+  if (btn) btn.disabled = false;
+}
 
 // ── VERIFY PAYMENT SCREENSHOT (chatter clicks → AI reads → Money received) ─────
 async function verifyPayment(tgId, msgId, btn) {

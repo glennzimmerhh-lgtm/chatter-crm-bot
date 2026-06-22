@@ -398,6 +398,14 @@ def init_db():
                 executed INTEGER DEFAULT 0,
                 ts       TEXT NOT NULL
             )''')
+            # AI-generated tags/descriptions for vault media (so the AI picks the right PPV).
+            c.execute('''CREATE TABLE IF NOT EXISTS vault_tags (
+                filename    TEXT PRIMARY KEY,
+                description TEXT DEFAULT '',
+                tags        TEXT DEFAULT '',
+                spice       TEXT DEFAULT '',
+                updated_at  TEXT NOT NULL
+            )''')
             # Questions the AI asks the operator when it's unsure (instead of guessing).
             c.execute('''CREATE TABLE IF NOT EXISTS ai_questions (
                 id          SERIAL PRIMARY KEY,
@@ -2521,6 +2529,7 @@ def save_crm_settings(body: SettingsUpdate):
 
 # ── AI ENDPOINTS ─────────────────────────────────────────────────────────────
 import urllib.request as _urllib_req
+import urllib.error as _urllib_err
 import json as _json
 
 def _openai_chat(messages: list, max_tokens: int = 300, temperature: float = 0.8) -> str:
@@ -3052,6 +3061,144 @@ async def payment_verify(body: VerifyScreenshotIn):
         print(f'💰 screenshot verified {prov_key}: {amt}')
     return res
 
+# ── AUTO-TAG VAULT MEDIA (KI-Vision → der Verkaufs-KI hilft, den richtigen PPV zu wählen) ─
+_TAG_IMG_EXTS = ('jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'bmp', 'gif')
+_TAG_VID_EXTS = ('mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
+
+def _vault_thumb_b64(fpath: str, ext: str):
+    """Small ~768px JPEG (base64) of a vault file for cheap vision tagging. Videos → first frame."""
+    import base64, subprocess, tempfile
+    try:
+        fd, out = tempfile.mkstemp(suffix='.jpg'); os.close(fd)
+        cmd = ['ffmpeg', '-y']
+        if ext in _TAG_VID_EXTS:
+            cmd += ['-ss', '00:00:01']
+        cmd += ['-i', fpath, '-vframes', '1', '-vf', "scale='min(768,iw)':-2", out]
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.isfile(out) and os.path.getsize(out) > 0:
+            with open(out, 'rb') as f:
+                b = base64.b64encode(f.read()).decode()
+            try: os.remove(out)
+            except Exception: pass
+            return b
+        try: os.remove(out)
+        except Exception: pass
+    except Exception as e:
+        print(f'vault thumb b64 error ({fpath}): {e}')
+    return None
+
+def _all_vault_media():
+    """All taggable media files (relpaths), top-level + one folder deep, skipping system dirs."""
+    out = []
+    try:
+        for item in sorted(os.listdir(VAULT_DIR)):
+            if item.startswith('.') or item.startswith('_'):
+                continue
+            ip = os.path.join(VAULT_DIR, item)
+            if os.path.isfile(ip):
+                ext = item.rsplit('.', 1)[-1].lower() if '.' in item else ''
+                if ext in _TAG_IMG_EXTS or ext in _TAG_VID_EXTS:
+                    out.append(item)
+            elif os.path.isdir(ip):
+                for f in sorted(os.listdir(ip)):
+                    ext = f.rsplit('.', 1)[-1].lower() if '.' in f else ''
+                    if os.path.isfile(os.path.join(ip, f)) and (ext in _TAG_IMG_EXTS or ext in _TAG_VID_EXTS):
+                        out.append(f'{item}/{f}')
+    except Exception as e:
+        print(f'vault media scan error: {e}')
+    return out
+
+@app.get('/vault/tags')
+def vault_tags_list():
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT filename, description, tags, spice FROM vault_tags')
+        return {r['filename']: {'description': r['description'], 'tags': r['tags'], 'spice': r['spice']}
+                for r in c.fetchall()}
+
+@app.post('/vault/tag-all')
+async def vault_tag_all(limit: int = 8, force: bool = False):
+    """Tag up to `limit` still-untagged vault files via the engine's vision. The frontend calls
+    this in a loop until remaining=0. Returns progress so it stays well under any timeout."""
+    if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+        raise HTTPException(503, 'AI-Engine nicht konfiguriert')
+    all_files = _all_vault_media()
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT filename FROM vault_tags')
+        tagged = {r['filename'] for r in c.fetchall()}
+    todo = all_files if force else [f for f in all_files if f not in tagged]
+    batch = todo[:max(1, min(limit, 20))]
+    loop = asyncio.get_event_loop()
+    done = 0
+    for rel in batch:
+        fpath = os.path.join(VAULT_DIR, rel)
+        if not os.path.isfile(fpath):
+            continue
+        ext = rel.rsplit('.', 1)[-1].lower() if '.' in rel else ''
+        b64 = await loop.run_in_executor(None, _vault_thumb_b64, fpath, ext)
+        if not b64:
+            continue
+        payload = {'image_b64': b64, 'filename': rel}
+
+        def _call(p=payload):
+            req = _ureq_ai.Request(AI_ENGINE_URL + '/tag-image', data=_json_ai.dumps(p).encode(),
+                                   headers={'Content-Type': 'application/json',
+                                            'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+            with _ureq_ai.urlopen(req, timeout=60) as r:
+                return _json_ai.loads(r.read())
+        try:
+            res = await loop.run_in_executor(None, _call)
+        except Exception as e:
+            print(f'tag engine error {rel}: {e}')
+            continue
+        desc = (res.get('description') or '').strip()
+        tags = ', '.join(res.get('tags') or [])
+        spice = (res.get('spice') or '').strip()
+        try:
+            with db() as conn, conn.cursor() as c:
+                c.execute('''INSERT INTO vault_tags (filename, description, tags, spice, updated_at)
+                    VALUES (%s,%s,%s,%s,%s)
+                    ON CONFLICT (filename) DO UPDATE SET description=EXCLUDED.description,
+                      tags=EXCLUDED.tags, spice=EXCLUDED.spice, updated_at=EXCLUDED.updated_at''',
+                    (rel, desc[:300], tags[:300], spice[:10], datetime.now().isoformat()))
+            done += 1
+        except Exception as e:
+            print(f'tag store error {rel}: {e}')
+    remaining = max(0, len(todo) - len(batch))
+    return {'ok': True, 'tagged_now': done, 'remaining': remaining, 'total': len(all_files)}
+
+@app.post('/vault/build-content-guide')
+async def vault_build_content_guide():
+    """Compile all vault tags into a content guide and push it to the engine, so the selling AI
+    knows exactly what each PPV contains and picks the perfect one."""
+    if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+        raise HTTPException(503, 'AI-Engine nicht konfiguriert')
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT filename, description, spice FROM vault_tags ORDER BY filename')
+        rows = c.fetchall()
+    if not rows:
+        raise HTTPException(400, 'Noch keine Tags — erst „KI-Tags generieren".')
+    lines = []
+    for r in rows:
+        d = (r['description'] or '').strip()
+        sp = (r['spice'] or '').strip()
+        lines.append(f"- {r['filename']}: {d}" + (f" [{sp}]" if sp else ''))
+    guide = ("CONTENT-LISTE (automatisch aus dem Vault getaggt — wähle den passenden PPV danach):\n"
+             + "\n".join(lines))
+    loop = asyncio.get_event_loop()
+    payload = {'content_guide': guide[:12000]}
+
+    def _call():
+        req = _ureq_ai.Request(AI_ENGINE_URL + '/content-guide', data=_json_ai.dumps(payload).encode(),
+                               headers={'Content-Type': 'application/json',
+                                        'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+        with _ureq_ai.urlopen(req, timeout=30) as r:
+            return _json_ai.loads(r.read())
+    try:
+        await loop.run_in_executor(None, _call)
+    except Exception as e:
+        raise HTTPException(502, f'Engine-Fehler: {e}')
+    return {'ok': True, 'items': len(rows)}
+
 # ── VAULT ────────────────────────────────────────────────────────────────────
 ALLOWED_TYPES = {
     'image/jpeg','image/jpg','image/png','image/gif','image/webp',
@@ -3297,8 +3444,25 @@ def _elevenlabs_tts_mp3(text: str) -> bytes:
         'Content-Type': 'application/json',
         'Accept': 'audio/mpeg',
     })
-    with _urllib_req.urlopen(req, timeout=60) as r:
-        return r.read()
+    try:
+        with _urllib_req.urlopen(req, timeout=60) as r:
+            return r.read()
+    except _urllib_err.HTTPError as he:
+        # Surface ElevenLabs' real message (e.g. "voice is not fine-tuned and cannot be used",
+        # invalid API key, voice not found) instead of a generic HTTP error.
+        try:
+            body = he.read().decode('utf-8', 'ignore')
+        except Exception:
+            body = ''
+        import json as _jv
+        msg = ''
+        try:
+            j = _jv.loads(body)
+            d = j.get('detail') if isinstance(j, dict) else None
+            msg = (d.get('message') if isinstance(d, dict) else d) or str(d) or body
+        except Exception:
+            msg = body or str(he)
+        raise RuntimeError(f'ElevenLabs {he.code}: {str(msg)[:300]}')
 
 def _mp3_to_ogg_opus(mp3_path: str, ogg_path: str) -> float:
     """Convert MP3 → OGG/Opus (Telegram voice-note format). Returns duration in seconds."""
@@ -3343,6 +3507,7 @@ async def _send_voice_note_bg(tg_id: str, text: str):
                 'text': f'Voice Note fehlgeschlagen: {e}', 'timestamp': datetime.now().isoformat()})
         except Exception:
             pass
+        raise   # re-raise so /voice/send can show the real reason to the chatter
     finally:
         for p in (mp3_path, ogg_path):
             if p:
@@ -3366,7 +3531,12 @@ async def voice_send(body: VoiceSendIn):
         raise HTTPException(400, 'Text zu lang (max 800 Zeichen).')
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
-    asyncio.create_task(_send_voice_note_bg(body.tg_id, txt))
+    # Run it now (not fire-and-forget) so the chatter sees the REAL reason if it fails
+    # (e.g. ElevenLabs "voice is not fine-tuned yet").
+    try:
+        await _send_voice_note_bg(body.tg_id, txt)
+    except Exception as e:
+        raise HTTPException(502, str(e)[:400])
     return {'ok': True}
 
 VIDEO_EXTS = ('mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
@@ -4148,6 +4318,54 @@ def get_sales(limit: int = 200):
         d['screenshot_url'] = f'/sale/{r["id"]}/screenshot' if r['screenshot'] else ''
         result.append(d)
     return result
+
+# ── ADMIN: correct / remove sales (chatter mistakes, dead Amazon codes, etc.) ──
+class SaleEditIn(BaseModel):
+    amount: Optional[float] = None
+    product: Optional[str] = None
+    status: Optional[str] = None          # approved / pending / rejected
+    payment_method: Optional[str] = None
+    notes: Optional[str] = None
+
+@app.patch('/sales/{sale_id}')
+def edit_sale(sale_id: int, body: SaleEditIn):
+    """Admin edit: fix the amount/product/status/method/notes of an existing sale."""
+    fields, vals = [], []
+    if body.amount is not None:
+        try:
+            fields.append('amount=%s'); vals.append(float(body.amount))
+        except Exception:
+            raise HTTPException(400, 'Ungültiger Betrag')
+    if body.product is not None:
+        fields.append('product=%s'); vals.append(body.product[:200])
+    if body.status is not None:
+        st = body.status.strip().lower()
+        if st not in ('approved', 'pending', 'rejected'):
+            raise HTTPException(400, 'Ungültiger Status')
+        fields.append('status=%s'); vals.append(st)
+    if body.payment_method is not None:
+        fields.append('payment_method=%s'); vals.append(body.payment_method[:50])
+    if body.notes is not None:
+        fields.append('notes=%s'); vals.append(body.notes[:500])
+    if not fields:
+        raise HTTPException(400, 'Nichts zu ändern')
+    vals.append(sale_id)
+    with db() as conn, conn.cursor() as c:
+        c.execute(f'UPDATE sales SET {", ".join(fields)} WHERE id=%s RETURNING id', tuple(vals))
+        if not c.fetchone():
+            raise HTTPException(404, 'Sale nicht gefunden')
+    asyncio.create_task(ws_manager.broadcast({'type': 'sales_changed', 'timestamp': datetime.now().isoformat()}))
+    return {'ok': True}
+
+@app.delete('/sales/{sale_id}')
+def delete_sale(sale_id: int):
+    """Admin delete: remove a wrongly-entered sale entirely."""
+    with db() as conn, conn.cursor() as c:
+        c.execute('DELETE FROM sales WHERE id=%s RETURNING id', (sale_id,))
+        if not c.fetchone():
+            raise HTTPException(404, 'Sale nicht gefunden')
+    asyncio.create_task(ws_manager.broadcast({'type': 'sales_changed', 'timestamp': datetime.now().isoformat()}))
+    return {'ok': True}
 
 @app.get('/media/{tg_id}')
 def get_subscriber_media(tg_id: str, limit: int = 200, offset: int = 0):
