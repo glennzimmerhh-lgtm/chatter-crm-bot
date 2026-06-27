@@ -1091,6 +1091,7 @@
     <!-- PERIOD SELECTOR + DATE RANGE -->
     <div class="period-bar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       <button class="period-btn active" id="btn-heute" onclick="setPeriod('heute')">Today</button>
+      <button class="period-btn" id="btn-gestern" onclick="setPeriod('gestern')">Yesterday</button>
       <button class="period-btn" id="btn-woche" onclick="setPeriod('woche')">This Week</button>
       <button class="period-btn" id="btn-monat" onclick="setPeriod('monat')">This Month</button>
       <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
@@ -1338,6 +1339,7 @@
     </div>
     <div class="period-bar">
       <button class="period-btn active" id="btn-sales-heute" onclick="setSalesPeriod('heute')">Today</button>
+      <button class="period-btn" id="btn-sales-gestern" onclick="setSalesPeriod('gestern')">Yesterday</button>
       <button class="period-btn" id="btn-sales-woche" onclick="setSalesPeriod('woche')">This Week</button>
       <button class="period-btn" id="btn-sales-monat" onclick="setSalesPeriod('monat')">This Month</button>
       <button class="period-btn" id="btn-sales-alle" onclick="setSalesPeriod('alle')">Alle</button>
@@ -3068,6 +3070,7 @@ function getMonthStart() {
 function getDateRange(period) {
   const tod = today();
   if (period === 'heute') return { start: tod, end: tod };
+  if (period === 'gestern') { const y = new Date(); y.setDate(y.getDate() - 1); const ys = y.toISOString().slice(0,10); return { start: ys, end: ys }; }
   if (period === 'woche') return { start: getWeekStart(), end: tod };
   if (period === 'monat') return { start: getMonthStart(), end: tod };
   return { start: '0000-00-00', end: '9999-99-99' }; // alle
@@ -3084,7 +3087,7 @@ let customRangeFrom = null, customRangeTo = null;
 function setPeriod(p) {
   currentPeriod = p;
   customRangeFrom = null; customRangeTo = null;
-  ['heute','woche','monat','range'].forEach(x => {
+  ['heute','gestern','woche','monat','range'].forEach(x => {
     const btn = document.getElementById('btn-' + x);
     if (btn) btn.classList.toggle('active', x === p);
   });
@@ -3109,8 +3112,9 @@ function setCustomRange() {
 
 function setSalesPeriod(p) {
   currentSalesPeriod = p;
-  ['heute','woche','monat','alle'].forEach(x => {
-    document.getElementById('btn-sales-' + x).classList.toggle('active', x === p);
+  ['heute','gestern','woche','monat','alle'].forEach(x => {
+    const b = document.getElementById('btn-sales-' + x);
+    if (b) b.classList.toggle('active', x === p);
   });
   renderSalesPage();
 }
@@ -3336,7 +3340,7 @@ function renderDashboard() {
   if (window.loadSourceStats) window.loadSourceStats();
   const p = currentPeriod;
   const tod = today();
-  const periodLabels = { heute: 'Today', woche: 'This Week', monat: 'This Month' };
+  const periodLabels = { heute: 'Today', gestern: 'Yesterday', woche: 'This Week', monat: 'This Month' };
   const label = periodLabels[p];
 
   const filteredSales  = filterByPeriod(salesData,  'Datum', p);
@@ -3344,8 +3348,10 @@ function renderDashboard() {
 
   const filteredCrmForKpi = filterCrmByPeriod(crmSalesData, p);
   const crmRevenue   = filteredCrmForKpi.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
-  const totalRevenue = filteredSales.reduce((s, r) => s + (parseFloat(r['Betrag (€)']) || 0), 0) + crmRevenue;
-  const totalSalesCount = filteredSales.length + filteredCrmForKpi.length;
+  // CRM is the single source of truth. The legacy Google-Sheets mirror duplicates the same sales
+  // (it lags ~a day), which double-counted past days (~+200€ on "yesterday"). Count CRM only.
+  const totalRevenue = crmRevenue;
+  const totalSalesCount = filteredCrmForKpi.length;
   const replyTimes   = filteredShifts.map(r => parseFloat(r['Ø Reply Time (min)'])).filter(v => !isNaN(v) && v > 0);
   const avgReply     = replyTimes.length ? (replyTimes.reduce((a,b) => a+b,0) / replyTimes.length) : null;
 
@@ -3419,6 +3425,7 @@ function renderDashboard() {
     if (!c.first_time) return false;
     const ft = parseTs(c.first_time);
     if (p === 'heute') return localDateStr(ft) === todayStr;
+    if (p === 'gestern') { const y = new Date(now); y.setDate(y.getDate()-1); return localDateStr(ft) === localDateStr(y); }
     if (p === 'woche') { const w = new Date(now); w.setDate(w.getDate()-7); return ft >= w; }
     if (p === 'monat') return ft.getMonth() === now.getMonth() && ft.getFullYear() === now.getFullYear();
     if (p === 'range' && customRangeFrom && customRangeTo) return ft >= customRangeFrom && ft <= customRangeTo;
@@ -3444,8 +3451,8 @@ function buildChartDays(period) {
   // Returns array of {dateStr, label} for chart x-axis
   const tod = new Date();
   const days = [];
-  if (period === 'heute') {
-    // Show last 7 days
+  if (period === 'heute' || period === 'gestern') {
+    // Show last 7 days (yesterday view shows the same window for context)
     for (let i = 6; i >= 0; i--) {
       const d = new Date(tod); d.setDate(d.getDate() - i);
       days.push({ dateStr: d.toISOString().slice(0,10), label: d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric' }), isToday: i === 0 });
@@ -3475,14 +3482,13 @@ function renderRevenueChart(period) {
   const chartDays = buildChartDays(period || 'heute');
   const labels = chartDays.map(d => d.label);
   const vals   = chartDays.map(d => {
-    const sheetRev = salesData.filter(r => r['Datum'] === d.dateStr)
-      .reduce((s, r) => s + (parseFloat(r['Betrag (€)']) || 0), 0);
+    // CRM only — the Google-Sheets mirror duplicates these sales and was double-counting.
     const crmRev = crmSalesData.filter(r => {
       const rd = parseTs(r.timestamp);
       const iso = `${rd.getFullYear()}-${String(rd.getMonth()+1).padStart(2,'0')}-${String(rd.getDate()).padStart(2,'0')}`;
       return iso === d.dateStr;
     }).reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
-    return Math.round(sheetRev + crmRev);
+    return Math.round(crmRev);
   });
 
   const titles = { heute: 'Daily Revenue (last 7 days)', woche: 'Daily Revenue (this week)', monat: 'Daily Revenue (this month)' };
@@ -3759,6 +3765,7 @@ function filterCrmByPeriod(data, period) {
   return data.filter(s => {
     const d = parseTs(s.timestamp);
     if (period === 'heute') return localDateStr(d) === todayStr;
+    if (period === 'gestern') { const y = new Date(now); y.setDate(y.getDate() - 1); return localDateStr(d) === localDateStr(y); }
     if (period === 'woche') { const w = new Date(now); w.setDate(w.getDate() - 7); return d >= w; }
     if (period === 'monat') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     if (period === 'range' && customRangeFrom && customRangeTo) return d >= customRangeFrom && d <= customRangeTo;
@@ -3824,11 +3831,12 @@ function renderSalesPage() {
     </tr>`;
   }).join('');
 
-  if (!crmRows && !sheetRows) {
+  if (!crmRows) {
     tbody.innerHTML = '<tr><td colspan="8"><div class="empty">No data for selected period</div></td></tr>';
     return;
   }
-  tbody.innerHTML = crmRows + sheetRows;
+  // CRM only — the legacy Google-Sheets rows duplicated these sales (double-count bug). Hidden now.
+  tbody.innerHTML = crmRows;
 
   // Show pending panel for admins
   if (typeof isAdmin === 'function' && isAdmin()) {
