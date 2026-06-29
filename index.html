@@ -1141,6 +1141,38 @@
       <div id="dash-online-list" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
     </div>
 
+    <!-- MULTI-CREATOR ADMIN OVERVIEW: total on top, per-creator below -->
+    <div id="creators-overview-panel" style="display:none;margin-bottom:20px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+        <div style="font-size:14px;font-weight:800;color:var(--text);">👥 Alle Creator</div>
+        <div style="display:flex;gap:6px;" id="creators-ov-periods">
+          <button class="period-btn active" data-p="heute" onclick="setCreatorsOvPeriod('heute')">Today</button>
+          <button class="period-btn" data-p="gestern" onclick="setCreatorsOvPeriod('gestern')">Yesterday</button>
+          <button class="period-btn" data-p="woche" onclick="setCreatorsOvPeriod('woche')">Week</button>
+          <button class="period-btn" data-p="monat" onclick="setCreatorsOvPeriod('monat')">Month</button>
+          <button class="period-btn" data-p="alle" onclick="setCreatorsOvPeriod('alle')">All</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">
+        <div style="flex:1;min-width:160px;background:rgba(0,212,170,.06);border:1px solid rgba(0,212,170,.25);border-radius:10px;padding:14px 16px;">
+          <div style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">Gesamtumsatz (alle Creator)</div>
+          <div id="creators-ov-total-rev" style="font-size:28px;font-weight:800;color:var(--teal,#00d4aa);margin-top:4px;">€0</div>
+        </div>
+        <div style="flex:1;min-width:160px;background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:14px 16px;">
+          <div style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">New Subs gesamt</div>
+          <div id="creators-ov-total-subs" style="font-size:28px;font-weight:800;color:#a5b4fc;margin-top:4px;">0</div>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="text-align:left;color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:.05em;">
+            <th style="padding:8px 6px;">Creator</th><th style="padding:8px 6px;">Umsatz</th><th style="padding:8px 6px;">New Subs</th><th style="padding:8px 6px;">Subs gesamt</th><th style="padding:8px 6px;">Offen</th><th style="padding:8px 6px;">Status</th>
+          </tr></thead>
+          <tbody id="creators-ov-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- CHART + SHIFTS -->
     <div class="grid3">
       <div class="panel">
@@ -5532,6 +5564,10 @@ if (checkAuth()) {
   }
 
   function handleWSMessage(msg) {
+    // Keep the per-creator open-chat badges live on every incoming event.
+    if ((msg.type === 'new_message' && msg.direction === 'in') || msg.type === 'online_status') {
+      if (window.loadCreators) { clearTimeout(window._creatorsWsDebounce); window._creatorsWsDebounce = setTimeout(window.loadCreators, 1500); }
+    }
     switch(msg.type) {
       case 'new_message':
         // Refresh messages immediately (shows message without translation)
@@ -8951,6 +8987,140 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => { if (window.loadNotifications) window.loadNotifications(); }, 500);
 });
 
+// ── MULTI-CREATOR SWITCHER (Stage 1) ──────────────────────────────────────────
+// Top-right creator selector like CreatorHero. Persists the active creator and
+// (Stage 2) scopes all views to it. Today only Creator 1 has a connected bot.
+(function(){
+  window.activeCreatorId = parseInt(localStorage.getItem('crm_active_creator') || '1', 10) || 1;
+  let _creators = [];
+
+  const host = document.createElement('div');
+  host.id = 'creator-switch-host';
+  host.style.cssText = 'position:fixed;top:10px;right:16px;z-index:5000;font-size:13px;';
+  host.innerHTML = `
+    <button id="creator-switch-btn" style="position:relative;display:flex;align-items:center;gap:8px;background:var(--bg2,#171a21);border:1px solid var(--border,#2b2f3a);border-radius:10px;padding:7px 12px;color:var(--text,#e8e8ee);font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.25);">
+      <span style="width:9px;height:9px;border-radius:50%;background:#22c55e;" id="creator-switch-dot"></span>
+      <span id="creator-switch-name">Creator</span>
+      <span style="color:var(--text3,#8a8a99);">▾</span>
+      <span id="creator-switch-otherbadge" style="display:none;position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#ef4444;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center;box-shadow:0 0 0 2px var(--bg,#0f1115);"></span>
+    </button>
+    <div id="creator-switch-menu" style="display:none;position:absolute;top:42px;right:0;min-width:280px;background:var(--bg2,#171a21);border:1px solid var(--border,#2b2f3a);border-radius:12px;padding:6px;box-shadow:0 12px 40px rgba(0,0,0,.4);"></div>`;
+  document.body.appendChild(host);
+
+  const btn = host.querySelector('#creator-switch-btn');
+  const menu = host.querySelector('#creator-switch-menu');
+  btn.onclick = (e) => { e.stopPropagation(); menu.style.display = menu.style.display === 'none' ? 'block' : 'none'; };
+  document.addEventListener('click', () => { menu.style.display = 'none'; });
+  menu.onclick = (e) => e.stopPropagation();
+
+  function _avatar(c, size){
+    const s = size || 28;
+    const letter = (c.name || '?').trim().charAt(0).toUpperCase();
+    if (c.avatar_url) return `<img src="${c.avatar_url}" style="width:${s}px;height:${s}px;border-radius:50%;object-fit:cover;flex-shrink:0;">`;
+    return `<span style="width:${s}px;height:${s}px;border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;font-weight:800;font-size:${Math.round(s*0.42)}px;">${letter}</span>`;
+  }
+  function _renderName(){
+    const c = _creators.find(x => x.id === window.activeCreatorId) || _creators[0];
+    if (c) { host.querySelector('#creator-switch-name').textContent = c.name;
+      host.querySelector('#creator-switch-dot').style.background = c.connected ? '#22c55e' : '#f59e0b'; }
+    // Total open chats on the OTHER creators → red badge on the button (visible while on creator A)
+    const otherOpen = _creators.filter(x => x.id !== window.activeCreatorId)
+                               .reduce((s, x) => s + (x.open_chats || 0), 0);
+    const b = host.querySelector('#creator-switch-otherbadge');
+    if (b) { if (otherOpen > 0) { b.textContent = otherOpen > 99 ? '99+' : otherOpen; b.style.display = 'block'; } else { b.style.display = 'none'; } }
+  }
+  window.setActiveCreator = function(id){
+    window.activeCreatorId = id;
+    localStorage.setItem('crm_active_creator', String(id));
+    _renderName(); menu.style.display = 'none';
+    // Stage 2 will re-scope data; for now reload so all views pick up the choice.
+    location.reload();
+  };
+  window.loadCreators = async function(){
+    try {
+      const r = await fetch('/api/creators');
+      _creators = r.ok ? await r.json() : [];
+    } catch(_) { _creators = []; }
+    if (!_creators.length) { host.style.display='none'; return; }
+    host.style.display = 'block';
+    menu.innerHTML = _creators.map(c => {
+      const active = c.id === window.activeCreatorId;
+      const status = c.connected ? '🟢 verbunden' : '🟠 nicht verbunden';
+      const open = c.open_chats || 0;
+      const openBadge = open > 0
+        ? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:#ef4444;color:#fff;font-size:11px;font-weight:800;line-height:20px;text-align:center;flex-shrink:0;">${open>99?'99+':open}</span>`
+        : '';
+      return `<div onclick="setActiveCreator(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;${active?'background:rgba(99,102,241,.15);':''}" onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background='${active?'rgba(99,102,241,.15)':'transparent'}'">
+        ${_avatar(c, 32)}
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;color:var(--text,#e8e8ee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${active?'✓ ':''}${(c.name||'').replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:var(--text3,#8a8a99);">${c.subs||0} subs · ${Math.round(c.revenue||0)}€ · ${status}</div>
+        </div>
+        ${openBadge}
+      </div>`;
+    }).join('') + `<div onclick="addCreatorPrompt()" style="padding:9px 10px;border-top:1px solid var(--border,#2b2f3a);margin-top:4px;color:#6366f1;font-weight:700;cursor:pointer;">＋ Creator hinzufügen</div>`;
+    _renderName();
+  };
+  window.addCreatorPrompt = async function(){
+    const name = prompt('Name des neuen Creators:');
+    if (!name || !name.trim()) return;
+    try {
+      const r = await fetch('/api/creators', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: name.trim() }) });
+      const d = await r.json().catch(()=>({}));
+      if (!r.ok) { alert('Fehler: ' + (d.detail || ('HTTP '+r.status))); return; }
+      await window.loadCreators();
+      alert('Creator angelegt ✓\n\nNächster Schritt (Stage 2): das Telegram-Konto dieses Creators verbinden, dann laufen Chats & Statistiken für ihn.');
+    } catch(e){ alert('Fehler: ' + (e && e.message)); }
+  };
+  setTimeout(window.loadCreators, 800);
+  setInterval(window.loadCreators, 12000);   // real-time-ish refresh of open-chat counts
+})();
+
+// ── ADMIN: Multi-creator overview panel (total on top, per-creator below) ──────
+window._creatorsOvPeriod = 'heute';
+window.setCreatorsOvPeriod = function(p){
+  window._creatorsOvPeriod = p;
+  document.querySelectorAll('#creators-ov-periods .period-btn').forEach(b => b.classList.toggle('active', b.dataset.p === p));
+  window.renderCreatorsOverview();
+};
+window.renderCreatorsOverview = async function(){
+  const panel = document.getElementById('creators-overview-panel');
+  if (!panel) return;
+  const admin = (typeof isAdmin === 'function') ? isAdmin() : true;
+  if (!admin) { panel.style.display = 'none'; return; }
+  try {
+    const r = await fetch('/api/creators/overview?period=' + encodeURIComponent(window._creatorsOvPeriod || 'heute'));
+    if (!r.ok) { panel.style.display = 'none'; return; }
+    const d = await r.json();
+    // Only show the multi-creator panel once there is more than one creator
+    if (!d.creators || d.creators.length < 2) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    const _f = (n) => '€' + Math.round(n || 0).toLocaleString('de-DE');
+    document.getElementById('creators-ov-total-rev').textContent = _f(d.total_revenue);
+    document.getElementById('creators-ov-total-subs').textContent = (d.total_new_subs || 0);
+    document.getElementById('creators-ov-tbody').innerHTML = (d.creators || []).map(c => {
+      const open = c.open_chats || 0;
+      const openCell = open > 0 ? `<span style="background:#ef4444;color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:800;">${open}</span>` : '0';
+      const status = c.connected ? '🟢' : '🟠';
+      return `<tr style="border-top:1px solid var(--border);cursor:pointer;" onclick="if(window.setActiveCreator)setActiveCreator(${c.id})">
+        <td style="padding:9px 6px;font-weight:700;color:var(--text);">${(c.name||'').replace(/</g,'&lt;')}</td>
+        <td style="padding:9px 6px;color:var(--teal,#00d4aa);font-weight:700;">${_f(c.revenue)}</td>
+        <td style="padding:9px 6px;color:#a5b4fc;font-weight:700;">${c.new_subs||0}</td>
+        <td style="padding:9px 6px;color:var(--text2);">${c.subs_total||0}</td>
+        <td style="padding:9px 6px;">${openCell}</td>
+        <td style="padding:9px 6px;">${status}</td>
+      </tr>`;
+    }).join('');
+  } catch(_) { panel.style.display = 'none'; }
+};
+(function(){
+  const _sp = window.showPage;
+  if (typeof _sp === 'function') {
+    window.showPage = function(name){ const r = _sp.apply(this, arguments); if (name === 'dashboard' || name === 'overview') { try { window.renderCreatorsOverview(); } catch(_){} } return r; };
+  }
+  setTimeout(window.renderCreatorsOverview, 1500);
+  setInterval(() => { const p = document.getElementById('page-dashboard'); if (p && p.style.display !== 'none') window.renderCreatorsOverview(); }, 15000);
+})();
 </script>
 </body>
 </html>

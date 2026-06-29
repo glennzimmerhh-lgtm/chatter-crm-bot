@@ -321,6 +321,24 @@ def db():
 def init_db():
     with db() as conn:
         with conn.cursor() as c:
+            # ── Multi-creator: each creator = own Telegram account + own data ──
+            c.execute('''CREATE TABLE IF NOT EXISTS creators (
+                id          SERIAL PRIMARY KEY,
+                name        TEXT NOT NULL,
+                avatar_url  TEXT DEFAULT '',
+                tg_session  TEXT DEFAULT '',
+                active      BOOLEAN DEFAULT TRUE,
+                created_at  TEXT DEFAULT ''
+            )''')
+            # Seed creator #1 = the existing setup (Marie), so all current data belongs to it.
+            c.execute("SELECT COUNT(*) AS n FROM creators")
+            if (c.fetchone() or {}).get('n', 0) == 0:
+                c.execute("INSERT INTO creators (id, name, active, created_at) VALUES (1, %s, TRUE, %s)",
+                          ('Marie', datetime.now().isoformat()))
+                try:
+                    c.execute("SELECT setval('creators_id_seq', (SELECT MAX(id) FROM creators))")
+                except Exception:
+                    pass
             c.execute('''CREATE TABLE IF NOT EXISTS conversations (
                 tg_id         TEXT PRIMARY KEY,
                 anon_id       TEXT NOT NULL,
@@ -353,6 +371,12 @@ def init_db():
                 chatter   TEXT DEFAULT '',
                 timestamp TEXT NOT NULL
             )''')
+            # Tag existing data with creator_id (default 1 = current creator) — additive & safe.
+            for _tbl in ('conversations', 'messages', 'sales'):
+                try:
+                    c.execute(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS creator_id INTEGER DEFAULT 1")
+                except Exception as _e:
+                    print(f'creator_id add on {_tbl}: {_e}')
             c.execute('''CREATE TABLE IF NOT EXISTS pledges (
                 id              INTEGER PRIMARY KEY,
                 tg_id           TEXT NOT NULL,
@@ -3600,6 +3624,36 @@ def _compress_image_for_send(fpath: str):
         print(f'image compress error ({fpath}): {e}')
     return None
 
+def _compress_video_for_send(fpath: str):
+    """Hard-downscale/transcode a big HQ vault video before sending so it goes out in seconds
+    instead of minutes. Caps at 720p, H.264 CRF 30, AAC audio, faststart. The ORIGINAL stays
+    untouched. Returns a temp path to send, or None to send the original (already small)."""
+    try:
+        size = os.path.getsize(fpath)
+    except Exception:
+        return None
+    if size < 8_000_000:   # already small enough — don't waste CPU
+        return None
+    try:
+        import subprocess, tempfile
+        fd, out = tempfile.mkstemp(suffix='.mp4'); os.close(fd)
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', fpath,
+             '-vf', "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '30',
+             '-c:a', 'aac', '-b:a', '96k',
+             '-movflags', '+faststart', out],
+            capture_output=True, timeout=300, check=True)
+        if os.path.isfile(out) and os.path.getsize(out) > 0:
+            # Only use it if it actually got smaller; otherwise keep original.
+            if os.path.getsize(out) < size:
+                return out
+        try: os.remove(out)
+        except Exception: pass
+    except Exception as e:
+        print(f'video compress error ({fpath}): {e}')
+    return None
+
 def _make_video_thumb(fpath: str):
     """Generate a JPEG thumbnail from a video via ffmpeg. Returns path or None."""
     try:
@@ -3633,9 +3687,15 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
         loop = asyncio.get_event_loop()
         send_path = fpath
         img_to_clean = None
+        vid_to_clean = None
         if ext in VIDEO_EXTS:
-            dur, w, h = await loop.run_in_executor(None, _ffprobe_video_meta, fpath)
-            thumb_to_clean = await loop.run_in_executor(None, _make_video_thumb, fpath)
+            # Heavy downscale/transcode big HQ videos before sending → small file = sends in
+            # seconds instead of minutes. Original in the vault stays untouched.
+            vid_to_clean = await loop.run_in_executor(None, _compress_video_for_send, fpath)
+            if vid_to_clean:
+                send_path = vid_to_clean
+            dur, w, h = await loop.run_in_executor(None, _ffprobe_video_meta, send_path)
+            thumb_to_clean = await loop.run_in_executor(None, _make_video_thumb, send_path)
             send_kwargs['supports_streaming'] = True
             send_kwargs['force_document'] = False
             if w > 0 and h > 0:
@@ -3682,7 +3742,7 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
         except Exception:
             pass
     finally:
-        for _tmp in (thumb_to_clean, locals().get('img_to_clean')):
+        for _tmp in (thumb_to_clean, locals().get('img_to_clean'), locals().get('vid_to_clean')):
             if _tmp:
                 try:
                     os.remove(_tmp)
@@ -4600,6 +4660,123 @@ def remove_from_list(list_id: int, tg_id: str):
     with db() as conn:
         with conn.cursor() as c:
             c.execute('DELETE FROM list_members WHERE list_id=%s AND tg_id=%s', (list_id, tg_id))
+    return {'ok': True}
+
+# ── CREATORS (multi-creator support) ──────────────────────────────────────────
+@app.get('/creators')
+def list_creators():
+    """All creators with their live sub + revenue counts, for the switcher + overview."""
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT id, name, avatar_url, active, created_at FROM creators ORDER BY id ASC')
+        creators = [dict(r) for r in c.fetchall()]
+        for cr in creators:
+            try:
+                c.execute('SELECT COUNT(*) AS n FROM conversations WHERE creator_id=%s', (cr['id'],))
+                cr['subs'] = (c.fetchone() or {}).get('n', 0)
+                # open chats = conversations with unread messages (the live "needs attention" count)
+                c.execute('SELECT COUNT(*) AS n FROM conversations WHERE creator_id=%s AND unread > 0', (cr['id'],))
+                cr['open_chats'] = (c.fetchone() or {}).get('n', 0)
+                c.execute("SELECT COALESCE(SUM(amount),0) AS s FROM sales WHERE creator_id=%s AND status='approved'", (cr['id'],))
+                cr['revenue'] = float((c.fetchone() or {}).get('s', 0) or 0)
+            except Exception:
+                cr['subs'] = 0; cr['open_chats'] = 0; cr['revenue'] = 0
+        # whether each creator's Telegram bot is actually connected (Stage 2 fills _clients)
+        for cr in creators:
+            cr['connected'] = bool(_creator_clients.get(cr['id'])) if '_creator_clients' in globals() else (cr['id'] == 1)
+    return creators
+
+@app.get('/creators/overview')
+def creators_overview(period: str = 'heute'):
+    """Admin multi-creator view: TOTAL revenue + new subs across all creators (top),
+    plus a per-creator breakdown (bottom). Period: heute/gestern/woche/monat/alle."""
+    now = datetime.now()
+    start = end = None
+    if period == 'heute':
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1)
+    elif period == 'gestern':
+        end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=1)
+    elif period == 'woche':
+        start = now - timedelta(days=7); end = now + timedelta(days=1)
+    elif period == 'monat':
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0); end = now + timedelta(days=1)
+    # 'alle' → no bounds
+    s_iso = start.isoformat() if start else None
+    e_iso = end.isoformat() if end else None
+
+    def _rev_clause():
+        if s_iso:
+            return (" AND timestamp >= %s AND timestamp < %s", (s_iso, e_iso))
+        return ("", tuple())
+
+    out = []
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT id, name, avatar_url, active FROM creators ORDER BY id ASC')
+        creators = [dict(r) for r in c.fetchall()]
+        for cr in creators:
+            cid = cr['id']
+            clause, prm = _rev_clause()
+            try:
+                c.execute("SELECT COALESCE(SUM(amount),0) AS s FROM sales WHERE creator_id=%s AND status='approved'" + clause, (cid,) + prm)
+                rev = float((c.fetchone() or {}).get('s', 0) or 0)
+                if s_iso:
+                    c.execute("SELECT COUNT(*) AS n FROM conversations WHERE creator_id=%s AND first_time >= %s AND first_time < %s", (cid, s_iso, e_iso))
+                else:
+                    c.execute("SELECT COUNT(*) AS n FROM conversations WHERE creator_id=%s", (cid,))
+                new_subs = (c.fetchone() or {}).get('n', 0)
+                c.execute("SELECT COUNT(*) AS n FROM conversations WHERE creator_id=%s", (cid,))
+                subs_total = (c.fetchone() or {}).get('n', 0)
+                c.execute("SELECT COUNT(*) AS n FROM conversations WHERE creator_id=%s AND unread > 0", (cid,))
+                open_chats = (c.fetchone() or {}).get('n', 0)
+            except Exception as e:
+                print(f'overview creator {cid}: {e}')
+                rev, new_subs, subs_total, open_chats = 0, 0, 0, 0
+            out.append({'id': cid, 'name': cr['name'], 'avatar_url': cr['avatar_url'],
+                        'revenue': rev, 'new_subs': new_subs, 'subs_total': subs_total,
+                        'open_chats': open_chats,
+                        'connected': bool(_creator_clients.get(cid)) if '_creator_clients' in globals() else (cid == 1)})
+    return {
+        'period': period,
+        'total_revenue': sum(x['revenue'] for x in out),
+        'total_new_subs': sum(x['new_subs'] for x in out),
+        'total_subs': sum(x['subs_total'] for x in out),
+        'total_open_chats': sum(x['open_chats'] for x in out),
+        'creators': out,
+    }
+
+class CreatorIn(BaseModel):
+    name: str
+    avatar_url: Optional[str] = ''
+
+@app.post('/creators')
+def add_creator(body: CreatorIn):
+    if not (body.name or '').strip():
+        raise HTTPException(400, 'Name fehlt')
+    with db() as conn, conn.cursor() as c:
+        c.execute('INSERT INTO creators (name, avatar_url, active, created_at) VALUES (%s,%s,TRUE,%s) RETURNING id',
+                  (body.name.strip()[:80], (body.avatar_url or '')[:500], datetime.now().isoformat()))
+        nid = c.fetchone()['id']
+    return {'ok': True, 'id': nid}
+
+class CreatorEditIn(BaseModel):
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    active: Optional[bool] = None
+
+@app.patch('/creators/{cid}')
+def edit_creator(cid: int, body: CreatorEditIn):
+    fields, vals = [], []
+    if body.name is not None: fields.append('name=%s'); vals.append(body.name.strip()[:80])
+    if body.avatar_url is not None: fields.append('avatar_url=%s'); vals.append(body.avatar_url[:500])
+    if body.active is not None: fields.append('active=%s'); vals.append(bool(body.active))
+    if not fields:
+        raise HTTPException(400, 'Nichts zu ändern')
+    vals.append(cid)
+    with db() as conn, conn.cursor() as c:
+        c.execute(f'UPDATE creators SET {", ".join(fields)} WHERE id=%s RETURNING id', tuple(vals))
+        if not c.fetchone():
+            raise HTTPException(404, 'Creator nicht gefunden')
     return {'ok': True}
 
 # ── SUBSCRIBERS ───────────────────────────────────────────────────────────────
