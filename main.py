@@ -1916,6 +1916,74 @@ async def setup_verify(code: str = Form(...)):
     except Exception as e:
         return render_setup(FORM_STEP1, f'<div class="error">❌ {e}</div>')
 
+# ── PER-CREATOR Telegram connect (Stage 2): stores the session into creators.tg_session ──
+setup_creator_id = None
+
+@app.get('/setup/creator/{cid}', response_class=HTMLResponse)
+async def setup_creator_get(cid: int):
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT name FROM creators WHERE id=%s', (cid,))
+        row = c.fetchone()
+    if not row:
+        return render_setup('<div class="error">Creator nicht gefunden.</div>')
+    name = row['name']
+    aid = TG_API_ID or ''
+    ah = TG_API_HASH or ''
+    form = (f'<p class="step">Telegram verbinden für <strong>{name}</strong></p>'
+            f'<p style="color:#888;font-size:13px;margin-bottom:18px;">Logge das Telegram-Konto von {name} ein. '
+            f'API-Daten sind von deinem Haupt-Setup vorausgefüllt (funktionieren für jeden Account).</p>'
+            f'<form method="POST" action="/setup/creator/{cid}/send-code">'
+            f'<label>API ID</label><input name="api_id" type="number" value="{aid}" required>'
+            f'<label>API Hash</label><input name="api_hash" type="text" value="{ah}" required>'
+            f'<label>Telefonnummer von {name}</label><input name="phone" type="text" placeholder="+49151..." required>'
+            f'<button type="submit">SMS-Code anfordern →</button></form>')
+    return render_setup(form)
+
+@app.post('/setup/creator/{cid}/send-code', response_class=HTMLResponse)
+async def setup_creator_send_code(cid: int, api_id: str = Form(...), api_hash: str = Form(...), phone: str = Form(...)):
+    global setup_client, setup_phone, setup_creator_id
+    try:
+        setup_phone = phone.strip()
+        setup_creator_id = cid
+        setup_client = TelegramClient(StringSession(), int(api_id.strip()), api_hash.strip())
+        await setup_client.connect()
+        await setup_client.send_code_request(setup_phone)
+        form2 = (f'<p class="step">SMS-Code eingeben</p>'
+                 f'<p style="color:#aaa;font-size:14px;margin-bottom:20px;">Code an <strong>{phone}</strong> gesendet.</p>'
+                 f'<form method="POST" action="/setup/creator/{cid}/verify"><label>SMS-Code</label>'
+                 f'<input name="code" type="text" required autofocus>'
+                 f'<label style="margin-top:8px;">2FA-Passwort (nur falls aktiviert, sonst leer)</label>'
+                 f'<input name="password" type="password" placeholder="optional">'
+                 f'<button type="submit">Verbinden ✓</button></form>')
+        return render_setup(form2)
+    except Exception as e:
+        return render_setup(f'<div class="error">❌ {e}</div>')
+
+@app.post('/setup/creator/{cid}/verify', response_class=HTMLResponse)
+async def setup_creator_verify(cid: int, code: str = Form(...), password: str = Form('')):
+    global setup_client, setup_phone, setup_creator_id
+    try:
+        try:
+            await setup_client.sign_in(setup_phone, code.strip())
+        except Exception as _e:
+            if 'password' in str(_e).lower() or 'SessionPassword' in str(type(_e).__name__) or '2FA' in str(_e):
+                if not password.strip():
+                    raise RuntimeError('2FA aktiv — bitte das Passwort eingeben.')
+                await setup_client.sign_in(password=password.strip())
+            else:
+                raise
+        session_str = setup_client.session.save()
+        await setup_client.disconnect()
+        with db() as conn, conn.cursor() as c:
+            c.execute('UPDATE creators SET tg_session=%s WHERE id=%s', (session_str, cid))
+        result = ('<div class="result"><h3>✅ Verbunden & gespeichert</h3>'
+                  '<div style="color:#a0f0a0;">Das Telegram-Konto ist jetzt mit diesem Creator verbunden.</div></div>'
+                  '<p style="color:#888;font-size:13px;margin-top:20px;">Der Bot dieses Creators startet, sobald der '
+                  'Worker neu lädt (Stage 2b). Du kannst dieses Fenster schließen.</p>')
+        return render_setup(result)
+    except Exception as e:
+        return render_setup(f'<div class="error">❌ {e}</div>')
+
 # ── HEALTH ─────────────────────────────────────────────────────────────────────
 @app.get('/health')
 def health():
@@ -4667,7 +4735,7 @@ def remove_from_list(list_id: int, tg_id: str):
 def list_creators():
     """All creators with their live sub + revenue counts, for the switcher + overview."""
     with db() as conn, conn.cursor() as c:
-        c.execute('SELECT id, name, avatar_url, active, created_at FROM creators ORDER BY id ASC')
+        c.execute("SELECT id, name, avatar_url, active, created_at, (tg_session IS NOT NULL AND tg_session != '') AS has_session FROM creators ORDER BY id ASC")
         creators = [dict(r) for r in c.fetchall()]
         for cr in creators:
             try:
