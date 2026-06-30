@@ -545,18 +545,21 @@ def _fire_webhook_sync(url: str, payload: dict):
     threading.Thread(target=_send, daemon=True).start()
 
 def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: str = '', creator_id: int = 1) -> str:
+    # tg_id here is the REAL telegram id; the stored conversation key is namespaced per creator
+    # so the same fan can exist separately for Marie (1) and Hailey (2) etc.
+    conv_key = _conv_key(tg_id, creator_id)
     is_new = False
     anon_id = ''
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT anon_id FROM conversations WHERE tg_id=%s', (tg_id,))
+            c.execute('SELECT anon_id FROM conversations WHERE tg_id=%s', (conv_key,))
             row = c.fetchone()
             if row:
                 c.execute(
                     "UPDATE conversations SET tg_username=COALESCE(NULLIF(tg_username,''),%s), tg_phone=COALESCE(NULLIF(tg_phone,''),%s), tg_access_hash=COALESCE(NULLIF(tg_access_hash,''),%s) WHERE tg_id=%s",
-                    (username, phone, access_hash, tg_id)
+                    (username, phone, access_hash, conv_key)
                 )
-                return row['anon_id']
+                return conv_key
             c.execute('SELECT COUNT(*) as n FROM conversations')
             n = c.fetchone()['n']
             anon_id = f'User #{1001 + n}'
@@ -564,18 +567,18 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: st
             now = datetime.now().isoformat()
             c.execute(
                 'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count,tg_username,tg_phone,payment_ref,creator_id) VALUES (%s,%s,%s,%s,%s,0,0,%s,%s,%s,%s)',
-                (tg_id, anon_id, '', now, now, username, phone, payment_ref, creator_id)
+                (conv_key, anon_id, '', now, now, username, phone, payment_ref, creator_id)
             )
             # Backfill payment_ref for any existing subscribers that don't have one
             c.execute("UPDATE conversations SET payment_ref='ZF-'||SUBSTRING(anon_id FROM 7) WHERE payment_ref='' AND anon_id LIKE 'User #%'")
             is_new = True
     if is_new and SUBSCRIBER_BACKUP_WEBHOOK:
         _fire_webhook_sync(SUBSCRIBER_BACKUP_WEBHOOK, {
-            'tg_id': tg_id, 'anon_id': anon_id,
+            'tg_id': conv_key, 'anon_id': anon_id,
             'username': username, 'phone': phone,
             'first_seen': datetime.now().isoformat()
         })
-    return anon_id
+    return conv_key
 
 def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id: int = 0, creator_id: int = 1):
     import threading
@@ -708,7 +711,7 @@ def _send_auto_online_msg(tg_id: str):
                 if not tg_client or not tg_client.is_connected():
                     return
                 ah = int(row['tg_access_hash']) if row['tg_access_hash'] else 0
-                peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+                peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
                 sent = await tg_client.send_message(peer, text)
                 now = datetime.now().isoformat()
                 save_msg(tg_id, text, 'out', sender, tg_msg_id=sent.id)
@@ -837,13 +840,28 @@ _creator_clients = {}
 _creator_runs = {}   # creator_id -> running flag
 
 def _creator_id_for_tg(tg_id) -> int:
+    """Creator id is encoded in the conversation key: creator 1 = plain id (e.g. '12345'),
+    creator N>1 = 'N:12345'. So the same fan can exist separately per creator."""
+    s = str(tg_id)
+    if ':' in s:
+        try:
+            return int(s.split(':', 1)[0])
+        except Exception:
+            return 1
+    return 1
+
+def _real_tg_id(tg_id) -> str:
+    """The actual Telegram user id (strip the creator prefix if present)."""
+    return str(tg_id).split(':')[-1]
+
+def _conv_key(real_tg_id, creator_id: int = 1) -> str:
+    """Namespaced conversation key. Creator 1 stays unchanged (no prefix) so Marie's
+    2400+ existing chats are 100% untouched; creator N>1 gets 'N:realid'."""
     try:
-        with db() as conn, conn.cursor() as c:
-            c.execute('SELECT creator_id FROM conversations WHERE tg_id=%s', (str(tg_id),))
-            r = c.fetchone()
-            return int(r['creator_id']) if r and r.get('creator_id') else 1
+        cid = int(creator_id or 1)
     except Exception:
-        return 1
+        cid = 1
+    return str(real_tg_id) if cid == 1 else f"{cid}:{real_tg_id}"
 
 def _client_for(tg_id):
     """Return the Telethon client that owns this fan's conversation (per creator)."""
@@ -1058,19 +1076,19 @@ async def _run_creator_userbot(cid: int, session_str: str):
 
             @client.on(events.Raw(UpdateUserStatus))
             async def _c_status(event, _cid=cid):
-                tg_id = str(event.user_id)
+                key = _conv_key(str(event.user_id), _cid)
                 online = isinstance(event.status, UserStatusOnline)
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, lambda: update_online_status(tg_id, online))
-                asyncio.create_task(ws_manager.broadcast({'type': 'online_status', 'tg_id': tg_id, 'is_online': online}))
+                await loop.run_in_executor(None, lambda: update_online_status(key, online))
+                asyncio.create_task(ws_manager.broadcast({'type': 'online_status', 'tg_id': key, 'is_online': online, 'creator_id': _cid}))
 
             @client.on(events.MessageRead(inbox=True))
             async def _c_inbox_read(event, _cid=cid):
                 try:
-                    tg_id = str(event.chat_id)
+                    key = _conv_key(str(event.chat_id), _cid)
                     with db() as conn, conn.cursor() as c:
-                        c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s AND creator_id=%s', (tg_id, _cid))
-                    asyncio.create_task(ws_manager.broadcast({'type': 'read_update', 'tg_id': tg_id, 'unread': 0, 'creator_id': _cid}))
+                        c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (key,))
+                    asyncio.create_task(ws_manager.broadcast({'type': 'read_update', 'tg_id': key, 'unread': 0, 'creator_id': _cid}))
                 except Exception:
                     pass
 
@@ -1079,15 +1097,16 @@ async def _run_creator_userbot(cid: int, session_str: str):
                 sender = await event.get_sender()
                 if not isinstance(sender, User) or sender.bot:
                     return
-                tg_id = str(sender.id)
+                real_id = str(sender.id)
                 username = sender.username or ''
                 phone = getattr(sender, 'phone', None) or ''
                 access_hash = str(sender.access_hash) if sender.access_hash else ''
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, lambda: ensure_conv(tg_id, username=username, phone=phone, access_hash=access_hash, creator_id=_cid))
+                # conv_key namespaces this fan under THIS creator (e.g. '2:12345')
+                key = await loop.run_in_executor(None, lambda: ensure_conv(real_id, username=username, phone=phone, access_hash=access_hash, creator_id=_cid))
                 msg_tg_id = event.id
                 with db() as conn, conn.cursor() as c:
-                    c.execute('SELECT 1 FROM messages WHERE tg_msg_id=%s AND tg_id=%s AND direction=%s', (msg_tg_id, tg_id, 'in'))
+                    c.execute('SELECT 1 FROM messages WHERE tg_msg_id=%s AND tg_id=%s AND direction=%s', (msg_tg_id, key, 'in'))
                     if c.fetchone():
                         return
                 if event.text:        text = event.text
@@ -1096,26 +1115,26 @@ async def _run_creator_userbot(cid: int, session_str: str):
                 elif event.sticker:   text = '[Sticker]'
                 elif event.voice:     text = '[🎤 Voice]'
                 else:                 text = '[Message]'
-                await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'in', tg_msg_id=msg_tg_id, creator_id=_cid))
+                await loop.run_in_executor(None, lambda: save_msg(key, text, 'in', tg_msg_id=msg_tg_id, creator_id=_cid))
                 now_ts = datetime.now().isoformat()
-                asyncio.create_task(ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id, 'text': text,
+                asyncio.create_task(ws_manager.broadcast({'type': 'new_message', 'tg_id': key, 'text': text,
                     'direction': 'in', 'timestamp': now_ts, 'tg_msg_id': msg_tg_id, 'creator_id': _cid}))
                 asyncio.create_task(ws_manager.broadcast({'type': 'notification', 'notif_type': 'message',
-                    'tg_id': tg_id, 'text': text[:80], 'timestamp': now_ts, 'creator_id': _cid}))
+                    'tg_id': key, 'text': text[:80], 'timestamp': now_ts, 'creator_id': _cid}))
 
             @client.on(events.NewMessage(outgoing=True, func=lambda e: e.is_private))
             async def _c_out(event, _cid=cid):
                 # Capture messages sent from this creator's Telegram app directly (not via CRM).
                 try:
-                    tg_id = str(event.chat_id)
+                    key = _conv_key(str(event.chat_id), _cid)
                     if event.raw_text:
                         with db() as conn, conn.cursor() as c:
-                            c.execute('SELECT 1 FROM messages WHERE tg_msg_id=%s AND tg_id=%s AND direction=%s', (event.id, tg_id, 'out'))
+                            c.execute('SELECT 1 FROM messages WHERE tg_msg_id=%s AND tg_id=%s AND direction=%s', (event.id, key, 'out'))
                             if c.fetchone():
                                 return
-                        await asyncio.get_event_loop().run_in_executor(None, lambda: ensure_conv(tg_id, creator_id=_cid))
-                        await asyncio.get_event_loop().run_in_executor(None, lambda: save_msg(tg_id, event.raw_text, 'out', 'Telegram', event.id, _cid))
-                        asyncio.create_task(ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id,
+                        await asyncio.get_event_loop().run_in_executor(None, lambda: ensure_conv(str(event.chat_id), creator_id=_cid))
+                        await asyncio.get_event_loop().run_in_executor(None, lambda: save_msg(key, event.raw_text, 'out', 'Telegram', event.id, _cid))
+                        asyncio.create_task(ws_manager.broadcast({'type': 'new_message', 'tg_id': key,
                             'text': event.raw_text, 'direction': 'out', 'timestamp': datetime.now().isoformat(),
                             'tg_msg_id': event.id, 'creator_id': _cid}))
                 except Exception as _e:
@@ -1529,7 +1548,7 @@ async def _ai_autorespond(tg_id: str, incoming_text: str, image_b64=None):
         c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
         row = c.fetchone()
     ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-    peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+    peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
 
     global _tg_priority
     _tg_priority += 1
@@ -1772,7 +1791,7 @@ async def _do_followup_cycle():
             continue
         try:
             ah = int(r['tg_access_hash']) if r['tg_access_hash'] else 0
-            peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+            peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
             _tg_priority += 1
             try:
                 await _human_send(peer, tg_id, reply, 'KI-Followup')
@@ -1942,7 +1961,7 @@ async def _do_opportunity_cycle():
             continue
         try:
             ah = int(o['access_hash']) if o['access_hash'] else 0
-            peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+            peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
             _tg_priority += 1
             try:
                 await _human_send(peer, tg_id, reply, 'KI-Jagd')
@@ -2509,7 +2528,7 @@ async def _bg_read_history(tg_id: str):
                 c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
                 row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
         await tg_client(functions.messages.ReadHistoryRequest(peer=peer, max_id=0))
     except Exception as e:
         print(f'ReadHistory skip: {e}')
@@ -2537,7 +2556,7 @@ async def send_typing(tg_id: str):
                 c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
                 row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
         await tg_client(functions.messages.SetTypingRequest(
             peer=peer, action=types.SendMessageTypingAction()
         ))
@@ -2574,7 +2593,7 @@ async def delete_message(body: MsgDeleteIn):
                     c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
                     row = c.fetchone()
             ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-            peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+            peer = InputPeerUser(int(_real_tg_id(body.tg_id)), ah) if ah else int(_real_tg_id(body.tg_id))
             await tg_client.delete_messages(peer, [body.tg_msg_id], revoke=True)
         except Exception as e:
             print(f'delete_messages error: {e}')
@@ -2701,7 +2720,7 @@ async def post_reply(body: ReplyIn, background_tasks: BackgroundTasks):
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
     # Look up access_hash from DB (no extra Telegram roundtrip needed)
-    peer_int = int(body.tg_id)
+    peer_int = int(_real_tg_id(body.tg_id))
     access_hash = 0
     with db() as conn:
         with conn.cursor() as c:
@@ -3039,7 +3058,7 @@ async def ai_question_answer(qid: int, body: AIAnswerIn):
                     c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
                     r2 = c.fetchone()
                 ah = int(r2['tg_access_hash']) if r2 and r2['tg_access_hash'] else 0
-                peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+                peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
                 global _tg_priority
                 _tg_priority += 1
                 try:
@@ -3352,8 +3371,8 @@ async def payment_verify(body: VerifyScreenshotIn):
             c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
             row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-        peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
-        msgs = await tg_client.get_messages(peer, ids=body.msg_id)
+        peer = InputPeerUser(int(_real_tg_id(body.tg_id)), ah) if ah else int(_real_tg_id(body.tg_id))
+        msgs = await _client_for(body.tg_id).get_messages(peer, ids=body.msg_id)
         if not msgs or not msgs.media:
             raise HTTPException(404, 'Keine Bilddatei in dieser Nachricht')
         data = await msgs.download_media(file=bytes)
@@ -3863,10 +3882,10 @@ async def _send_voice_note_bg(tg_id: str, text: str):
             c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
             row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
         attrs = [types.DocumentAttributeAudio(duration=int(dur or 0), voice=True)]
-        await tg_client.send_file(peer, ogg_path, voice_note=True, attributes=attrs)
-        save_msg(tg_id, '[🎤 Voice Note]', 'out', 'Voice')
+        await _client_for(tg_id).send_file(peer, ogg_path, voice_note=True, attributes=attrs)
+        save_msg(tg_id, '[🎤 Voice Note]', 'out', 'Voice', creator_id=_creator_id_for_tg(tg_id))
         await ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id,
             'text': '[🎤 Voice Note]', 'direction': 'out', 'timestamp': datetime.now().isoformat()})
     except Exception as e:
@@ -4024,7 +4043,8 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
                 c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
                 row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-        peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+        _rid = int(_real_tg_id(body.tg_id))
+        peer = InputPeerUser(_rid, ah) if ah else _rid
 
         # Build send kwargs — videos need explicit attributes + thumbnail + streaming,
         # otherwise Telegram often rejects them or they never upload.
@@ -4338,7 +4358,7 @@ async def send_fakecheck(body: FakecheckIn):
                 c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
                 row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-        peer = InputPeerUser(int(body.tg_id), ah) if ah else int(body.tg_id)
+        peer = InputPeerUser(int(_real_tg_id(body.tg_id)), ah) if ah else int(_real_tg_id(body.tg_id))
         await tg_client.forward_messages(peer, audio_msg)
 
         # 4. Log as outgoing message
@@ -4844,13 +4864,14 @@ async def download_message_media(tg_id: str, msg_id: int):
                 c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
                 row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
-        msgs = await tg_client.get_messages(peer, ids=msg_id)
+        peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
+        _cli = _client_for(tg_id)
+        msgs = await _cli.get_messages(peer, ids=msg_id)
         if not msgs or not msgs.media:
             raise HTTPException(404, 'No media in this message')
         # Download directly into cache dir (Telethon adds the extension automatically)
         dl_path = os.path.join(cache_dir, str(msg_id))
-        path = await tg_client.download_media(msgs, file=dl_path)
+        path = await _cli.download_media(msgs, file=dl_path)
         if not path or not os.path.isfile(path):
             raise HTTPException(500, 'Download failed')
         return FileResponse(path, filename=os.path.basename(path))
@@ -4882,7 +4903,7 @@ async def get_profile_photo(tg_id: str):
                 row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
         from telethon.tl.types import InputPeerUser
-        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
         dl_path = os.path.join(PHOTOS_DIR, f'{tg_id}.jpg')
         path = await tg_client.download_profile_photo(peer, file=dl_path)
         if not path or not os.path.isfile(path):
@@ -5529,7 +5550,7 @@ async def _ai_post_call_followup(tg_id: str, folder: str = ''):
             c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (tg_id,))
             row = c.fetchone()
         ah = int(row['tg_access_hash']) if row and row['tg_access_hash'] else 0
-        peer = InputPeerUser(int(tg_id), ah) if ah else int(tg_id)
+        peer = InputPeerUser(int(_real_tg_id(tg_id)), ah) if ah else int(_real_tg_id(tg_id))
         global _tg_priority
         _tg_priority += 1
         try:
@@ -5705,7 +5726,7 @@ async def start_fake_call(body: CallStartIn):
             c.execute('SELECT tg_access_hash FROM conversations WHERE tg_id=%s', (body.tg_id,))
             row = c.fetchone()
 
-    peer = int(body.tg_id)
+    peer = int(_real_tg_id(body.tg_id))
 
     # Pre-populate Telethon's SQLite session so py-tgcalls can resolve the user.
     ah = int(row['tg_access_hash']) if row and row.get('tg_access_hash') else 0
@@ -5804,7 +5825,7 @@ async def stop_fake_call(tg_id: str):
     """Hang up the active call with a subscriber."""
     if not calls_client:
         raise HTTPException(503, 'Calls client not ready.')
-    peer = int(tg_id)
+    peer = int(_real_tg_id(tg_id))
     _folder = (active_calls.get(tg_id) or {}).get('folder', '')
     try:
         if hasattr(calls_client, 'leave_call'):
