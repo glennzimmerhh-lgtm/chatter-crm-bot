@@ -1918,6 +1918,108 @@ async def setup_verify(code: str = Form(...)):
 
 # ── PER-CREATOR Telegram connect (Stage 2): stores the session into creators.tg_session ──
 setup_creator_id = None
+setup_qr = {}   # cid -> {'client','url','status','error'}
+
+class QrPwIn(BaseModel):
+    password: str = ''
+
+@app.get('/setup/creator/{cid}/qr', response_class=HTMLResponse)
+async def setup_creator_qr(cid: int):
+    """QR login — no SMS code needed. Scan with the creator's phone
+    (Telegram → Einstellungen → Geräte → Gerät verknüpfen)."""
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT name FROM creators WHERE id=%s', (cid,))
+        row = c.fetchone()
+    if not row:
+        return render_setup('<div class="error">Creator nicht gefunden.</div>')
+    name = row['name']
+    if not (TG_API_ID and TG_API_HASH):
+        return render_setup('<div class="error">TG_API_ID / TG_API_HASH fehlen.</div>')
+    old = setup_qr.get(cid)
+    if old and old.get('client'):
+        try: await old['client'].disconnect()
+        except Exception: pass
+    client = TelegramClient(StringSession(), int(TG_API_ID), TG_API_HASH)
+    await client.connect()
+    setup_qr[cid] = {'client': client, 'url': '', 'status': 'pending', 'error': ''}
+
+    async def _loop():
+        st = setup_qr[cid]
+        try:
+            qr = await client.qr_login()
+            st['url'] = qr.url
+            for _ in range(60):   # ~20 min total
+                try:
+                    await qr.wait(timeout=20)
+                    s = client.session.save()
+                    with db() as conn, conn.cursor() as c:
+                        c.execute('UPDATE creators SET tg_session=%s WHERE id=%s', (s, cid))
+                    st['status'] = 'done'
+                    try: await client.disconnect()
+                    except Exception: pass
+                    return
+                except asyncio.TimeoutError:
+                    try:
+                        await qr.recreate(); st['url'] = qr.url
+                    except Exception as e:
+                        if 'password' in str(e).lower() or 'Password' in type(e).__name__:
+                            st['status'] = '2fa'; return
+                        st['status'] = 'error'; st['error'] = str(e)[:200]; return
+                except Exception as e:
+                    if 'password' in str(e).lower() or 'Password' in type(e).__name__:
+                        st['status'] = '2fa'; return
+                    st['status'] = 'error'; st['error'] = str(e)[:200]; return
+            st['status'] = 'error'; st['error'] = 'QR abgelaufen — Seite neu laden.'
+        except Exception as e:
+            if 'password' in str(e).lower() or 'Password' in type(e).__name__:
+                st['status'] = '2fa'; return
+            st['status'] = 'error'; st['error'] = str(e)[:200]
+    asyncio.create_task(_loop())
+
+    page = (
+        f'<p class="step">QR-Login für <strong>{name}</strong></p>'
+        f'<p style="color:#aaa;font-size:13px;margin-bottom:16px;">Scanne mit {name}s Handy: Telegram → '
+        f'<b>Einstellungen</b> → <b>Geräte</b> → <b>Gerät verknüpfen</b>. Kein SMS-Code nötig.</p>'
+        '<div id="qrbox" style="background:#fff;padding:14px;border-radius:10px;width:238px;height:238px;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;"></div>'
+        '<div id="qrstatus" style="text-align:center;color:#aaa;font-size:13px;">QR wird geladen…</div>'
+        '<div id="qr2fa" style="display:none;margin-top:16px;"><label>2FA-Passwort</label>'
+        '<input id="qrpw" type="password" placeholder="Telegram-Passwort"><button onclick="qrPw()">Bestätigen</button></div>'
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>'
+        f'<script>var CID={cid},lastUrl="";'
+        'function draw(u){if(!u||u===lastUrl)return;lastUrl=u;var b=document.getElementById("qrbox");b.innerHTML="";new QRCode(b,{text:u,width:210,height:210});}'
+        'async function poll(){try{var r=await fetch("/setup/creator/"+CID+"/qr-status");var d=await r.json();'
+        'if(d.url){draw(d.url);if(document.getElementById("qrstatus").innerText==="QR wird geladen…")document.getElementById("qrstatus").innerText="Warte auf Scan…";}'
+        'if(d.status==="done"){document.getElementById("qrstatus").innerHTML="✅ Verbunden & gespeichert! Fenster kann geschlossen werden.";document.getElementById("qrbox").style.opacity=".25";return;}'
+        'if(d.status==="2fa"){document.getElementById("qr2fa").style.display="block";document.getElementById("qrstatus").innerHTML="🔐 2FA aktiv — Passwort eingeben.";}'
+        'if(d.status==="error"){document.getElementById("qrstatus").innerHTML="❌ "+(d.error||"Fehler")+"";return;}'
+        '}catch(e){}setTimeout(poll,2000);}poll();'
+        'async function qrPw(){var pw=document.getElementById("qrpw").value;var r=await fetch("/setup/creator/"+CID+"/qr-2fa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pw})});var d=await r.json().catch(function(){return{};});if(r.ok&&d.ok){document.getElementById("qrstatus").innerHTML="✅ Verbunden & gespeichert!";document.getElementById("qr2fa").style.display="none";}else{document.getElementById("qrstatus").innerHTML="❌ "+(d.detail||"Passwort falsch");}}'
+        '</script>')
+    return render_setup(page)
+
+@app.get('/setup/creator/{cid}/qr-status')
+async def setup_creator_qr_status(cid: int):
+    st = setup_qr.get(cid)
+    if not st:
+        return {'status': 'none'}
+    return {'status': st.get('status'), 'url': st.get('url', ''), 'error': st.get('error', '')}
+
+@app.post('/setup/creator/{cid}/qr-2fa')
+async def setup_creator_qr_2fa(cid: int, body: QrPwIn):
+    st = setup_qr.get(cid)
+    if not st or not st.get('client'):
+        raise HTTPException(400, 'Keine aktive QR-Session — Seite neu laden.')
+    try:
+        await st['client'].sign_in(password=(body.password or '').strip())
+        s = st['client'].session.save()
+        with db() as conn, conn.cursor() as c:
+            c.execute('UPDATE creators SET tg_session=%s WHERE id=%s', (s, cid))
+        st['status'] = 'done'
+        try: await st['client'].disconnect()
+        except Exception: pass
+        return {'ok': True}
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
 @app.get('/setup/creator/{cid}', response_class=HTMLResponse)
 async def setup_creator_get(cid: int):
@@ -1929,7 +2031,9 @@ async def setup_creator_get(cid: int):
     name = row['name']
     aid = TG_API_ID or ''
     ah = TG_API_HASH or ''
-    form = (f'<p class="step">Telegram verbinden für <strong>{name}</strong></p>'
+    qr_link = (f'<a href="/setup/creator/{cid}/qr" style="display:block;text-align:center;margin-bottom:18px;'
+               f'color:#6c63ff;font-weight:600;">📱 Stattdessen per QR-Code verbinden (kein SMS nötig)</a>')
+    form = (qr_link + f'<p class="step">Telegram verbinden für <strong>{name}</strong></p>'
             f'<p style="color:#888;font-size:13px;margin-bottom:18px;">Logge das Telegram-Konto von {name} ein. '
             f'API-Daten sind von deinem Haupt-Setup vorausgefüllt (funktionieren für jeden Account).</p>'
             f'<form method="POST" action="/setup/creator/{cid}/send-code">'
