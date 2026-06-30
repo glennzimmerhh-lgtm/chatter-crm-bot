@@ -5091,6 +5091,27 @@ def creators_overview(period: str = 'heute'):
         'creators': out,
     }
 
+@app.get('/creators/debug')
+def creators_debug():
+    """Diagnostic: which creator bots are connected + recent captured messages per creator."""
+    out = {'clients_connected': sorted(list(_creator_clients.keys())),
+           'creator_runs': {str(k): v for k, v in _creator_runs.items()}}
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('SELECT id, name, (tg_session IS NOT NULL AND tg_session!=\'\') AS has_session, active FROM creators ORDER BY id')
+            out['creators'] = [dict(r) for r in c.fetchall()]
+            c.execute('SELECT creator_id, COUNT(*) AS n FROM conversations GROUP BY creator_id ORDER BY creator_id')
+            out['convs_by_creator'] = [dict(r) for r in c.fetchall()]
+            c.execute("""SELECT tg_id, creator_id, direction, LEFT(text,40) AS text, timestamp
+                         FROM messages ORDER BY id DESC LIMIT 12""")
+            out['recent_messages'] = [dict(r) for r in c.fetchall()]
+            c.execute("""SELECT tg_id, anon_id, creator_id, first_time
+                         FROM conversations ORDER BY first_time DESC LIMIT 8""")
+            out['recent_conversations'] = [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        out['error'] = str(e)
+    return out
+
 class CreatorIn(BaseModel):
     name: str
     avatar_url: Optional[str] = ''
