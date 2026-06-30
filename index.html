@@ -7773,6 +7773,8 @@ if (_origOpenConvForTimer) {
 // Helper: try Vercel proxy first, fall back to Railway direct
 async function _vaultApi(method, path, body) {
   const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+  // scope every vault op to the active creator
+  path = path + (path.includes('?') ? '&' : '?') + 'creator_id=' + (window.activeCreatorId || 1);
   const urls = ['/api' + path];
   if (base) urls.push(base + path);
   const opts = { method: method || 'GET', ...(body ? { headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) } : {}) };
@@ -7814,7 +7816,8 @@ async function loadVaultPage() {
     }
     return null; // null = failed (not just empty)
   }
-  const [folders, files] = await Promise.all([_vFetch('/vault/folders'), _vFetch('/vault')]);
+  const _cid = window.activeCreatorId || 1;
+  const [folders, files] = await Promise.all([_vFetch('/vault/folders?creator_id=' + _cid), _vFetch('/vault?creator_id=' + _cid)]);
   if (folders === null && files === null) {
     grid.innerHTML = '<div style="color:#ff5c7a;font-size:13px;">⚠️ Backend unreachable — check Railway and redeploy main.py</div>';
     _checkBackend();
@@ -7868,8 +7871,9 @@ function renderVaultGrid(grid, files, isPicker) {
     grid.innerHTML = '<div style="color:var(--text3);font-size:13px;grid-column:1/-1;padding:20px 0;">No files here yet. Upload to get started.</div>';
     return;
   }
+  const _cidQ = '?creator_id=' + (window.activeCreatorId || 1);
   grid.innerHTML = files.map(f => {
-    const src = '/api/vault/file/' + f.name.split('/').map(encodeURIComponent).join('/');
+    const src = '/api/vault/file/' + f.name.split('/').map(encodeURIComponent).join('/') + _cidQ;
     const label = f.name.split('/').pop();
     const folderTag = (!isPicker && f.folder)
       ? `<div style="font-size:9px;color:var(--teal);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📂 ${f.folder}</div>` : '';
@@ -7878,7 +7882,7 @@ function renderVaultGrid(grid, files, isPicker) {
       ? `<div title="${(_tg.description||'').replace(/"/g,'&quot;')}" style="font-size:9px;color:#a5b4fc;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🏷️ ${(_tg.description||'').replace(/</g,'&lt;')}</div>` : '';
 
     // Thumbnail — small server-generated preview (fast & clean); videos get a frame too
-    const thumbSrc = '/api/vault/thumb/' + f.name.split('/').map(encodeURIComponent).join('/');
+    const thumbSrc = '/api/vault/thumb/' + f.name.split('/').map(encodeURIComponent).join('/') + _cidQ;
     const clickAction = isPicker
       ? `sendVaultFile('${f.name}')`
       : `openVaultPreview('${src.replace(/'/g,"\\'")}','${f.type}','${label.replace(/'/g,"\\'")}')`;
@@ -7984,7 +7988,8 @@ async function vaultDeleteFolder(name) {
 async function _vaultDoUpload(fd, folder) {
   // Try Vercel proxy first (same origin, no CORS issues)
   // Then fall back to Railway direct if proxy fails
-  const folder_qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
+    const _cid = window.activeCreatorId || 1;
+  const folder_qs = (folder ? `?folder=${encodeURIComponent(folder)}&` : '?') + 'creator_id=' + _cid;
   const urls = [
     '/api/vault/upload' + folder_qs,                                         // Vercel proxy
     'https://worker-production-806f.up.railway.app/vault/upload' + folder_qs // Railway direct
@@ -8318,7 +8323,7 @@ async function loadHandSigns() {
   const status = document.getElementById('handsign-status');
   if (grid) grid.innerHTML = '<div style="color:var(--text3);font-size:13px;">Lade…</div>';
   try {
-    const r = await fetch('/api/vault?folder=' + encodeURIComponent(HANDSIGN_FOLDER));
+    const r = await fetch('/api/vault?folder=' + encodeURIComponent(HANDSIGN_FOLDER) + '&creator_id=' + (window.activeCreatorId || 1));
     const files = r.ok ? await r.json() : [];
     if (!files.length) {
       grid.innerHTML = '<div style="color:var(--text3);font-size:13px;">Noch keine Hand Signs. Lade welche hoch.</div>';
@@ -8328,7 +8333,7 @@ async function loadHandSigns() {
     if (status) status.textContent = files.length + ' Hand Signs — zum Senden klicken';
     grid.innerHTML = files.map(f => {
       const rel = f.name.split('/').map(encodeURIComponent).join('/');
-      const thumb = '/api/vault/thumb/' + rel;
+      const thumb = '/api/vault/thumb/' + rel + '?creator_id=' + (window.activeCreatorId || 1);
       const isVid = f.type === 'video';
       return `<div style="break-inside:avoid;margin-bottom:8px;position:relative;border-radius:8px;overflow:hidden;background:var(--bg3);cursor:pointer;line-height:0;"
         onmouseover="this.style.opacity='.82'" onmouseout="this.style.opacity='1'" onclick="sendHandSign('${f.name.replace(/'/g,"\\'")}')">
@@ -8380,7 +8385,7 @@ async function sendHandSign(filename) {
 async function hsDelete(filename) {
   if (!confirm('Diesen Hand Sign löschen?')) return;
   try {
-    await fetch('/api/vault/file/' + filename.split('/').map(encodeURIComponent).join('/'), { method: 'DELETE' });
+    await fetch('/api/vault/file/' + filename.split('/').map(encodeURIComponent).join('/') + '?creator_id=' + (window.activeCreatorId || 1), { method: 'DELETE' });
     loadHandSigns();
   } catch(e) { alert('Fehler: ' + (e && e.message)); }
 }

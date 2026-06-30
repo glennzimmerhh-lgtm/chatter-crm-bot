@@ -3553,6 +3553,19 @@ def _vault_safe(name: str) -> str:
     name = name.strip('_')              # remove leading/trailing underscores
     return name or 'file'
 
+def _vault_dir(creator_id: int = 1) -> str:
+    """Vault root per creator. Creator 1 = the existing root (Marie, untouched);
+    creator N>1 = a dedicated subfolder so their files stay separate."""
+    try:
+        cid = int(creator_id or 1)
+    except Exception:
+        cid = 1
+    if cid == 1:
+        return VAULT_DIR
+    d = os.path.join(VAULT_DIR, '_creators', str(cid))
+    os.makedirs(d, exist_ok=True)
+    return d
+
 def _vault_file_info(fpath: str, relpath: str, folder: str) -> dict:
     stat = os.stat(fpath)
     ext = relpath.rsplit('.', 1)[-1].lower() if '.' in relpath else ''
@@ -3567,12 +3580,15 @@ def _vault_file_info(fpath: str, relpath: str, folder: str) -> dict:
     }
 
 @app.get('/vault/folders')
-def vault_folders():
-    """List all vault folders (subdirectories)."""
+def vault_folders(creator_id: int = 1):
+    """List all vault folders (subdirectories) for this creator."""
     folders = []
+    vdir = _vault_dir(creator_id)
     try:
-        for name in sorted(os.listdir(VAULT_DIR)):
-            if os.path.isdir(os.path.join(VAULT_DIR, name)) and not name.startswith('.'):
+        for name in sorted(os.listdir(vdir)):
+            if name == '_creators':
+                continue
+            if os.path.isdir(os.path.join(vdir, name)) and not name.startswith('.'):
                 folders.append(name)
     except Exception as e:
         print(f'Vault folders error: {e}')
@@ -3582,36 +3598,37 @@ class VaultFolderIn(BaseModel):
     name: str
 
 @app.post('/vault/folder')
-def vault_create_folder(body: VaultFolderIn):
+def vault_create_folder(body: VaultFolderIn, creator_id: int = 1):
     """Create a new vault folder."""
     safe = _vault_safe(body.name).strip()
     if not safe:
         raise HTTPException(400, 'Invalid folder name')
-    fpath = os.path.join(VAULT_DIR, safe)
+    fpath = os.path.join(_vault_dir(creator_id), safe)
     os.makedirs(fpath, exist_ok=True)
     return {'ok': True, 'name': safe}
 
 @app.delete('/vault/folder/{folder}')
-def vault_delete_folder(folder: str):
+def vault_delete_folder(folder: str, creator_id: int = 1):
     """Delete a vault folder and all its files."""
     if '..' in folder:
         raise HTTPException(400, 'Invalid folder name')
-    fpath = os.path.join(VAULT_DIR, folder)
+    fpath = os.path.join(_vault_dir(creator_id), folder)
     if not os.path.isdir(fpath):
         raise HTTPException(404, 'Folder not found')
     shutil.rmtree(fpath)
     return {'ok': True}
 
 @app.get('/vault')
-def vault_list(folder: Optional[str] = None):
-    """List vault files. Optional ?folder=X to filter by folder."""
+def vault_list(folder: Optional[str] = None, creator_id: int = 1):
+    """List vault files for this creator. Optional ?folder=X to filter by folder."""
     files = []
+    vdir = _vault_dir(creator_id)
     try:
         if folder:
             # List files in specific folder — use raw name, check both original and safe version
-            dir_path = os.path.join(VAULT_DIR, folder)
+            dir_path = os.path.join(vdir, folder)
             if not os.path.isdir(dir_path):
-                dir_path = os.path.join(VAULT_DIR, _vault_safe(folder))
+                dir_path = os.path.join(vdir, _vault_safe(folder))
             safe_folder = os.path.basename(dir_path)
             if os.path.isdir(dir_path):
                 for fname in sorted(os.listdir(dir_path)):
@@ -3621,8 +3638,10 @@ def vault_list(folder: Optional[str] = None):
                         files.append(_vault_file_info(fpath, relpath, safe_folder))
         else:
             # List ALL files (root + all subfolders)
-            for item in sorted(os.listdir(VAULT_DIR)):
-                ipath = os.path.join(VAULT_DIR, item)
+            for item in sorted(os.listdir(vdir)):
+                if item == '_creators':
+                    continue   # don't show other creators' vaults in creator 1's root
+                ipath = os.path.join(vdir, item)
                 if os.path.isfile(ipath):
                     files.append(_vault_file_info(ipath, item, ''))
                 elif os.path.isdir(ipath) and not item.startswith('.'):
@@ -3636,8 +3655,9 @@ def vault_list(folder: Optional[str] = None):
     return files
 
 @app.post('/vault/upload')
-async def vault_upload(file: UploadFile = File(...), folder: str = ''):
+async def vault_upload(file: UploadFile = File(...), folder: str = '', creator_id: int = 1):
     """Upload a file to the vault, optionally into a folder."""
+    vdir = _vault_dir(creator_id)
     # Accept common types; also allow empty content-type (some clients omit it)
     ct = (file.content_type or '').split(';')[0].strip().lower()
     if ct and ct not in ALLOWED_TYPES and ct != 'application/octet-stream':
@@ -3646,16 +3666,16 @@ async def vault_upload(file: UploadFile = File(...), folder: str = ''):
     safe_name = _vault_safe(file.filename or 'file') or 'file'
     if folder:
         # Use folder name as-is if it already exists, otherwise sanitize for new folders
-        existing = os.path.join(VAULT_DIR, folder)
+        existing = os.path.join(vdir, folder)
         if os.path.isdir(existing):
             target_dir = existing
             safe_folder = folder          # preserve original name (may have spaces)
         else:
             safe_folder = _vault_safe(folder)
-            target_dir = os.path.join(VAULT_DIR, safe_folder)
+            target_dir = os.path.join(vdir, safe_folder)
             os.makedirs(target_dir, exist_ok=True)
     else:
-        target_dir = VAULT_DIR
+        target_dir = vdir
         safe_folder = ''
     fpath = os.path.join(target_dir, safe_name)
     if os.path.exists(fpath):
@@ -3674,26 +3694,27 @@ async def vault_upload(file: UploadFile = File(...), folder: str = ''):
     return {'ok': True, 'name': relpath, 'url': f'/vault/file/{relpath}'}
 
 @app.get('/vault/file/{filepath:path}')
-def vault_serve(filepath: str):
+def vault_serve(filepath: str, creator_id: int = 1):
     """Serve a vault file (supports folder/filename paths)."""
     if '..' in filepath:
         raise HTTPException(400, 'Invalid path')
-    fpath = os.path.join(VAULT_DIR, filepath)
+    fpath = os.path.join(_vault_dir(creator_id), filepath)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
     return FileResponse(fpath)
 
 @app.get('/vault/thumb/{filepath:path}')
-def vault_thumb(filepath: str):
+def vault_thumb(filepath: str, creator_id: int = 1):
     """Small cached thumbnail for fast, clean picker previews.
     Images -> resized JPEG (Pillow). Videos -> first frame (ffmpeg). Falls back to original."""
     if '..' in filepath:
         raise HTTPException(400, 'Invalid path')
-    src = os.path.join(VAULT_DIR, filepath)
+    vdir = _vault_dir(creator_id)
+    src = os.path.join(vdir, filepath)
     if not os.path.isfile(src):
         raise HTTPException(404, 'Not found')
     ext = filepath.rsplit('.', 1)[-1].lower() if '.' in filepath else ''
-    THUMBS_DIR = os.path.join(VAULT_DIR, '_thumbs')
+    THUMBS_DIR = os.path.join(vdir, '_thumbs')
     os.makedirs(THUMBS_DIR, exist_ok=True)
     key = filepath.replace('/', '__').replace('\\', '__')
     thumb_path = os.path.join(THUMBS_DIR, key + '.jpg')
@@ -3719,11 +3740,11 @@ def vault_thumb(filepath: str):
     raise HTTPException(404, 'no thumb')
 
 @app.delete('/vault/file/{filepath:path}')
-def vault_delete(filepath: str):
+def vault_delete(filepath: str, creator_id: int = 1):
     """Delete a vault file."""
     if '..' in filepath:
         raise HTTPException(400, 'Invalid path')
-    fpath = os.path.join(VAULT_DIR, filepath)
+    fpath = os.path.join(_vault_dir(creator_id), filepath)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
     os.remove(fpath)
@@ -3744,7 +3765,9 @@ async def vault_send(body: VaultSendIn):
         raise HTTPException(503, 'Userbot nicht verbunden')
     if '..' in body.filename:
         raise HTTPException(400, 'Invalid path')
-    fpath = os.path.join(VAULT_DIR, body.filename)
+    # Use the vault of the creator that owns this fan's chat (so Hailey sends from Hailey's vault).
+    _cid = _creator_id_for_tg(body.tg_id)
+    fpath = os.path.join(_vault_dir(_cid), body.filename)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Diese Datei ist im Vault nicht (mehr) vorhanden — bitte neu hochladen.')
     # De-dupe: ignore the SAME file to the SAME chat within 90s. This kills the "sent 2-3 times"
@@ -3985,6 +4008,7 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
     global _tg_priority
     _tg_priority += 1  # pause broadcast while uploading
     thumb_to_clean = None
+    _cli = _client_for(body.tg_id)   # route to the right creator's bot
     try:
         with db() as conn:
             with conn.cursor() as c:
@@ -4023,7 +4047,7 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
             if img_to_clean:
                 send_path = img_to_clean
         try:
-            await tg_client.send_file(peer, send_path, **send_kwargs)
+            await _cli.send_file(peer, send_path, **send_kwargs)
         except Exception as send_err:
             # IMPORTANT: a timeout / flood / connection drop on a SLOW upload may mean the file
             # ACTUALLY went through — retrying then sends it twice (the duplicate bug the chatters
@@ -4036,7 +4060,7 @@ async def _send_vault_file_bg(body: VaultSendIn, fpath: str):
                 print(f'⚠️  vault send error ({send_err}) — NOT retrying to avoid a duplicate')
                 raise
             print(f'⚠️  media rejected ({send_err}); retrying ONCE as document')
-            await tg_client.send_file(peer, send_path, caption=body.caption or None,
+            await _cli.send_file(peer, send_path, caption=body.caption or None,
                                       force_document=True)
         display_name = body.filename.split('/')[-1]
         save_msg(body.tg_id, f'[📎 {display_name}]', 'out', 'Vault')
