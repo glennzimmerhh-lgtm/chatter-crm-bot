@@ -2282,16 +2282,25 @@ def get_conversations(creator_id: Optional[int] = None):
     return [dict(r) for r in rows]
 
 @app.get('/online')
-def get_online():
+def get_online(creator_id: Optional[int] = None):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('''SELECT c.tg_id,c.anon_id,c.internal_name,c.last_seen,
-                         COALESCE(SUM(s.amount),0) as total_spent
-                         FROM conversations c
-                         LEFT JOIN sales s USING(tg_id)
-                         WHERE c.is_online=TRUE
-                         GROUP BY c.tg_id,c.anon_id,c.internal_name,c.last_seen
-                         ORDER BY c.last_seen DESC''')
+            if creator_id is not None:
+                c.execute('''SELECT c.tg_id,c.anon_id,c.internal_name,c.last_seen,
+                             COALESCE(SUM(s.amount),0) as total_spent
+                             FROM conversations c
+                             LEFT JOIN sales s USING(tg_id)
+                             WHERE c.is_online=TRUE AND c.creator_id=%s
+                             GROUP BY c.tg_id,c.anon_id,c.internal_name,c.last_seen
+                             ORDER BY c.last_seen DESC''', (creator_id,))
+            else:
+                c.execute('''SELECT c.tg_id,c.anon_id,c.internal_name,c.last_seen,
+                             COALESCE(SUM(s.amount),0) as total_spent
+                             FROM conversations c
+                             LEFT JOIN sales s USING(tg_id)
+                             WHERE c.is_online=TRUE
+                             GROUP BY c.tg_id,c.anon_id,c.internal_name,c.last_seen
+                             ORDER BY c.last_seen DESC''')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -5155,20 +5164,21 @@ def export_subscribers_csv():
 
 # ── FOLLOW-UP RADAR (helps human chatters: who needs attention now) ───────────
 @app.get('/followup-radar')
-def followup_radar():
+def followup_radar(creator_id: Optional[int] = None):
     """Chats needing a chatter's attention: fan waiting unanswered, or fan went quiet after we wrote."""
     now = datetime.now()
     try:
         with db() as conn:
             with conn.cursor() as c:
+                _cf = ' AND c.creator_id=%s' if creator_id is not None else ''
+                _prm = (creator_id,) if creator_id is not None else tuple()
                 c.execute('''
                     SELECT c.tg_id, c.anon_id, c.internal_name, c.is_muted,
                            m.direction AS last_dir, m.timestamp AS last_ts
                     FROM conversations c
                     JOIN LATERAL (SELECT direction, timestamp FROM messages
                                   WHERE tg_id=c.tg_id ORDER BY id DESC LIMIT 1) m ON true
-                    WHERE COALESCE(c.is_muted, false) = false
-                ''')
+                    WHERE COALESCE(c.is_muted, false) = false''' + _cf, _prm)
                 rows = c.fetchall()
     except Exception as e:
         print(f'followup-radar error: {e}')

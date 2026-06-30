@@ -4331,7 +4331,7 @@ if (checkAuth()) {
   function _fmtAge(mins){ if(mins<60) return mins+' Min'; if(mins<1440) return Math.floor(mins/60)+' Std'; return Math.floor(mins/1440)+' Tg'; }
   async function loadRadar() {
     try {
-      const items = await chatApiGet('/followup-radar');
+      const items = await chatApiGet('/followup-radar?creator_id=' + (window.activeCreatorId || 1));
       _radarItems = Array.isArray(items) ? items : [];
       const map = {}; _radarItems.forEach(it => { map[it.tg_id] = it; });
       window._radarMap = map;
@@ -6517,7 +6517,7 @@ window.retractMsg = async function(e, tgId, tgMsgId, dbId, bubbleId) {
 // ── ONLINE STATUS PANEL ───────────────────────────────────────────────────────
 async function refreshOnlinePanel() {
   try {
-    const online = await fetch('/api/online').then(r => r.json());
+    const online = await fetch('/api/online?creator_id=' + (window.activeCreatorId || 1)).then(r => r.json());
 
     // Chat sidebar panel
     const panel = document.getElementById('online-panel');
