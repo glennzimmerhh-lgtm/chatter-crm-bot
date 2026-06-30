@@ -544,7 +544,7 @@ def _fire_webhook_sync(url: str, payload: dict):
             print(f'⚠️  Webhook failed: {e}')
     threading.Thread(target=_send, daemon=True).start()
 
-def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: str = '') -> str:
+def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: str = '', creator_id: int = 1) -> str:
     is_new = False
     anon_id = ''
     with db() as conn:
@@ -563,8 +563,8 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: st
             payment_ref = f'ZF-{1001 + n}'
             now = datetime.now().isoformat()
             c.execute(
-                'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count,tg_username,tg_phone,payment_ref) VALUES (%s,%s,%s,%s,%s,0,0,%s,%s,%s)',
-                (tg_id, anon_id, '', now, now, username, phone, payment_ref)
+                'INSERT INTO conversations (tg_id,anon_id,last_msg,last_time,first_time,unread,msg_count,tg_username,tg_phone,payment_ref,creator_id) VALUES (%s,%s,%s,%s,%s,0,0,%s,%s,%s,%s)',
+                (tg_id, anon_id, '', now, now, username, phone, payment_ref, creator_id)
             )
             # Backfill payment_ref for any existing subscribers that don't have one
             c.execute("UPDATE conversations SET payment_ref='ZF-'||SUBSTRING(anon_id FROM 7) WHERE payment_ref='' AND anon_id LIKE 'User #%'")
@@ -577,14 +577,14 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: st
         })
     return anon_id
 
-def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id: int = 0):
+def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id: int = 0, creator_id: int = 1):
     import threading
     ts = datetime.now().isoformat()
     with db() as conn:
         with conn.cursor() as c:
             c.execute(
-                'INSERT INTO messages (tg_id,text,direction,timestamp,chatter,tg_msg_id) VALUES (%s,%s,%s,%s,%s,%s)',
-                (tg_id, text, direction, ts, chatter, tg_msg_id)
+                'INSERT INTO messages (tg_id,text,direction,timestamp,chatter,tg_msg_id,creator_id) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                (tg_id, text, direction, ts, chatter, tg_msg_id, creator_id)
             )
             if direction == 'in':
                 # Incoming message clears follow-up timer
@@ -831,6 +831,26 @@ async def _reinit_calls(client):
         print(f'⚠️ PyTgCalls reinit failed: {e}')
 
 
+# ── Multi-creator client registry (Stage 2b) ─────────────────────────────────
+# creator_id -> Telethon client. Creator 1 = Marie's existing tg_client.
+_creator_clients = {}
+_creator_runs = {}   # creator_id -> running flag
+
+def _creator_id_for_tg(tg_id) -> int:
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('SELECT creator_id FROM conversations WHERE tg_id=%s', (str(tg_id),))
+            r = c.fetchone()
+            return int(r['creator_id']) if r and r.get('creator_id') else 1
+    except Exception:
+        return 1
+
+def _client_for(tg_id):
+    """Return the Telethon client that owns this fan's conversation (per creator)."""
+    cid = _creator_id_for_tg(tg_id)
+    return _creator_clients.get(cid) or tg_client
+
+
 async def start_userbot():
     global tg_client, _tg_client_ready, _userbot_running
     if not (TG_API_ID and TG_API_HASH and TG_SESSION):
@@ -1001,6 +1021,7 @@ async def start_userbot():
 
             await tg_client.start()
             _tg_client_ready = True
+            _creator_clients[1] = tg_client   # Marie = creator 1 in the registry
             print('✅ Userbot verbunden!')
             retry_delay = 5  # reset on success
 
@@ -1022,6 +1043,117 @@ async def start_userbot():
         if _userbot_running:
             await asyncio.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, 60)  # exponential backoff max 60s
+
+
+# ── STAGE 2b: additional userbot per creator (id>1) ───────────────────────────
+async def _run_creator_userbot(cid: int, session_str: str):
+    """Run a Telethon client for one extra creator. Tags all data with its creator_id.
+    Fully separate from Marie's bot. Reconnects on its own."""
+    delay = 5
+    while _creator_runs.get(cid):
+        client = None
+        try:
+            client = TelegramClient(StringSession(session_str), int(TG_API_ID), TG_API_HASH,
+                                    connection_retries=5, retry_delay=3, auto_reconnect=True)
+
+            @client.on(events.Raw(UpdateUserStatus))
+            async def _c_status(event, _cid=cid):
+                tg_id = str(event.user_id)
+                online = isinstance(event.status, UserStatusOnline)
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: update_online_status(tg_id, online))
+                asyncio.create_task(ws_manager.broadcast({'type': 'online_status', 'tg_id': tg_id, 'is_online': online}))
+
+            @client.on(events.MessageRead(inbox=True))
+            async def _c_inbox_read(event, _cid=cid):
+                try:
+                    tg_id = str(event.chat_id)
+                    with db() as conn, conn.cursor() as c:
+                        c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s AND creator_id=%s', (tg_id, _cid))
+                    asyncio.create_task(ws_manager.broadcast({'type': 'read_update', 'tg_id': tg_id, 'unread': 0, 'creator_id': _cid}))
+                except Exception:
+                    pass
+
+            @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
+            async def _c_dm(event, _cid=cid):
+                sender = await event.get_sender()
+                if not isinstance(sender, User) or sender.bot:
+                    return
+                tg_id = str(sender.id)
+                username = sender.username or ''
+                phone = getattr(sender, 'phone', None) or ''
+                access_hash = str(sender.access_hash) if sender.access_hash else ''
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: ensure_conv(tg_id, username=username, phone=phone, access_hash=access_hash, creator_id=_cid))
+                msg_tg_id = event.id
+                with db() as conn, conn.cursor() as c:
+                    c.execute('SELECT 1 FROM messages WHERE tg_msg_id=%s AND tg_id=%s AND direction=%s', (msg_tg_id, tg_id, 'in'))
+                    if c.fetchone():
+                        return
+                if event.text:        text = event.text
+                elif event.photo:     text = '[📷 Photo]'
+                elif event.document:  text = '[📎 Document]'
+                elif event.sticker:   text = '[Sticker]'
+                elif event.voice:     text = '[🎤 Voice]'
+                else:                 text = '[Message]'
+                await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'in', tg_msg_id=msg_tg_id, creator_id=_cid))
+                now_ts = datetime.now().isoformat()
+                asyncio.create_task(ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id, 'text': text,
+                    'direction': 'in', 'timestamp': now_ts, 'tg_msg_id': msg_tg_id, 'creator_id': _cid}))
+                asyncio.create_task(ws_manager.broadcast({'type': 'notification', 'notif_type': 'message',
+                    'tg_id': tg_id, 'text': text[:80], 'timestamp': now_ts, 'creator_id': _cid}))
+
+            @client.on(events.NewMessage(outgoing=True, func=lambda e: e.is_private))
+            async def _c_out(event, _cid=cid):
+                # Capture messages sent from this creator's Telegram app directly (not via CRM).
+                try:
+                    tg_id = str(event.chat_id)
+                    if event.raw_text:
+                        with db() as conn, conn.cursor() as c:
+                            c.execute('SELECT 1 FROM messages WHERE tg_msg_id=%s AND tg_id=%s AND direction=%s', (event.id, tg_id, 'out'))
+                            if c.fetchone():
+                                return
+                        await asyncio.get_event_loop().run_in_executor(None, lambda: ensure_conv(tg_id, creator_id=_cid))
+                        await asyncio.get_event_loop().run_in_executor(None, lambda: save_msg(tg_id, event.raw_text, 'out', 'Telegram', event.id, _cid))
+                        asyncio.create_task(ws_manager.broadcast({'type': 'new_message', 'tg_id': tg_id,
+                            'text': event.raw_text, 'direction': 'out', 'timestamp': datetime.now().isoformat(),
+                            'tg_msg_id': event.id, 'creator_id': _cid}))
+                except Exception as _e:
+                    print(f'creator {_cid} outgoing capture: {_e}')
+
+            await client.start()
+            _creator_clients[cid] = client
+            print(f'✅ Creator-{cid} Userbot verbunden!')
+            delay = 5
+            await client.run_until_disconnected()
+        except Exception as e:
+            print(f'❌ Creator-{cid} Userbot Fehler: {e}')
+        finally:
+            if _creator_clients.get(cid) is client:
+                _creator_clients.pop(cid, None)
+        if _creator_runs.get(cid):
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60)
+
+async def _run_creator_bots_manager():
+    """Start a userbot for every creator (id>1) that has a stored session. Re-checks
+    periodically so newly-connected creators come online without a redeploy."""
+    await asyncio.sleep(15)   # let Marie connect first
+    while True:
+        try:
+            if TG_API_ID and TG_API_HASH:
+                with db() as conn, conn.cursor() as c:
+                    c.execute("SELECT id, tg_session FROM creators WHERE id>1 AND active=TRUE AND tg_session IS NOT NULL AND tg_session!=''")
+                    rows = c.fetchall()
+                for r in rows:
+                    cid = r['id']
+                    if not _creator_runs.get(cid):
+                        _creator_runs[cid] = True
+                        asyncio.create_task(_run_creator_userbot(cid, r['tg_session']))
+                        print(f'▶️  Starting Creator-{cid} userbot')
+        except Exception as e:
+            print(f'creator bots manager error: {e}')
+        await asyncio.sleep(60)
 
 # ── PAYPAL EMAIL POLLER ───────────────────────────────────────────────────────
 # Detects "money received" emails from PayPal in a connected mailbox (IMAP) and
@@ -1852,6 +1984,7 @@ async def lifespan(app: FastAPI):
         # Log and continue — userbot MUST still start.
         print(f'⚠️ init_db() warning (non-fatal): {_ie}')
     asyncio.create_task(start_userbot())
+    asyncio.create_task(_run_creator_bots_manager())   # Stage 2b: extra creators' bots
     asyncio.create_task(_run_scheduled_broadcasts())
     asyncio.create_task(_run_paypal_poller())
     asyncio.create_task(_run_ai_followups())
@@ -2135,10 +2268,16 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # ── CONVERSATIONS ─────────────────────────────────────────────────────────────
 @app.get('/conversations')
-def get_conversations():
+def get_conversations(creator_id: Optional[int] = None):
+    cols = ('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,'
+            'time_waster,is_muted,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,'
+            'call_followup_note,is_online,last_seen,creator_id FROM conversations')
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,time_waster,is_muted,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,call_followup_note,is_online,last_seen FROM conversations ORDER BY last_time DESC NULLS LAST')
+            if creator_id is not None:
+                c.execute(cols + ' WHERE creator_id=%s ORDER BY last_time DESC NULLS LAST', (creator_id,))
+            else:
+                c.execute(cols + ' ORDER BY last_time DESC NULLS LAST')
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -2571,10 +2710,12 @@ async def _send_reply_bg(body: ReplyIn, peer):
     global _tg_priority
     _tg_priority += 1  # pause broadcast while this send is in flight
     try:
-        sent_msg = await tg_client.send_message(peer, body.text)
+        _cli = _client_for(body.tg_id)        # route to the right creator's bot
+        _cid = _creator_id_for_tg(body.tg_id)
+        sent_msg = await _cli.send_message(peer, body.text)
         tg_msg_id = sent_msg.id
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter, tg_msg_id))
+        await loop.run_in_executor(None, lambda: save_msg(body.tg_id, body.text, 'out', body.chatter, tg_msg_id, _cid))
         asyncio.create_task(ws_manager.broadcast({
             'type': 'new_message',
             'tg_id': body.tg_id,

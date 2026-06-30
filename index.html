@@ -4247,7 +4247,8 @@ if (checkAuth()) {
   }
 
   window._refreshConvs = async function refreshConvs() {
-    const data = await chatApiGet('/conversations');
+    const _cid = window.activeCreatorId || 1;
+    const data = await chatApiGet('/conversations?creator_id=' + _cid);
     if (!data) return;
     allConvs = data;
     renderConvList(applyConvFilters(data));
@@ -5570,6 +5571,8 @@ if (checkAuth()) {
     }
     switch(msg.type) {
       case 'new_message':
+        // Multi-creator: ignore messages for a creator that isn't currently active
+        if (msg.creator_id && msg.creator_id !== (window.activeCreatorId || 1)) break;
         // Refresh messages immediately (shows message without translation)
         if (msg.tg_id === currentChatTgId) loadMsgs();
         // Refresh again after 3s to pick up auto-translation from OpenAI
