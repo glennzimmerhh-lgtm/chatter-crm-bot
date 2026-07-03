@@ -3594,6 +3594,20 @@ def _vault_dir(creator_id: int = 1) -> str:
     os.makedirs(d, exist_ok=True)
     return d
 
+def _calls_dir(creator_id: int = 1) -> str:
+    """Call recordings per creator. Creator 1 = existing shared _calls (Marie, untouched);
+    creator N>1 = their own _calls folder."""
+    try:
+        cid = int(creator_id or 1)
+    except Exception:
+        cid = 1
+    if cid == 1:
+        return CALLS_DIR
+    d = os.path.join(_vault_dir(cid), '_calls')
+    for _f in CALL_FOLDERS:
+        os.makedirs(os.path.join(d, _f), exist_ok=True)
+    return d
+
 def _vault_file_info(fpath: str, relpath: str, folder: str) -> dict:
     stat = os.stat(fpath)
     ext = relpath.rsplit('.', 1)[-1].lower() if '.' in relpath else ''
@@ -5263,8 +5277,9 @@ def call_status():
     }
 
 @app.get('/call/files')
-def get_call_files():
+def get_call_files(creator_id: int = 1):
     """List recordings organised by folder. Returns {folders: [{name, label, files}]}"""
+    _cd = _calls_dir(creator_id)
     def _scan_dir(directory: str, folder_key: str) -> list:
         result = []
         try:
@@ -5288,22 +5303,23 @@ def get_call_files():
     FOLDER_LABELS = {'': 'Alle', 'fake_checks': '✅ Fake Checks', 'paid_calls': '💰 Paid Calls'}
     folders = []
     # Root (ungrouped)
-    folders.append({'key': '', 'label': 'Alle', 'files': _scan_dir(CALLS_DIR, '')})
+    folders.append({'key': '', 'label': 'Alle', 'files': _scan_dir(_cd, '')})
     # Sub-folders
     for fkey in CALL_FOLDERS:
-        fdir = os.path.join(CALLS_DIR, fkey)
+        fdir = os.path.join(_cd, fkey)
         folders.append({'key': fkey, 'label': FOLDER_LABELS.get(fkey, fkey), 'files': _scan_dir(fdir, fkey)})
     return {'folders': folders}
 
 @app.post('/call/upload')
-async def upload_call_file(file: UploadFile = File(...), folder: str = ''):
+async def upload_call_file(file: UploadFile = File(...), folder: str = '', creator_id: int = 1):
     """Upload a call recording. folder='' for root, or 'fake_checks'/'paid_calls'."""
     if folder and folder not in CALL_FOLDERS:
         raise HTTPException(400, f'Invalid folder. Choose from: {CALL_FOLDERS}')
     ext = (file.filename or 'call.mp3').rsplit('.',1)[-1].lower()
     if ext not in CALL_ALLOWED_EXTS:
         raise HTTPException(400, f'File type .{ext} not allowed.')
-    target_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
+    _cd = _calls_dir(creator_id)
+    target_dir = os.path.join(_cd, folder) if folder else _cd
     safe_name = _vault_safe(file.filename or f'call.{ext}') or f'call.{ext}'
     fpath = os.path.join(target_dir, safe_name)
     if os.path.exists(fpath):
@@ -5331,10 +5347,11 @@ def _gdrive_file_id(url: str) -> str | None:
     m = re.search(r'drive\.google\.com/file/d/([^/?#]+)', url)
     return m.group(1) if m else None
 
-def _run_import(job_id: str, url: str, folder: str):
-    """Background thread: download URL (Google Drive or direct) and save to CALLS_DIR/folder."""
+def _run_import(job_id: str, url: str, folder: str, creator_id: int = 1):
+    """Background thread: download URL (Google Drive or direct) and save to the creator's calls dir."""
     job = _import_jobs[job_id]
-    target_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
+    _cd = _calls_dir(creator_id)
+    target_dir = os.path.join(_cd, folder) if folder else _cd
     os.makedirs(target_dir, exist_ok=True)
     try:
         file_id = _gdrive_file_id(url)
@@ -5441,6 +5458,7 @@ def _run_import(job_id: str, url: str, folder: str):
 class ImportUrlBody(BaseModel):
     url: str
     folder: str = ''
+    creator_id: int = 1
 
 @app.post('/call/import-url')
 def import_call_from_url(body: ImportUrlBody):
@@ -5453,7 +5471,7 @@ def import_call_from_url(body: ImportUrlBody):
         raise HTTPException(400, f'Invalid folder. Choose from: {CALL_FOLDERS}')
     job_id = str(uuid.uuid4())[:8]
     _import_jobs[job_id] = {'status': 'downloading', 'progress': 0, 'filename': '', 'error': '', 'folder': folder}
-    t = threading.Thread(target=_run_import, args=(job_id, url, folder), daemon=True)
+    t = threading.Thread(target=_run_import, args=(job_id, url, folder, getattr(body, 'creator_id', 1) or 1), daemon=True)
     t.start()
     return {'job_id': job_id}
 
@@ -5467,10 +5485,11 @@ def import_call_status(job_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.delete('/call/file/{filename}')
-def delete_call_file(filename: str, folder: str = ''):
+def delete_call_file(filename: str, folder: str = '', creator_id: int = 1):
     if '..' in filename or '..' in folder:
         raise HTTPException(400, 'Invalid')
-    base_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
+    _cd = _calls_dir(creator_id)
+    base_dir = os.path.join(_cd, folder) if folder else _cd
     fpath = os.path.join(base_dir, filename)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
@@ -5478,10 +5497,11 @@ def delete_call_file(filename: str, folder: str = ''):
     return {'ok': True}
 
 @app.get('/call/file/{filename}')
-def serve_call_file(filename: str, folder: str = ''):
+def serve_call_file(filename: str, folder: str = '', creator_id: int = 1):
     if '..' in filename or '..' in folder:
         raise HTTPException(400, 'Invalid')
-    base_dir = os.path.join(CALLS_DIR, folder) if folder else CALLS_DIR
+    _cd = _calls_dir(creator_id)
+    base_dir = os.path.join(_cd, folder) if folder else _cd
     fpath = os.path.join(base_dir, filename)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
@@ -5716,7 +5736,8 @@ async def start_fake_call(body: CallStartIn):
     else:
         if not body.filename:
             raise HTTPException(400, 'Provide either filename or url.')
-        base_dir = os.path.join(CALLS_DIR, body.folder) if body.folder else CALLS_DIR
+        _cd = _calls_dir(_creator_id_for_tg(body.tg_id))
+        base_dir = os.path.join(_cd, body.folder) if body.folder else _cd
         fpath = os.path.join(base_dir, body.filename)
         if '..' in body.filename or not os.path.isfile(fpath):
             raise HTTPException(404, 'Recording file not found.')
