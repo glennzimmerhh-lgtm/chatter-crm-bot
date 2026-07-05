@@ -5672,8 +5672,10 @@ if (checkAuth()) {
         break;
       }
       case 'call_started':
-        // Always show bar regardless of which chat is open — pass tg_id so _activeCallTgId is set
-        showActiveCallBar(msg, msg.tg_id);
+        // Only show the bar if the call belongs to the model currently open
+        if (window._callCreatorOf(msg.tg_id) === (window.activeCreatorId || 1)) {
+          showActiveCallBar(msg, msg.tg_id);
+        }
         break;
       case 'call_ended':
         // Only hide if the call that ended is the one we're tracking
@@ -5827,16 +5829,24 @@ if (checkAuth()) {
   }
   try { if (document.getElementById('active-call-bar')) _promoteCallBar(); else document.addEventListener('DOMContentLoaded', _promoteCallBar); } catch(e){}
 
+  // Which creator owns a conversation key ("2:realid" -> 2, plain id -> 1)
+  window._callCreatorOf = function(key){
+    key = String(key || '');
+    return key.includes(':') ? (parseInt(key.split(':')[0], 10) || 1) : 1;
+  };
+
   // Restore the widget on any page (after reload or if the call started while away)
   async function _globalCallCheck() {
     try {
-      const res = await chatApiGet('/call/status');
+      const res = await chatApiGet('/call/status?creator_id=' + (window.activeCreatorId || 1));
       if (!res) return;
       const ac = res.active_calls || {};
-      const ids = Object.keys(ac);
+      const cur = (window.activeCreatorId || 1);
+      // Only calls belonging to the currently open model
+      const ids = Object.keys(ac).filter(id => window._callCreatorOf(id) === cur);
       if (ids.length) {
-        if (!_activeCallTgId) {
-          const id = ids[0];
+        const id = ids[0];
+        if (!_activeCallTgId || window._callCreatorOf(_activeCallTgId) !== cur) {
           showActiveCallBar({ call_type: ac[id].type, filename: ac[id].file }, id);
         }
       } else if (_activeCallTgId) {
@@ -6069,9 +6079,8 @@ if (checkAuth()) {
     const inp = document.getElementById('fc-upload-input');
     if (!inp || !inp.files.length) return;
     const file = inp.files[0];
-    // Use _currentCallFolder directly (source of truth from the active tab).
-    // Falls back to 'fake_checks' when "Alle" tab is active.
-    const folder = _currentCallFolder || 'fake_checks';
+    // Explicit destination chosen in the "Speichern in" dropdown.
+    const folder = (document.getElementById('fc-upload-folder') || {}).value || 'fake_checks';
     const statusEl = document.getElementById('fc-upload-status');
     statusEl.textContent = '⏳ Uploading...';
     statusEl.style.color = '#fbbf24';
@@ -6107,7 +6116,7 @@ if (checkAuth()) {
   window.importCallFromUrl = async function() {
     const urlEl    = document.getElementById('fc-url-input');
     const url      = urlEl?.value.trim();
-    const folder   = _currentCallFolder || 'fake_checks';
+    const folder   = (document.getElementById('fc-upload-folder') || {}).value || 'fake_checks';
     const statusEl = document.getElementById('fc-upload-status');
     const wrapEl   = document.getElementById('fc-import-progress-wrap');
     const barEl    = document.getElementById('fc-import-progress-bar');
@@ -7063,11 +7072,6 @@ window.showPage = function(page) {
       <button id="fc-tab-all" onclick="switchCallFolder('')" style="background:none;border:none;border-bottom:2px solid var(--teal);color:var(--text);padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">Alle</button>
       <button id="fc-tab-fake_checks" onclick="switchCallFolder('fake_checks')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">✅ Fake Checks</button>
       <button id="fc-tab-paid_calls" onclick="switchCallFolder('paid_calls')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">💰 Paid Calls</button>
-      <!-- hidden folder selector kept in sync with active tab for JS compat -->
-      <select id="fc-upload-folder" style="display:none;">
-        <option value="fake_checks">fake_checks</option>
-        <option value="paid_calls">paid_calls</option>
-      </select>
     </div>
 
     <!-- File list -->
@@ -7077,6 +7081,14 @@ window.showPage = function(page) {
 
     <!-- Add new — compact bottom panel -->
     <div style="border-top:1px solid rgba(255,255,255,.07);padding:12px 20px;background:rgba(255,255,255,.02);flex-shrink:0;">
+      <!-- Destination folder — explicit choice for uploads and URL imports -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+        <span style="font-size:11px;color:var(--dim);white-space:nowrap;">Speichern in:</span>
+        <select id="fc-upload-folder" style="flex:1;min-width:0;font-size:12px;color:var(--text);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:7px 10px;cursor:pointer;box-sizing:border-box;">
+          <option value="fake_checks">✅ Fake Checks</option>
+          <option value="paid_calls">💰 Paid Calls</option>
+        </select>
+      </div>
       <!-- File upload row -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
         <input id="fc-upload-input" type="file" accept="audio/*,video/*,.mp3,.mp4,.wav,.ogg,.aac,.m4a,.mov,.mkv,.flac"

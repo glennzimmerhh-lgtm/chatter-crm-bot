@@ -66,8 +66,9 @@ except Exception as _e:
     _PYTGCALLS_ERR = str(_e)
     print(f'⚠️  pytgcalls not available: {_e}')
 
-calls_client: Optional[object] = None
-active_calls: dict = {}   # tg_id → {file, chatter, started_at}
+calls_client: Optional[object] = None            # creator 1 (Marie) — backward compat
+_creator_calls_clients: dict = {}                # creator_id -> PyTgCalls (one call per creator)
+active_calls: dict = {}   # conv_key → {file, chatter, started_at}  (key encodes creator, e.g. "2:realid")
 _tg_priority: int = 0    # >0 = broadcast pauses (reply/call in progress)
 
 import sqlite3 as _sqlite3
@@ -768,20 +769,24 @@ tg_client: Optional[TelegramClient] = None
 _tg_client_ready = False   # True only when client is started and connected
 _userbot_running = False
 
-async def _reinit_calls(client):
-    """(Re-)initialize PyTgCalls bound to the given Telethon client.
-    Called every time the userbot successfully connects so calls_client
-    always uses the live MTProto session."""
+async def _reinit_calls(client, creator_id: int = 1):
+    """(Re-)initialize PyTgCalls bound to the given Telethon client for a creator.
+    Each creator has its own PyTgCalls instance so calls can run in parallel
+    (one per Telegram account). Creator 1 also updates the global calls_client
+    for backward compatibility."""
     global calls_client
     await asyncio.sleep(3)   # let Telethon fully settle
     if not _PYTGCALLS_OK or not client:
         return
-    # Stop old instance cleanly
-    if calls_client:
+    # Stop old instance for this creator cleanly
+    old = _creator_calls_clients.get(creator_id)
+    if old:
         try:
-            await calls_client.stop()
+            await old.stop()
         except Exception:
             pass
+        _creator_calls_clients.pop(creator_id, None)
+    if creator_id == 1:
         calls_client = None
     try:
         new_client = PyTgCalls(client)
@@ -792,8 +797,9 @@ async def _reinit_calls(client):
             try:
                 update_type = type(update).__name__
                 chat_id_raw = getattr(update, 'chat_id', None)
-                print(f'📡 pytgcalls update: {update_type} chat_id={chat_id_raw}')
-                tg_id_str = str(chat_id_raw) if chat_id_raw is not None else ''
+                print(f'📡 pytgcalls update (creator {creator_id}): {update_type} chat_id={chat_id_raw}')
+                # Map the raw telegram id back to the conversation key for this creator
+                tg_id_str = _conv_key(chat_id_raw, creator_id) if chat_id_raw is not None else ''
                 if not tg_id_str or tg_id_str not in active_calls:
                     return
                 update_str = update_type.lower()
@@ -810,11 +816,12 @@ async def _reinit_calls(client):
                     pass
                 if is_stream_end:
                     print(f'🔔 Stream ended for {tg_id_str} — hanging up')
+                    _peer_id = int(_real_tg_id(tg_id_str))
                     try:
                         if hasattr(new_client, 'leave_call'):
-                            await new_client.leave_call(int(tg_id_str))
+                            await new_client.leave_call(_peer_id)
                         elif hasattr(new_client, 'leave'):
-                            await new_client.leave(int(tg_id_str))
+                            await new_client.leave(_peer_id)
                     except Exception as _e:
                         print(f'⚠️ leave_call: {_e}')
                     active_calls.pop(tg_id_str, None)
@@ -828,10 +835,18 @@ async def _reinit_calls(client):
             except Exception as e:
                 print(f'⚠️ _on_call_update: {e}')
 
-        calls_client = new_client
-        print('✅ PyTgCalls (re-)initialized with fresh MTProto client')
+        _creator_calls_clients[creator_id] = new_client
+        if creator_id == 1:
+            calls_client = new_client
+        print(f'✅ PyTgCalls (re-)initialized for creator {creator_id}')
     except Exception as e:
-        print(f'⚠️ PyTgCalls reinit failed: {e}')
+        print(f'⚠️ PyTgCalls reinit failed (creator {creator_id}): {e}')
+
+
+def _calls_client_for(tg_id) -> Optional[object]:
+    """Return the PyTgCalls instance for the creator that owns this conversation."""
+    cid = _creator_id_for_tg(tg_id)
+    return _creator_calls_clients.get(cid) or (calls_client if cid == 1 else None)
 
 
 # ── Multi-creator client registry (Stage 2b) ─────────────────────────────────
@@ -914,8 +929,10 @@ async def start_userbot():
                     """Fires when subscriber hangs up or a call is discarded."""
                     try:
                         if isinstance(update.phone_call, _PhoneCallDiscarded):
-                            print(f'📵 Telethon: PhoneCallDiscarded — ending active calls')
-                            ended = list(active_calls.keys())
+                            print(f'📵 Telethon: PhoneCallDiscarded — ending creator-1 active calls')
+                            # This event fires on Marie's (creator 1) account only, so
+                            # end ONLY creator-1 calls — other models keep running.
+                            ended = [k for k in list(active_calls.keys()) if _creator_id_for_tg(k) == 1]
                             for tg_id_str in ended:
                                 active_calls.pop(tg_id_str, None)
                                 asyncio.create_task(ws_manager.broadcast({
@@ -926,7 +943,7 @@ async def start_userbot():
                                 for tg_id_str in ended:
                                     try:
                                         if hasattr(calls_client, 'leave_call'):
-                                            await calls_client.leave_call(int(tg_id_str))
+                                            await calls_client.leave_call(int(_real_tg_id(tg_id_str)))
                                     except Exception:
                                         pass
                     except Exception as e:
@@ -1143,6 +1160,8 @@ async def _run_creator_userbot(cid: int, session_str: str):
             await client.start()
             _creator_clients[cid] = client
             print(f'✅ Creator-{cid} Userbot verbunden!')
+            # Own PyTgCalls instance so this creator can run calls in parallel to Marie
+            asyncio.create_task(_reinit_calls(client, cid))
             delay = 5
             await client.run_until_disconnected()
         except Exception as e:
@@ -1150,6 +1169,13 @@ async def _run_creator_userbot(cid: int, session_str: str):
         finally:
             if _creator_clients.get(cid) is client:
                 _creator_clients.pop(cid, None)
+            # Drop this creator's calls client so a stale instance isn't reused
+            _old_cc = _creator_calls_clients.pop(cid, None)
+            if _old_cc:
+                try:
+                    await _old_cc.stop()
+                except Exception:
+                    pass
         if _creator_runs.get(cid):
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60)
@@ -2015,6 +2041,12 @@ async def lifespan(app: FastAPI):
     _userbot_running = False
     if tg_client:
         await tg_client.disconnect()
+    for _cc in list(_creator_calls_clients.values()):
+        try:
+            await _cc.stop()
+        except Exception:
+            pass
+    _creator_calls_clients.clear()
     if calls_client:
         try:
             await calls_client.stop()
@@ -5266,12 +5298,19 @@ def followup_radar(creator_id: Optional[int] = None):
 CALL_ALLOWED_EXTS = {'mp3','mp4','wav','ogg','aac','m4a','mov','mkv','flac'}
 
 @app.get('/call/status')
-def call_status():
-    """Check if pytgcalls is available and how many calls are active."""
+def call_status(creator_id: int = 1):
+    """Check if pytgcalls is available and how many calls are active.
+    calls_client_ready reflects the requested creator's own call client."""
+    try:
+        _cid = int(creator_id or 1)
+    except Exception:
+        _cid = 1
+    _ready = (_creator_calls_clients.get(_cid) is not None) or (_cid == 1 and calls_client is not None)
     return {
         'pytgcalls_available': _PYTGCALLS_OK,
         'pytgcalls_error': _PYTGCALLS_ERR,
-        'calls_client_ready': calls_client is not None,
+        'calls_client_ready': _ready,
+        'creator_calls_ready': {str(k): True for k in _creator_calls_clients.keys()},
         'active': len(active_calls),
         'active_calls': active_calls,
     }
@@ -5602,11 +5641,13 @@ async def _call_timed_hangup(tg_id_str: str, media_src: str):
         return  # already hung up
     print(f'⏰ Auto-hanging up {tg_id_str}')
     _folder = (active_calls.get(tg_id_str) or {}).get('folder', '')
+    _cc = _calls_client_for(tg_id_str)
+    _peer_id = int(_real_tg_id(tg_id_str))
     try:
-        if hasattr(calls_client, 'leave_call'):
-            await calls_client.leave_call(int(tg_id_str))
-        elif hasattr(calls_client, 'leave'):
-            await calls_client.leave(int(tg_id_str))
+        if _cc and hasattr(_cc, 'leave_call'):
+            await _cc.leave_call(_peer_id)
+        elif _cc and hasattr(_cc, 'leave'):
+            await _cc.leave(_peer_id)
     except Exception as _e:
         print(f'⚠️ Auto-hangup leave_call error: {_e}')
     active_calls.pop(tg_id_str, None)
@@ -5615,22 +5656,28 @@ async def _call_timed_hangup(tg_id_str: str, media_src: str):
     asyncio.create_task(_ai_post_call_followup(tg_id_str, _folder))
 
 
-async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str):
+async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str, cc=None, cl=None):
     """Background task: actually connect the call via py-tgcalls.
+    cc = the creator's PyTgCalls client, cl = the creator's Telethon client.
     Returns immediately so /call/start responds in <1s.
     On failure sends call_ended WS so frontend can alert the chatter."""
     global calls_client, _tg_priority
+    _cid = _creator_id_for_tg(tg_id_str)
+    if cc is None:
+        cc = _calls_client_for(tg_id_str)
+    if cl is None:
+        cl = _client_for(tg_id_str)
     _tg_priority += 1  # pause broadcast while call is connecting
     try:
         async def _do_play():
-            if hasattr(calls_client, 'play'):
-                await calls_client.play(peer, stream)
-            elif hasattr(calls_client, 'call'):
-                await calls_client.call(peer, stream)
+            if hasattr(cc, 'play'):
+                await cc.play(peer, stream)
+            elif hasattr(cc, 'call'):
+                await cc.call(peer, stream)
             else:
                 raise RuntimeError(
                     f'No play/call method. Available: '
-                    f'{[m for m in dir(calls_client) if not m.startswith("_")]}'
+                    f'{[m for m in dir(cc) if not m.startswith("_")]}'
                 )
 
         _last_err = None
@@ -5643,12 +5690,12 @@ async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str):
             except asyncio.TimeoutError:
                 print(f'⏰ play() timed out for {tg_id_str} — subscriber did not answer')
                 try:
-                    if calls_client and hasattr(calls_client, 'leave_call'):
-                        await asyncio.wait_for(calls_client.leave_call(peer), timeout=5)
+                    if cc and hasattr(cc, 'leave_call'):
+                        await asyncio.wait_for(cc.leave_call(peer), timeout=5)
                 except Exception:
                     pass
-                if tg_client:
-                    asyncio.create_task(_reinit_calls(tg_client))
+                if cl:
+                    asyncio.create_task(_reinit_calls(cl, _cid))
                 active_calls.pop(tg_id_str, None)
                 await ws_manager.broadcast({
                     'type': 'call_ended', 'tg_id': tg_id_str,
@@ -5660,15 +5707,18 @@ async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str):
                 _last_err = _e
                 err_str = str(_e)
                 if ('DH_G_A_HASH_INVALID' in err_str or 'HASH_INVALID' in err_str) and _attempt < 2:
-                    print(f'🔄 DH error attempt {_attempt+1} — reiniting calls_client')
-                    if tg_client and _PYTGCALLS_OK:
+                    print(f'🔄 DH error attempt {_attempt+1} — reiniting calls client (creator {_cid})')
+                    if cl and _PYTGCALLS_OK:
                         try:
-                            if calls_client:
-                                try: await calls_client.stop()
+                            if cc:
+                                try: await cc.stop()
                                 except Exception: pass
-                            calls_client = PyTgCalls(tg_client)
-                            await calls_client.start()
-                            print(f'✅ calls_client restarted for retry {_attempt+2}')
+                            cc = PyTgCalls(cl)
+                            await cc.start()
+                            _creator_calls_clients[_cid] = cc
+                            if _cid == 1:
+                                calls_client = cc
+                            print(f'✅ calls client restarted for retry {_attempt+2} (creator {_cid})')
                         except Exception as _re:
                             print(f'⚠️ reinit failed: {_re}')
                     await asyncio.sleep(2)
@@ -5707,16 +5757,17 @@ async def start_fake_call(body: CallStartIn):
     global calls_client
     if not _PYTGCALLS_OK:
         raise HTTPException(503, 'pytgcalls not installed on Railway. Add "py-tgcalls" to requirements.txt and redeploy.')
-    if not calls_client:
-        raise HTTPException(503, 'Calls client not ready yet (wait a few seconds after startup).')
-    # Telegram only supports ONE active voice/video call per account at a time.
-    # Block immediately if any call is running — avoids PyTgCalls timeout/hang.
-    if active_calls:
-        other = [k for k in active_calls if k != body.tg_id]
-        if body.tg_id in active_calls:
-            raise HTTPException(409, 'Ein Call mit diesem Subscriber läuft bereits.')
-        if other:
-            raise HTTPException(409, f'Es läuft bereits ein anderer Call (Subscriber {other[0]}). Bitte erst den laufenden Call beenden.')
+    _cid = _creator_id_for_tg(body.tg_id)
+    cc = _calls_client_for(body.tg_id)
+    if not cc:
+        raise HTTPException(503, 'Calls client not ready yet for this model (wait a few seconds after startup).')
+    # Telegram supports ONE active call PER ACCOUNT. With multiple creators (each its
+    # own account) calls can run in parallel — so only block calls for the SAME creator.
+    if body.tg_id in active_calls:
+        raise HTTPException(409, 'Ein Call mit diesem Subscriber läuft bereits.')
+    _same_creator = [k for k in active_calls if _creator_id_for_tg(k) == _cid and k != body.tg_id]
+    if _same_creator:
+        raise HTTPException(409, f'Bei diesem Model läuft bereits ein anderer Call (Subscriber {_real_tg_id(_same_creator[0])}). Bitte erst diesen Call beenden. (Calls anderer Models laufen weiter parallel.)')
 
 
     # ── Resolve file path OR direct/Drive URL ─────────────────────────────────
@@ -5749,9 +5800,10 @@ async def start_fake_call(body: CallStartIn):
 
     peer = int(_real_tg_id(body.tg_id))
 
-    # Pre-populate Telethon's SQLite session so py-tgcalls can resolve the user.
+    # Pre-populate the correct creator's Telethon session so py-tgcalls can resolve the user.
+    _cl = _client_for(body.tg_id)
     ah = int(row['tg_access_hash']) if row and row.get('tg_access_hash') else 0
-    if tg_client:
+    if _cl:
         resolved = False
         # Step 1: GetUsersRequest returns a full User object which we then
         # pass through get_input_entity() to persist it in the SQLite session.
@@ -5759,10 +5811,10 @@ async def start_fake_call(body: CallStartIn):
             try:
                 from telethon.tl.types import InputUser as _IU
                 from telethon.tl.functions.users import GetUsersRequest as _GUR
-                users = await tg_client(_GUR(id=[_IU(user_id=peer, access_hash=ah)]))
+                users = await _cl(_GUR(id=[_IU(user_id=peer, access_hash=ah)]))
                 if users:
-                    await tg_client.get_input_entity(users[0])
-                    print(f'✅ Entity cached via GetUsers for {peer}')
+                    await _cl.get_input_entity(users[0])
+                    print(f'✅ Entity cached via GetUsers for {peer} (creator {_cid})')
                     resolved = True
             except Exception as _e:
                 print(f'⚠️ GetUsers+cache failed: {_e}')
@@ -5770,14 +5822,14 @@ async def start_fake_call(body: CallStartIn):
         if not resolved:
             try:
                 async def _scan_dialogs():
-                    async for _dlg in tg_client.iter_dialogs(limit=200):
+                    async for _dlg in _cl.iter_dialogs(limit=200):
                         if getattr(_dlg.entity, 'id', None) == peer:
-                            await tg_client.get_input_entity(_dlg.entity)
+                            await _cl.get_input_entity(_dlg.entity)
                             return True
                     return False
                 resolved = await asyncio.wait_for(_scan_dialogs(), timeout=10)
                 if resolved:
-                    print(f'✅ Entity found in dialogs for {peer}')
+                    print(f'✅ Entity found in dialogs for {peer} (creator {_cid})')
             except asyncio.TimeoutError:
                 print(f'⚠️ Dialog scan timed out for {peer}')
             except Exception as _e:
@@ -5837,22 +5889,23 @@ async def start_fake_call(body: CallStartIn):
     # play() blocks until subscriber answers (can take 30–60s).
     # Running it in background lets this endpoint return in <1s so the chatter
     # sees the call ring immediately without waiting.
-    asyncio.create_task(_run_call_play(body.tg_id, peer, stream, media_source))
+    asyncio.create_task(_run_call_play(body.tg_id, peer, stream, media_source, cc, _cl))
 
     return {'ok': True, 'type': 'video' if is_video else 'audio'}
 
 @app.post('/call/stop')
 async def stop_fake_call(tg_id: str):
     """Hang up the active call with a subscriber."""
-    if not calls_client:
+    _cc = _calls_client_for(tg_id)
+    if not _cc:
         raise HTTPException(503, 'Calls client not ready.')
     peer = int(_real_tg_id(tg_id))
     _folder = (active_calls.get(tg_id) or {}).get('folder', '')
     try:
-        if hasattr(calls_client, 'leave_call'):
-            await calls_client.leave_call(peer)
-        elif hasattr(calls_client, 'leave'):
-            await calls_client.leave(peer)
+        if hasattr(_cc, 'leave_call'):
+            await _cc.leave_call(peer)
+        elif hasattr(_cc, 'leave'):
+            await _cc.leave(peer)
     except Exception as e:
         print(f'leave_call error (may already be ended): {e}')
     active_calls.pop(tg_id, None)
