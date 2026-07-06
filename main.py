@@ -458,6 +458,13 @@ def init_db():
                 c.execute("ALTER TABLE paypal_notifications ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'paypal'")
             except Exception:
                 pass
+            # Per-creator payment texts (paypal / revolut / bank). Empty = use built-in default.
+            c.execute('''CREATE TABLE IF NOT EXISTS creator_paytexts (
+                creator_id  INTEGER NOT NULL,
+                slot        TEXT NOT NULL,
+                text        TEXT DEFAULT '',
+                PRIMARY KEY (creator_id, slot)
+            )''')
             # Users table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
                 id            INTEGER PRIMARY KEY,
@@ -5212,6 +5219,40 @@ def edit_creator(cid: int, body: CreatorEditIn):
         if not c.fetchone():
             raise HTTPException(404, 'Creator nicht gefunden')
     return {'ok': True}
+
+# ── PER-CREATOR PAYMENT TEXTS ────────────────────────────────────────────────
+PAYTEXT_SLOTS = {'paypal', 'revolut', 'bank'}
+
+@app.get('/creators/{cid}/paytexts')
+def get_creator_paytexts(cid: int):
+    """Return the per-creator payment texts. Empty string = frontend uses its default."""
+    out = {'paypal': '', 'revolut': '', 'bank': ''}
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('SELECT slot, text FROM creator_paytexts WHERE creator_id=%s', (cid,))
+            for r in c.fetchall():
+                if r['slot'] in out:
+                    out[r['slot']] = r['text'] or ''
+    except Exception as e:
+        print(f'get_creator_paytexts error: {e}')
+    return out
+
+class PaytextIn(BaseModel):
+    slot: str
+    text: str = ''
+
+@app.put('/creators/{cid}/paytexts')
+def set_creator_paytext(cid: int, body: PaytextIn):
+    slot = (body.slot or '').strip().lower()
+    if slot not in PAYTEXT_SLOTS:
+        raise HTTPException(400, f'Invalid slot. Choose from: {sorted(PAYTEXT_SLOTS)}')
+    txt = body.text or ''
+    with db() as conn, conn.cursor() as c:
+        c.execute('''INSERT INTO creator_paytexts (creator_id, slot, text)
+                     VALUES (%s,%s,%s)
+                     ON CONFLICT (creator_id, slot) DO UPDATE SET text=EXCLUDED.text''',
+                  (cid, slot, txt))
+    return {'ok': True, 'creator_id': cid, 'slot': slot}
 
 # ── SUBSCRIBERS ───────────────────────────────────────────────────────────────
 @app.get('/subscribers')

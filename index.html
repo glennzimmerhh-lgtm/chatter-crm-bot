@@ -4634,31 +4634,125 @@ if (checkAuth()) {
   }
   window._photoFailed = _photoFailed;
 
-  window.insertPayPal = function() {
-    const inp = document.getElementById('chat-input');
-    if (!inp) return;
-    inp.value = `paypal.me/marieboehmer0102\n\nWichtig:\nIch akzeptiere nur per Freunde & Familie\nVerwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`;
-    inp.style.height = 'auto';
-    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
-    inp.focus();
+  // ── Per-model payment texts ────────────────────────────────────────────────
+  // Marie (creator 1) keeps her built-in defaults. Other models use their own
+  // saved text (set in the admin editor). Cached per active creator.
+  window._creatorPaytexts = { paypal: '', revolut: '', bank: '' };
+  const _MARIE_PAYTEXT_DEFAULTS = {
+    paypal: `paypal.me/marieboehmer0102\n\nWichtig:\nIch akzeptiere nur per Freunde & Familie\nVerwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`,
+    revolut: `https://revolut.me/marieofficial\n\nHier kannst du mit Apple Pay / Google Pay, Kreditkarte und Revolut bezahlen\n\nWichtig: Verwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\n\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`,
+    bank: `Marie Böhmer\nLT77 3250 0927 2566 1770\nBIC: REVOLT21\n✨✨\nWichtig: Verwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`
+  };
+  const _PAYSLOT_LABEL = { paypal: 'PayPal', revolut: 'Zahlungslink', bank: 'Banküberweisung' };
+
+  window.loadCreatorPaytexts = async function() {
+    const cid = window.activeCreatorId || 1;
+    try {
+      const r = await fetch('/api/creators/' + cid + '/paytexts');
+      window._creatorPaytexts = r.ok ? await r.json() : { paypal:'', revolut:'', bank:'' };
+    } catch(_) { window._creatorPaytexts = { paypal:'', revolut:'', bank:'' }; }
   };
 
-  window.insertPaymentLink = function() {
+  function _resolvePayText(slot) {
+    const cid = window.activeCreatorId || 1;
+    const override = (window._creatorPaytexts || {})[slot];
+    if (override && override.trim()) return override;
+    if (cid === 1) return _MARIE_PAYTEXT_DEFAULTS[slot];   // Marie unchanged
+    return null;   // other model, nothing set yet
+  }
+
+  function _insertPay(slot) {
     const inp = document.getElementById('chat-input');
     if (!inp) return;
-    inp.value = `https://revolut.me/marieofficial\n\nHier kannst du mit Apple Pay / Google Pay, Kreditkarte und Revolut bezahlen\n\nWichtig: Verwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\n\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`;
+    const txt = _resolvePayText(slot);
+    if (txt === null) {
+      alert('Für dieses Model ist noch kein ' + (_PAYSLOT_LABEL[slot] || slot) + '-Text hinterlegt.\n\nTrag ihn oben rechts über den Model-Umschalter unter „💳 Zahlungstexte" ein.');
+      if (window.openPaytextEditor) window.openPaytextEditor(slot);
+      return;
+    }
+    inp.value = txt;
     inp.style.height = 'auto';
     inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
     inp.focus();
+  }
+
+  window.insertPayPal       = function() { _insertPay('paypal'); };
+  window.insertPaymentLink  = function() { _insertPay('revolut'); };
+  window.insertBankTransfer = function() { _insertPay('bank'); };
+
+  // ── Per-model payment-text editor ──────────────────────────────────────────
+  window.openPaytextEditor = async function(focusSlot) {
+    const cid = window.activeCreatorId || 1;
+    let existing = window._creatorPaytexts || { paypal:'', revolut:'', bank:'' };
+    try {
+      const r = await fetch('/api/creators/' + cid + '/paytexts');
+      if (r.ok) { existing = await r.json(); window._creatorPaytexts = existing; }
+    } catch(_) {}
+    let modelName = 'Model ' + cid;
+    try { const c = (window._creators || []).find(x => x.id === cid); if (c && c.name) modelName = c.name; } catch(_) {}
+    const esc = s => (s || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    let ov = document.getElementById('paytext-editor-overlay');
+    if (ov) ov.remove();
+    ov = document.createElement('div');
+    ov.id = 'paytext-editor-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    const slots = [
+      ['paypal',  '💙 PayPal-Text'],
+      ['revolut', '🔗 Zahlungslink-Text'],
+      ['bank',    '🏦 Banküberweisungs-Text'],
+    ];
+    const isMarie = (cid === 1);
+    const rows = slots.map(([slot,label]) => {
+      const val = existing[slot] || '';
+      const ph = isMarie ? 'Leer = Maries Standardtext wird verwendet' : 'Noch kein Text für dieses Model hinterlegt';
+      return `<div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+          <label style="font-size:12px;font-weight:700;color:var(--text);">${label}</label>
+          <button onclick="savePaytext('${slot}')" style="background:var(--teal);border:none;border-radius:6px;color:#000;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer;">Speichern</button>
+        </div>
+        <textarea id="paytext-ta-${slot}" placeholder="${ph}" style="width:100%;min-height:96px;box-sizing:border-box;font-size:12px;line-height:1.5;color:var(--text);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 10px;resize:vertical;font-family:inherit;">${esc(val)}</textarea>
+        <div id="paytext-status-${slot}" style="font-size:11px;min-height:13px;margin-top:3px;"></div>
+      </div>`;
+    }).join('');
+
+    ov.innerHTML = `
+      <div style="background:var(--bg2,#151925);border:1px solid rgba(255,255,255,.12);border-radius:14px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto;padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <h3 style="margin:0;font-size:16px;color:var(--text);">💳 Zahlungstexte · ${esc(modelName)}</h3>
+          <button onclick="document.getElementById('paytext-editor-overlay').remove()" style="background:none;border:none;color:var(--dim);font-size:22px;cursor:pointer;line-height:1;">×</button>
+        </div>
+        <p style="font-size:12px;color:var(--dim);margin:0 0 16px;">Diese Texte fügt der 💙/🏦-Button für <b>${esc(modelName)}</b> ein. Marie bleibt unverändert; jedes andere Model bekommt hier seinen eigenen Text.</p>
+        ${rows}
+      </div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+    if (focusSlot && typeof focusSlot === 'string') {
+      const ta = document.getElementById('paytext-ta-' + focusSlot);
+      if (ta) ta.focus();
+    }
   };
 
-  window.insertBankTransfer = function() {
-    const inp = document.getElementById('chat-input');
-    if (!inp) return;
-    inp.value = `Marie Böhmer\nLT77 3250 0927 2566 1770\nBIC: REVOLT21\n✨✨\nWichtig: Verwendungszweck Leer lassen ist Pflicht, ansonsten wirst du nichts von mir bekommen..\nEbenfalls bitte einen Screenshot von der Zahlung senden und danach können wir direkt loslegen🥰`;
-    inp.style.height = 'auto';
-    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
-    inp.focus();
+  window.savePaytext = async function(slot) {
+    const cid = window.activeCreatorId || 1;
+    const ta = document.getElementById('paytext-ta-' + slot);
+    const st = document.getElementById('paytext-status-' + slot);
+    if (!ta) return;
+    const text = ta.value;
+    if (st) { st.textContent = '⏳ Speichern...'; st.style.color = '#fbbf24'; }
+    try {
+      const r = await fetch('/api/creators/' + cid + '/paytexts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot, text })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      window._creatorPaytexts = window._creatorPaytexts || {};
+      window._creatorPaytexts[slot] = text;
+      if (st) { st.textContent = '✅ Gespeichert'; st.style.color = '#22c55e'; }
+    } catch(e) {
+      if (st) { st.textContent = '❌ ' + e.message; st.style.color = '#ff5c7a'; }
+    }
   };
 
   window.insertPricelistCalls = function() {
@@ -4776,6 +4870,7 @@ if (checkAuth()) {
         <button onclick="insertPayPal()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💙 Insert PayPal</button>
         <button onclick="insertBankTransfer()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(120,200,140,.35);background:rgba(120,200,140,.1);color:#7ec88c;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🏦 Bank Transfer</button>
         <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
+        <button onclick="openPaytextEditor()" style="width:100%;padding:7px;border-radius:8px;border:1px dashed rgba(255,255,255,.18);background:none;color:var(--dim);font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-bottom:6px;">✏️ Zahlungstexte dieses Models bearbeiten</button>
         <button onclick="insertPaysafecard()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);color:#ffa500;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🎫 Paysafecard</button>
       </div>
 
@@ -9061,6 +9156,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const r = await fetch('/api/creators');
       _creators = r.ok ? await r.json() : [];
     } catch(_) { _creators = []; }
+    window._creators = _creators;
+    // Load this model's payment texts (Marie = creator 1 keeps built-in defaults)
+    if (window.loadCreatorPaytexts) window.loadCreatorPaytexts();
     if (!_creators.length) { host.style.display='none'; return; }
     host.style.display = 'block';
     menu.innerHTML = _creators.map(c => {
