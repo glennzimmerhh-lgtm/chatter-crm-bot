@@ -8122,9 +8122,16 @@ async function _vaultDoUpload(fd, folder) {
 }
 
 async function vaultUpload(input) {
+  const files = Array.from(input.files || []);
+  await vaultUploadFileList(files);
+  input.value = '';
+}
+
+// Shared upload core — used by the file dialog AND drag-and-drop.
+async function vaultUploadFileList(files) {
   const status = document.getElementById('vault-upload-status');
   const folder = _vaultCurrentFolder || '';
-  const files = Array.from(input.files);
+  files = Array.from(files || []);
   if (!files.length) return;
   if (status) { status.style.display='block'; status.style.color='var(--text2)'; status.textContent=`⏳ Uploading 0 / ${files.length}…`; }
 
@@ -8152,10 +8159,42 @@ async function vaultUpload(input) {
   } else {
     if (status) { status.style.color='var(--red)'; status.textContent=`⚠️ ${uploaded} uploaded, ${failed} failed: ${[...new Set(errors)].join(' · ')}`; }
   }
-  input.value = '';
   await loadVaultPage();
   vaultSelectFolder(_vaultCurrentFolder);
 }
+
+// ── Drag & drop upload on the Vault page ─────────────────────────────────────
+function _initVaultDragDrop() {
+  const zone = document.getElementById('page-vault');
+  if (!zone || zone.dataset.ddInit) return;
+  zone.dataset.ddInit = '1';
+
+  let overlay = document.getElementById('vault-drop-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'vault-drop-overlay';
+    overlay.style.cssText = 'display:none;position:absolute;inset:0;z-index:40;background:rgba(0,212,170,.10);border:2px dashed var(--teal,#00d4aa);border-radius:14px;align-items:center;justify-content:center;pointer-events:none;';
+    overlay.innerHTML = '<div style="background:rgba(10,14,20,.92);border:1px solid var(--teal,#00d4aa);border-radius:12px;padding:18px 26px;font-size:15px;font-weight:800;color:var(--teal,#00d4aa);">⬇️ Dateien hier ablegen zum Hochladen</div>';
+    if (getComputedStyle(zone).position === 'static') zone.style.position = 'relative';
+    zone.appendChild(overlay);
+  }
+
+  let depth = 0;
+  const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files');
+  zone.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; overlay.style.display='flex'; });
+  zone.addEventListener('dragover',  e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect='copy'; });
+  zone.addEventListener('dragleave', e => { if (!hasFiles(e)) return; depth=Math.max(0,depth-1); if (depth===0) overlay.style.display='none'; });
+  zone.addEventListener('drop', async e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); depth=0; overlay.style.display='none';
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length) await vaultUploadFileList(files);
+  });
+}
+try {
+  if (document.getElementById('page-vault')) _initVaultDragDrop();
+  else document.addEventListener('DOMContentLoaded', _initVaultDragDrop);
+} catch(e) {}
 
 async function deleteVaultFile(name, btn) {
   if (!confirm(`Delete "${name.split('/').pop()}"?`)) return;
