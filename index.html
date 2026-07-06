@@ -8184,8 +8184,10 @@ function openVaultPicker() {
   if (status) status.textContent = 'Loading vault...';
   // Load folders + all files
   const _vpBase = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
+  const _vpCid = (window.activeCreatorId || 1);
   async function _vpFetch(p) {
-    for (const u of ['/api'+p, _vpBase+p].filter(Boolean)) {
+    const pq = p + (p.includes('?') ? '&' : '?') + 'creator_id=' + _vpCid;
+    for (const u of ['/api'+pq, _vpBase+pq].filter(Boolean)) {
       try { const r = await fetch(u); if (r.ok) return await r.json(); } catch(_) {}
     }
     return [];
