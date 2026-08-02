@@ -1074,6 +1074,53 @@
 
   <!-- DASHBOARD PAGE -->
   <div id="page-dashboard">
+    <style>
+      /* ── Dashboard redesign (scoped) ─────────────────────────────── */
+      #page-dashboard{
+        --dx-teal:#00d4aa; --dx-blue:#4a9eff; --dx-purple:#a78bfa; --dx-green:#22c55e; --dx-red:#ff5c7a; --dx-yellow:#ffd166;
+      }
+      #page-dashboard .cards-grid{ gap:12px; }
+      #page-dashboard .kpi-card{
+        position:relative; overflow:hidden;
+        background:linear-gradient(160deg, rgba(255,255,255,.035), rgba(255,255,255,.008));
+        border:1px solid var(--border); border-radius:16px; padding:15px 16px;
+        transition:transform .15s, border-color .15s;
+      }
+      #page-dashboard .kpi-card:hover{ transform:translateY(-2px); border-color:rgba(255,255,255,.16); }
+      #page-dashboard .kpi-card.kpi-hero{
+        border-color:rgba(0,212,170,.35);
+        box-shadow:0 0 0 1px rgba(0,212,170,.12), 0 16px 40px -22px rgba(0,212,170,.7);
+        background:linear-gradient(160deg, rgba(0,212,170,.10), rgba(0,212,170,.015));
+      }
+      #page-dashboard .kpi-label{ font-size:10.5px; letter-spacing:.06em; }
+      #page-dashboard .kpi-val{ font-size:26px; font-weight:850; letter-spacing:-.02em; }
+      #page-dashboard .kpi-hero .kpi-val{ font-size:30px; }
+      #page-dashboard .dx-foot{ display:flex; align-items:center; gap:6px; margin-top:8px; }
+      #page-dashboard .dx-chip{ font-size:10.5px; font-weight:800; padding:2px 7px; border-radius:6px; }
+      #page-dashboard .dx-chip.up{ color:var(--dx-green); background:rgba(34,197,94,.13); }
+      #page-dashboard .dx-chip.down{ color:var(--dx-red); background:rgba(255,92,122,.13); }
+      #page-dashboard .dx-chip.flat{ color:var(--text3); background:rgba(255,255,255,.06); }
+      #page-dashboard .dx-cap{ font-size:10.5px; color:var(--text3); }
+      #page-dashboard .dx-spark{ position:absolute; right:10px; bottom:10px; width:72px; height:26px; opacity:.9; pointer-events:none; }
+      #page-dashboard .panel{
+        background:linear-gradient(160deg, rgba(255,255,255,.03), rgba(255,255,255,.006));
+        border:1px solid var(--border); border-radius:16px;
+      }
+      /* new-row cards */
+      #page-dashboard .dx-newrow{ display:grid; grid-template-columns:1fr 1.2fr; gap:14px; margin-bottom:20px; }
+      @media(max-width:900px){ #page-dashboard .dx-newrow{ grid-template-columns:1fr; } }
+      #page-dashboard .dx-ringwrap{ display:flex; flex-direction:column; align-items:center; gap:8px; padding:6px 0 8px; }
+      #page-dashboard .dx-ring{ position:relative; width:130px; height:130px; }
+      #page-dashboard .dx-ring .mid{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+      #page-dashboard .dx-ring .mid b{ font-size:24px; font-weight:850; color:var(--dx-teal); }
+      #page-dashboard .dx-ring .mid span{ font-size:10.5px; color:var(--text3); }
+      #page-dashboard .dx-feed{ display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); align-items:flex-start; }
+      #page-dashboard .dx-feed:last-child{ border-bottom:none; }
+      #page-dashboard .dx-fic{ width:26px; height:26px; border-radius:8px; display:grid; place-items:center; font-size:13px; flex-shrink:0; }
+      #page-dashboard .dx-feed .ft{ font-size:12.5px; color:var(--text); }
+      #page-dashboard .dx-feed .fs{ font-size:10.5px; color:var(--text3); margin-top:1px; }
+      #page-dashboard .dx-feed b{ color:var(--dx-teal); }
+    </style>
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
         <button class="hamburger" onclick="openSidebar()">
@@ -1102,32 +1149,61 @@
       </div>
     </div>
 
-    <!-- KPI CARDS -->
-    <div class="cards-grid" style="grid-template-columns:repeat(6,1fr);">
-      <div class="kpi-card kpi-teal">
-        <div class="kpi-label" id="kpi-rev-label">Revenue Today</div>
-        <div class="kpi-val" id="kpi-today-rev">—</div>
-        <div class="kpi-sub" id="kpi-today-rev-sub">—</div>
+    <!-- KPI CARDS (redesigned hero row) -->
+    <div class="cards-grid" style="grid-template-columns:repeat(5,1fr);">
+      <div class="kpi-card kpi-hero">
+        <div class="kpi-label" id="kpi-rev-label">Umsatz heute</div>
+        <div class="kpi-val" id="kpi-today-rev" style="color:var(--dx-teal);">—</div>
+        <div class="dx-foot"><span class="dx-chip flat" id="kpi-rev-chip">—</span><span class="dx-cap" id="kpi-today-rev-sub">—</span></div>
+        <canvas class="dx-spark" id="spark-rev"></canvas>
       </div>
-      <div class="kpi-card kpi-blue">
-        <div class="kpi-label" id="kpi-sales-label">Sales Today</div>
-        <div class="kpi-val" id="kpi-today-sales">—</div>
-        <div class="kpi-sub" id="kpi-today-sales-sub">—</div>
+      <div class="kpi-card">
+        <div class="kpi-label" id="kpi-sales-label">Sales heute</div>
+        <div class="kpi-val" id="kpi-today-sales" style="color:var(--dx-blue);">—</div>
+        <div class="dx-foot"><span class="dx-chip flat" id="kpi-sales-chip">—</span><span class="dx-cap" id="kpi-today-sales-sub">—</span></div>
+        <canvas class="dx-spark" id="spark-sales"></canvas>
       </div>
-      <div class="kpi-card kpi-red">
+      <div class="kpi-card">
         <div class="kpi-label" id="kpi-avg-label">New Subs</div>
-        <div class="kpi-val" id="kpi-week-rev" style="color:#4a9eff;">—</div>
-        <div class="kpi-sub" id="kpi-week-sub">new Telegram contacts</div>
+        <div class="kpi-val" id="kpi-week-rev" style="color:var(--dx-purple);">—</div>
+        <div class="dx-foot"><span class="dx-cap" id="kpi-week-sub">neue Kontakte</span></div>
+        <canvas class="dx-spark" id="spark-subs"></canvas>
       </div>
-      <div class="kpi-card" style="border-color:rgba(167,139,250,0.3);">
+      <div class="kpi-card">
         <div class="kpi-label">ARPPU</div>
-        <div class="kpi-val" id="kpi-arppu" style="color:#a78bfa;">—</div>
-        <div class="kpi-sub">Avg per buyer</div>
+        <div class="kpi-val" id="kpi-arppu" style="color:var(--dx-green);">—</div>
+        <div class="dx-foot"><span class="dx-cap">Ø pro Käufer</span></div>
       </div>
-      <div class="kpi-card" style="border-color:rgba(34,197,94,0.3);">
+      <div class="kpi-card">
         <div class="kpi-label">Conversion</div>
-        <div class="kpi-val" id="kpi-conversion" style="color:#22c55e;">—</div>
-        <div class="kpi-sub" id="kpi-conversion-sub">Spenders / Total</div>
+        <div class="kpi-val" id="kpi-conversion" style="color:var(--dx-yellow);">—</div>
+        <div class="dx-foot"><span class="dx-cap" id="kpi-conversion-sub">Käufer / gesamt</span></div>
+      </div>
+    </div>
+
+    <!-- NEW ROW: Shift goal ring + Live activity -->
+    <div class="dx-newrow">
+      <div class="panel" style="padding:16px 18px;">
+        <div class="panel-hd" style="border:none;padding:0;margin-bottom:6px;">
+          <div class="panel-title">🎯 Schichtziel</div>
+          <span class="panel-tag" id="dx-shift-name">Shift</span>
+        </div>
+        <div class="dx-ringwrap">
+          <div class="dx-ring">
+            <canvas id="dx-goal-ring" width="130" height="130"></canvas>
+            <div class="mid"><b id="dx-goal-pct">0%</b><span id="dx-goal-sub">€0 / €0</span></div>
+          </div>
+          <div style="font-size:12px;color:var(--text3);" id="dx-goal-remaining"></div>
+        </div>
+      </div>
+      <div class="panel" style="padding:16px 18px;">
+        <div class="panel-hd" style="border:none;padding:0;margin-bottom:8px;">
+          <div class="panel-title">⚡ Live-Aktivität</div>
+          <span class="panel-tag">letzte Ereignisse</span>
+        </div>
+        <div id="dx-activity-feed" style="max-height:230px;overflow-y:auto;">
+          <div style="color:var(--text3);font-size:12px;padding:10px 0;">Lade Aktivität…</div>
+        </div>
       </div>
     </div>
 
@@ -3477,6 +3553,8 @@ function renderDashboard() {
   renderTopSpenders();
   renderRecentSales(filteredSales);
   renderPaymentMethodDonut(filteredCrmForKpi, p);
+  try { if (typeof renderDxActivityFeed === 'function') renderDxActivityFeed(); } catch(e) {}
+  try { if (typeof updateShiftGoal === 'function') updateShiftGoal(); } catch(e) {}
 }
 
 function buildChartDays(period) {
@@ -3528,28 +3606,98 @@ function renderRevenueChart(period) {
 
   if (revenueChart) revenueChart.destroy();
   const ctx = document.getElementById('revenueChart').getContext('2d');
+  const _grad = ctx.createLinearGradient(0, 0, 0, 240);
+  _grad.addColorStop(0, 'rgba(0,212,170,0.40)');
+  _grad.addColorStop(1, 'rgba(0,212,170,0)');
+  const _lastIdx = vals.length - 1;
   revenueChart = new Chart(ctx, {
-    type: 'bar',
+    type: 'line',
     data: {
       labels,
       datasets: [{
         data: vals,
-        backgroundColor: chartDays.map(d => d.isToday ? '#00d4aa' : 'rgba(0,212,170,0.25)'),
-        borderRadius: 5,
-        borderSkipped: false,
+        borderColor: '#00d4aa',
+        borderWidth: 2.5,
+        fill: true,
+        backgroundColor: _grad,
+        tension: 0.4,
+        pointRadius: (c) => c.dataIndex === _lastIdx ? 4.5 : 0,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#00d4aa',
+        pointBorderColor: '#0a0e15',
+        pointBorderWidth: 2,
       }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#111a27', borderColor: 'rgba(0,212,170,.4)', borderWidth: 1,
+        titleColor: '#8493a6', bodyColor: '#eaf0f7', padding: 10, displayColors: false,
         callbacks: { label: ctx => ctx.raw.toLocaleString('de-DE') + ' €' }
       }},
       scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0', font: { size: 11 }, maxRotation: 0 } },
+        x: { grid: { display: false }, ticks: { color: '#8888a0', font: { size: 11 }, maxRotation: 0 } },
         y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0', font: { size: 11 }, callback: v => v + ' €' } }
       }
     }
   });
+
+  // Feed the revenue sparkline + trend chip from the same daily series
+  try { _dxDrawSpark('spark-rev', vals, '#00d4aa'); } catch(e) {}
+  try {
+    const chip = document.getElementById('kpi-rev-chip');
+    if (chip && vals.length >= 2) {
+      const cur = vals[_lastIdx], prev = vals[_lastIdx - 1] || 0;
+      _dxSetChip(chip, cur, prev);
+    }
+  } catch(e) {}
+
+  // Daily SALES counts + NEW SUBS counts for their sparklines/chips
+  try {
+    const salesSeries = chartDays.map(d => (crmSalesData || []).filter(r => {
+      const rd = parseTs(r.timestamp);
+      const iso = `${rd.getFullYear()}-${String(rd.getMonth()+1).padStart(2,'0')}-${String(rd.getDate()).padStart(2,'0')}`;
+      return iso === d.dateStr;
+    }).length);
+    _dxDrawSpark('spark-sales', salesSeries, '#4a9eff');
+    const sc = document.getElementById('kpi-sales-chip');
+    if (sc && salesSeries.length >= 2) _dxSetChip(sc, salesSeries[salesSeries.length-1], salesSeries[salesSeries.length-2] || 0);
+
+    const subsSeries = chartDays.map(d => (typeof crmConvsData !== 'undefined' ? crmConvsData : []).filter(c => {
+      if (!c.first_time) return false;
+      const rd = parseTs(c.first_time);
+      const iso = `${rd.getFullYear()}-${String(rd.getMonth()+1).padStart(2,'0')}-${String(rd.getDate()).padStart(2,'0')}`;
+      return iso === d.dateStr;
+    }).length);
+    _dxDrawSpark('spark-subs', subsSeries, '#a78bfa');
+  } catch(e) {}
+}
+
+// Draw a mini gradient sparkline into a canvas by id
+function _dxDrawSpark(id, d, color){
+  const cv = document.getElementById(id);
+  if (!cv || !d || !d.length) return;
+  const w = cv.width = 150, h = cv.height = 54, ctx = cv.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  const mn = Math.min.apply(0,d), mx = Math.max.apply(0,d), rng = (mx-mn)||1, pad = 5;
+  const xs = i => pad + i*(w-2*pad)/((d.length-1)||1);
+  const ys = v => h-pad-((v-mn)/rng)*(h-2*pad);
+  const g = ctx.createLinearGradient(0,0,0,h); g.addColorStop(0, color+'55'); g.addColorStop(1, color+'00');
+  ctx.beginPath(); ctx.moveTo(xs(0), ys(d[0])); d.forEach((v,i)=>ctx.lineTo(xs(i), ys(v)));
+  ctx.lineTo(xs(d.length-1), h); ctx.lineTo(xs(0), h); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(xs(0), ys(d[0])); d.forEach((v,i)=>ctx.lineTo(xs(i), ys(v)));
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(xs(d.length-1), ys(d[d.length-1]), 2.6, 0, 7); ctx.fillStyle = color; ctx.fill();
+}
+
+// Set an up/down/flat trend chip comparing current vs previous value
+function _dxSetChip(el, cur, prev){
+  if (!el) return;
+  if (!prev) { el.className = 'dx-chip flat'; el.textContent = 'neu'; return; }
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  if (pct > 0) { el.className = 'dx-chip up'; el.textContent = '▲ ' + pct + '%'; }
+  else if (pct < 0) { el.className = 'dx-chip down'; el.textContent = '▼ ' + Math.abs(pct) + '%'; }
+  else { el.className = 'dx-chip flat'; el.textContent = '±0%'; }
 }
 
 function renderReplyChart(period) {
@@ -6533,6 +6681,32 @@ function _renderShiftGoal(earned) {
   bar.style.background = color;
   pctEl.textContent = pct + '%';
   pctEl.style.color = color;
+  try { _dxDrawGoalRing(earned, SHIFT_GOAL); } catch(e) {}
+}
+
+// Dashboard shift-goal ring (mirrors the topbar goal)
+function _dxDrawGoalRing(earned, goal){
+  goal = goal || 1;
+  const pct = Math.max(0, Math.min(1, earned / goal));
+  const cv = document.getElementById('dx-goal-ring');
+  const pctEl = document.getElementById('dx-goal-pct');
+  const subEl = document.getElementById('dx-goal-sub');
+  const remEl = document.getElementById('dx-goal-remaining');
+  if (pctEl) pctEl.textContent = Math.round(pct*100) + '%';
+  if (subEl) subEl.textContent = '€' + Math.round(earned).toLocaleString('de-DE') + ' / €' + Number(goal).toLocaleString('de-DE');
+  if (remEl) {
+    const rem = Math.max(0, goal - earned);
+    remEl.innerHTML = rem > 0 ? ('Noch <b style="color:var(--text)">€' + Math.round(rem).toLocaleString('de-DE') + '</b> bis zum Ziel 🔥') : 'Ziel erreicht! 🎉';
+  }
+  const dxShiftName = document.getElementById('dx-shift-name');
+  if (dxShiftName && window._activeShiftName) dxShiftName.textContent = window._activeShiftName;
+  if (!cv) return;
+  const x = cv.getContext('2d'), cx = 65, cy = 65, r = 53;
+  x.clearRect(0,0,130,130);
+  x.lineWidth = 12; x.lineCap = 'round';
+  x.beginPath(); x.arc(cx, cy, r, 0, Math.PI*2); x.strokeStyle = 'rgba(255,255,255,.07)'; x.stroke();
+  const g = x.createLinearGradient(0,0,130,130); g.addColorStop(0, '#00d4aa'); g.addColorStop(1, '#7c5cff');
+  if (pct > 0) { x.beginPath(); x.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + pct*Math.PI*2); x.strokeStyle = g; x.stroke(); }
 }
 
 // ── TYPING INDICATOR ─────────────────────────────────────────────────────────
@@ -7727,6 +7901,33 @@ function renderNotifications() {
       </div>
       <div style="font-size:11px;color:var(--text3);flex-shrink:0;text-align:right;">${timeStr}</div>
     </div>`;
+  }).join('');
+  try { renderDxActivityFeed(); } catch(e) {}
+}
+
+// Compact live-activity feed for the redesigned dashboard
+function _dxAgo(ts){
+  const d = parseTs(ts); const s = Math.floor((Date.now() - d.getTime())/1000);
+  if (isNaN(s)) return '';
+  if (s < 60) return 'gerade eben';
+  if (s < 3600) return 'vor ' + Math.floor(s/60) + ' Min';
+  if (s < 86400) return 'vor ' + Math.floor(s/3600) + ' Std';
+  return d.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
+}
+function renderDxActivityFeed(){
+  const box = document.getElementById('dx-activity-feed');
+  if (!box) return;
+  const items = (_allNotifs || []).slice(0, 8);
+  if (!items.length) { box.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:10px 0;">Noch keine Aktivität heute.</div>'; return; }
+  box.innerHTML = items.map(n => {
+    const isSale = n.type === 'sale', isPay = n.type === 'paypal' || n.type === 'revolut';
+    let ic, bg, txt;
+    if (isSale) { ic='💰'; bg='rgba(34,197,94,.14)'; txt='<b>' + parseFloat(n.amount||0).toFixed(0) + '€</b> Sale · ' + (n.product || 'Produkt'); }
+    else if (isPay) { ic='✅'; bg='rgba(0,212,170,.14)'; txt='<b>Zahlung</b> · ' + (n.text || 'Money received'); }
+    else { ic='🆕'; bg='rgba(167,139,250,.14)'; txt='Neuer Sub · ' + (n.name || n.anon_id || ''); }
+    const meta = _dxAgo(n.ts) + (n.chatter ? ' · ' + n.chatter : '');
+    return '<div class="dx-feed"><div class="dx-fic" style="background:' + bg + '">' + ic + '</div>'
+      + '<div><div class="ft">' + txt + '</div><div class="fs">' + meta + '</div></div></div>';
   }).join('');
 }
 
