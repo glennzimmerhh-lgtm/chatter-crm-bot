@@ -1120,6 +1120,45 @@
       #page-dashboard .dx-feed .ft{ font-size:12.5px; color:var(--text); }
       #page-dashboard .dx-feed .fs{ font-size:10.5px; color:var(--text3); margin-top:1px; }
       #page-dashboard .dx-feed b{ color:var(--dx-teal); }
+
+      /* Sparkline: keep it out of the way on small cards / mobile */
+      #page-dashboard .kpi-card{ min-height:104px; }
+      #page-dashboard .dx-spark{ max-width:40%; }
+      @media(max-width:760px){ #page-dashboard .dx-spark{ display:none; } }
+
+      /* ── Segmented period control (replaces cheap buttons) ─────────── */
+      #page-dashboard .dx-periodbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:22px; }
+      #page-dashboard .dx-seg{ display:inline-flex; background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:12px; padding:4px; gap:2px; }
+      #page-dashboard .dx-seg button{ border:none; background:none; color:var(--text2); font-size:12.5px; font-weight:600; padding:7px 15px; border-radius:9px; cursor:pointer; transition:.15s; white-space:nowrap; }
+      #page-dashboard .dx-seg button:hover:not(.on){ color:var(--text); }
+      #page-dashboard .dx-seg button.on{ background:linear-gradient(135deg,var(--dx-teal),#0bbf9c); color:#04120e; font-weight:800; box-shadow:0 6px 16px -8px rgba(0,212,170,.8); }
+      #page-dashboard .dx-rangebtn{ display:inline-flex; align-items:center; gap:7px; background:rgba(255,255,255,.04); border:1px solid var(--border); color:var(--text2); font-size:12.5px; font-weight:600; padding:8px 14px; border-radius:12px; cursor:pointer; transition:.15s; }
+      #page-dashboard .dx-rangebtn:hover{ color:var(--text); border-color:rgba(255,255,255,.16); }
+      #page-dashboard .dx-rangebtn.on{ border-color:rgba(0,212,170,.45); color:var(--dx-teal); background:rgba(0,212,170,.08); }
+
+      /* ── Branded date-range popover ───────────────────────────────── */
+      #dx-range-pop{ position:fixed; z-index:1200; width:300px; background:#0f1723; border:1px solid rgba(255,255,255,.1); border-radius:16px; box-shadow:0 24px 60px -20px rgba(0,0,0,.7); padding:14px; display:none; }
+      #dx-range-pop .rp-presets{ display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:12px; }
+      #dx-range-pop .rp-preset{ background:rgba(255,255,255,.04); border:1px solid var(--border); color:var(--text2); font-size:11.5px; font-weight:600; padding:7px 8px; border-radius:9px; cursor:pointer; transition:.15s; }
+      #dx-range-pop .rp-preset:hover{ color:var(--text); border-color:rgba(0,212,170,.4); background:rgba(0,212,170,.08); }
+      #dx-range-pop .rp-cal-hd{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+      #dx-range-pop .rp-nav{ background:rgba(255,255,255,.05); border:1px solid var(--border); color:var(--text); width:26px; height:26px; border-radius:8px; cursor:pointer; font-size:13px; }
+      #dx-range-pop .rp-mon{ font-size:13px; font-weight:700; color:var(--text); }
+      #dx-range-pop .rp-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
+      #dx-range-pop .rp-dow{ font-size:9.5px; color:var(--text3); text-align:center; padding:3px 0; font-weight:700; }
+      #dx-range-pop .rp-day{ aspect-ratio:1; display:grid; place-items:center; font-size:11.5px; color:var(--text2); border-radius:7px; cursor:pointer; transition:.1s; }
+      #dx-range-pop .rp-day:hover{ background:rgba(255,255,255,.08); color:var(--text); }
+      #dx-range-pop .rp-day.muted{ color:var(--text3); opacity:.35; }
+      #dx-range-pop .rp-day.in{ background:rgba(0,212,170,.14); color:var(--text); border-radius:0; }
+      #dx-range-pop .rp-day.edge{ background:linear-gradient(135deg,var(--dx-teal),#0bbf9c); color:#04120e; font-weight:800; }
+      #dx-range-pop .rp-foot{ display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px; }
+      #dx-range-pop .rp-lbl{ font-size:11px; color:var(--text3); }
+      #dx-range-pop .rp-apply{ background:linear-gradient(135deg,var(--dx-teal),#0bbf9c); border:none; color:#04120e; font-weight:800; font-size:12px; padding:7px 16px; border-radius:9px; cursor:pointer; }
+      #dx-range-pop .rp-apply:disabled{ opacity:.4; cursor:not-allowed; }
+
+      /* Recolor legacy dark-blue / indigo accents to brand purple */
+      #page-dashboard #creators-overview-panel [style*="99,102,241"]{ background:rgba(167,139,250,.07) !important; border-color:rgba(167,139,250,.28) !important; }
+      #page-dashboard #creators-ov-total-subs{ color:var(--dx-purple) !important; }
     </style>
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -1135,17 +1174,39 @@
       </div>
     </div>
 
-    <!-- PERIOD SELECTOR + DATE RANGE -->
-    <div class="period-bar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <button class="period-btn active" id="btn-heute" onclick="setPeriod('heute')">Today</button>
-      <button class="period-btn" id="btn-gestern" onclick="setPeriod('gestern')">Yesterday</button>
-      <button class="period-btn" id="btn-woche" onclick="setPeriod('woche')">This Week</button>
-      <button class="period-btn" id="btn-monat" onclick="setPeriod('monat')">This Month</button>
-      <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
-        <input type="date" id="range-from" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;">
-        <span style="color:var(--text3);font-size:12px;">–</span>
-        <input type="date" id="range-to" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;">
-        <button class="period-btn" id="btn-range" onclick="setCustomRange()" style="padding:5px 10px;font-size:12px;">↵</button>
+    <!-- PERIOD SELECTOR (redesigned) -->
+    <div class="dx-periodbar">
+      <div class="dx-seg" id="dx-seg">
+        <button class="on" data-p="heute"   onclick="setPeriod('heute')">Heute</button>
+        <button data-p="gestern" onclick="setPeriod('gestern')">Gestern</button>
+        <button data-p="woche"   onclick="setPeriod('woche')">Woche</button>
+        <button data-p="monat"   onclick="setPeriod('monat')">Monat</button>
+      </div>
+      <button class="dx-rangebtn" id="dx-rangebtn" onclick="toggleRangePicker(event)">
+        <span>📅</span><span id="dx-rangebtn-lbl">Zeitraum</span>
+      </button>
+      <!-- keep hidden legacy inputs so existing setCustomRange keeps working -->
+      <input type="hidden" id="range-from"><input type="hidden" id="range-to">
+      <button id="btn-range" onclick="setCustomRange()" style="display:none;"></button>
+    </div>
+
+    <!-- Branded date-range popover -->
+    <div id="dx-range-pop">
+      <div class="rp-presets">
+        <button class="rp-preset" onclick="dxRangePreset('t7')">Letzte 7 Tage</button>
+        <button class="rp-preset" onclick="dxRangePreset('t14')">Letzte 14 Tage</button>
+        <button class="rp-preset" onclick="dxRangePreset('t30')">Letzte 30 Tage</button>
+        <button class="rp-preset" onclick="dxRangePreset('lastmonth')">Letzter Monat</button>
+      </div>
+      <div class="rp-cal-hd">
+        <button class="rp-nav" onclick="dxCalNav(-1)">‹</button>
+        <div class="rp-mon" id="rp-mon"></div>
+        <button class="rp-nav" onclick="dxCalNav(1)">›</button>
+      </div>
+      <div class="rp-grid" id="rp-grid"></div>
+      <div class="rp-foot">
+        <span class="rp-lbl" id="rp-lbl">Start &amp; Ende wählen</span>
+        <button class="rp-apply" id="rp-apply" disabled onclick="dxRangeApply()">Anwenden</button>
       </div>
     </div>
 
@@ -3195,10 +3256,9 @@ let customRangeFrom = null, customRangeTo = null;
 function setPeriod(p) {
   currentPeriod = p;
   customRangeFrom = null; customRangeTo = null;
-  ['heute','gestern','woche','monat','range'].forEach(x => {
-    const btn = document.getElementById('btn-' + x);
-    if (btn) btn.classList.toggle('active', x === p);
-  });
+  document.querySelectorAll('#dx-seg button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
+  const rb = document.getElementById('dx-rangebtn'); if (rb) rb.classList.remove('on');
+  const rl = document.getElementById('dx-rangebtn-lbl'); if (rl) rl.textContent = 'Zeitraum';
   renderDashboard();
 }
 
@@ -3209,14 +3269,110 @@ function setCustomRange() {
   customRangeFrom = new Date(from + 'T00:00:00');
   customRangeTo = new Date(to + 'T23:59:59');
   currentPeriod = 'range';
-  ['heute','woche','monat'].forEach(x => {
-    const btn = document.getElementById('btn-' + x);
-    if (btn) btn.classList.remove('active');
-  });
-  const rb = document.getElementById('btn-range');
-  if (rb) rb.classList.add('active');
+  document.querySelectorAll('#dx-seg button').forEach(b => b.classList.remove('on'));
+  const rb = document.getElementById('dx-rangebtn'); if (rb) rb.classList.add('on');
+  const rl = document.getElementById('dx-rangebtn-lbl');
+  if (rl) { const f = customRangeFrom, t = customRangeTo;
+    const fmt = d => d.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
+    rl.textContent = fmt(f) + ' – ' + fmt(t); }
   renderDashboard();
 }
+
+// ── Branded date-range picker ────────────────────────────────────────────────
+let _dxCalMonth = new Date(); _dxCalMonth.setDate(1);
+let _dxRangeStart = null, _dxRangeEnd = null;
+
+window.toggleRangePicker = function(ev){
+  if (ev) ev.stopPropagation();
+  const pop = document.getElementById('dx-range-pop');
+  const btn = document.getElementById('dx-rangebtn');
+  if (!pop || !btn) return;
+  if (pop.style.display === 'block') { pop.style.display = 'none'; return; }
+  const r = btn.getBoundingClientRect();
+  pop.style.top = (r.bottom + 8) + 'px';
+  pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 316)) + 'px';
+  pop.style.display = 'block';
+  _dxRangeStart = customRangeFrom ? new Date(customRangeFrom) : null;
+  _dxRangeEnd = customRangeTo ? new Date(customRangeTo) : null;
+  if (_dxRangeStart) { _dxCalMonth = new Date(_dxRangeStart); _dxCalMonth.setDate(1); }
+  dxRenderCal();
+};
+
+document.addEventListener('click', function(e){
+  const pop = document.getElementById('dx-range-pop');
+  const btn = document.getElementById('dx-rangebtn');
+  if (!pop || pop.style.display !== 'block') return;
+  if (pop.contains(e.target) || (btn && btn.contains(e.target))) return;
+  pop.style.display = 'none';
+});
+
+window.dxCalNav = function(dir){ _dxCalMonth.setMonth(_dxCalMonth.getMonth() + dir); dxRenderCal(); };
+
+function _dxSameDay(a,b){ return a && b && a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+
+function dxRenderCal(){
+  const grid = document.getElementById('rp-grid'); const mon = document.getElementById('rp-mon');
+  if (!grid || !mon) return;
+  mon.textContent = _dxCalMonth.toLocaleDateString('de-DE', { month:'long', year:'numeric' });
+  const dows = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+  let html = dows.map(d => '<div class="rp-dow">'+d+'</div>').join('');
+  const y = _dxCalMonth.getFullYear(), m = _dxCalMonth.getMonth();
+  const first = new Date(y, m, 1);
+  let lead = (first.getDay() + 6) % 7; // Mon=0
+  const daysIn = new Date(y, m+1, 0).getDate();
+  const prevDays = new Date(y, m, 0).getDate();
+  for (let i = lead; i > 0; i--) html += '<div class="rp-day muted">'+(prevDays - i + 1)+'</div>';
+  const today = new Date(); today.setHours(0,0,0,0);
+  for (let d = 1; d <= daysIn; d++){
+    const cur = new Date(y, m, d);
+    let cls = 'rp-day';
+    const isStart = _dxSameDay(cur, _dxRangeStart), isEnd = _dxSameDay(cur, _dxRangeEnd);
+    if (_dxRangeStart && _dxRangeEnd && cur > _dxRangeStart && cur < _dxRangeEnd) cls += ' in';
+    if (isStart || isEnd) cls += ' edge';
+    if (cur > today) cls += ' muted';
+    html += '<div class="'+cls+'" data-d="'+y+'-'+(m+1)+'-'+d+'" onclick="dxPickDay('+y+','+m+','+d+')">'+d+'</div>';
+  }
+  grid.innerHTML = html;
+  const lbl = document.getElementById('rp-lbl'); const ap = document.getElementById('rp-apply');
+  if (lbl && ap){
+    const fmt = dt => dt ? dt.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' }) : '—';
+    if (_dxRangeStart && _dxRangeEnd) { lbl.textContent = fmt(_dxRangeStart)+' – '+fmt(_dxRangeEnd); ap.disabled = false; }
+    else if (_dxRangeStart) { lbl.textContent = 'Ab '+fmt(_dxRangeStart)+' … Ende wählen'; ap.disabled = true; }
+    else { lbl.textContent = 'Start & Ende wählen'; ap.disabled = true; }
+  }
+}
+
+window.dxPickDay = function(y,m,d){
+  const cur = new Date(y, m, d);
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (cur > today) return;
+  if (!_dxRangeStart || (_dxRangeStart && _dxRangeEnd)) { _dxRangeStart = cur; _dxRangeEnd = null; }
+  else if (cur < _dxRangeStart) { _dxRangeEnd = _dxRangeStart; _dxRangeStart = cur; }
+  else { _dxRangeEnd = cur; }
+  dxRenderCal();
+};
+
+window.dxRangePreset = function(kind){
+  const today = new Date(); today.setHours(0,0,0,0);
+  let from, to = new Date(today);
+  if (kind === 't7')  { from = new Date(today); from.setDate(from.getDate()-6); }
+  else if (kind === 't14'){ from = new Date(today); from.setDate(from.getDate()-13); }
+  else if (kind === 't30'){ from = new Date(today); from.setDate(from.getDate()-29); }
+  else if (kind === 'lastmonth'){ from = new Date(today.getFullYear(), today.getMonth()-1, 1); to = new Date(today.getFullYear(), today.getMonth(), 0); }
+  _dxRangeStart = from; _dxRangeEnd = to;
+  _applyDxRange();
+};
+
+function _applyDxRange(){
+  if (!_dxRangeStart || !_dxRangeEnd) return;
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  document.getElementById('range-from').value = iso(_dxRangeStart);
+  document.getElementById('range-to').value   = iso(_dxRangeEnd);
+  const pop = document.getElementById('dx-range-pop'); if (pop) pop.style.display = 'none';
+  setCustomRange();
+}
+
+window.dxRangeApply = function(){ _applyDxRange(); };
 
 function setSalesPeriod(p) {
   currentSalesPeriod = p;
