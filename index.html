@@ -4446,7 +4446,13 @@ if (checkAuth()) {
       return;
     }
     // Always render in Telegram order: most recent message first
-    const sorted = [...convs].sort((a, b) => new Date(b.last_time || 0) - new Date(a.last_time || 0));
+    const sortedAll = [...convs].sort((a, b) => new Date(b.last_time || 0) - new Date(a.last_time || 0));
+    // Performance: only render the most-recent slice. With thousands of chats,
+    // building every DOM node on each refresh froze the UI. Search/filter narrow
+    // the set first, and unread/recent chats are always at the top anyway.
+    const RENDER_CAP = 250;
+    const sorted = sortedAll.slice(0, RENDER_CAP);
+    const _hiddenCount = sortedAll.length - sorted.length;
     el.innerHTML = sorted.map(c => {
       const active = c.tg_id === currentChatTgId ? 'active' : '';
       const letter = anonLetter(c.internal_name, c.anon_id, c.tg_username);
@@ -4493,7 +4499,9 @@ if (checkAuth()) {
           ${c.unread ? `<span class="conv-badge">${c.unread}</span>` : ''}
         </div>
       </div>`;
-    }).join('');
+    }).join('') + (_hiddenCount > 0
+      ? `<div style="padding:12px;text-align:center;color:var(--text3);font-size:12px;">+ ${_hiddenCount} ältere Chats — oben suchen, um sie zu finden 🔎</div>`
+      : '');
   }
 
   function updateConvStatus(tgId) {

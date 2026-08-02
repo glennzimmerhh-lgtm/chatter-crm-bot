@@ -524,6 +524,12 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_id ON messages(tg_id)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_last_time ON conversations(last_time DESC)",
+                # Composite: fetching one conversation's messages in order (the hot path)
+                "CREATE INDEX IF NOT EXISTS idx_messages_tg_ts ON messages(tg_id, timestamp)",
+                "CREATE INDEX IF NOT EXISTS idx_messages_creator ON messages(creator_id)",
+                "CREATE INDEX IF NOT EXISTS idx_conv_creator ON conversations(creator_id)",
+                "CREATE INDEX IF NOT EXISTS idx_conv_online ON conversations(is_online)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_tg_id ON sales(tg_id)",
 
             ]:
                 try:
@@ -2577,8 +2583,12 @@ async def get_messages(tg_id: str, bg: BackgroundTasks):
     with db() as conn:
         with conn.cursor() as c:
             c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
-            c.execute('SELECT id,text,direction,timestamp,chatter,is_read,read_at,translation,tg_msg_id FROM messages WHERE tg_id=%s ORDER BY timestamp', (tg_id,))
+            # Load only the most recent 500 messages (chat scrolls to newest anyway).
+            # Big win on long-running chats: avoids shipping thousands of rows per open.
+            c.execute('SELECT id,text,direction,timestamp,chatter,is_read,read_at,translation,tg_msg_id '
+                      'FROM messages WHERE tg_id=%s ORDER BY timestamp DESC LIMIT 500', (tg_id,))
             rows = c.fetchall()
+    rows = list(reversed(rows))   # back to chronological order for the UI
     bg.add_task(_bg_read_history, tg_id)
     return [dict(r) for r in rows]
 
