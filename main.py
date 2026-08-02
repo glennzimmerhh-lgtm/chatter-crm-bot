@@ -2332,10 +2332,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # ── CONVERSATIONS ─────────────────────────────────────────────────────────────
 @app.get('/conversations')
-def get_conversations(creator_id: Optional[int] = None):
-    cols = ('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,'
-            'time_waster,is_muted,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,'
-            'call_followup_note,is_online,last_seen,creator_id FROM conversations')
+def get_conversations(creator_id: Optional[int] = None, slim: int = 0):
+    # slim=1 → tiny projection for the dashboard (new-subs/conversion counting).
+    # Avoids shipping thousands of full rows to mobile clients on every load.
+    if slim:
+        cols = 'SELECT tg_id,anon_id,first_time,creator_id FROM conversations'
+    else:
+        cols = ('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,'
+                'time_waster,is_muted,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,'
+                'call_followup_note,is_online,last_seen,creator_id FROM conversations')
     with db() as conn:
         with conn.cursor() as c:
             if creator_id is not None:

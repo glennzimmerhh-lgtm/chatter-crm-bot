@@ -91,16 +91,18 @@
   .login-user-badge:hover { color: var(--red); }
 
   /* ── LAYOUT ── */
-  .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 220px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 100; }
+  .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 220px; background: linear-gradient(180deg, rgba(0,212,170,.05), rgba(255,255,255,0) 22%), var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 100; }
   .main { margin-left: 220px; padding: 28px 32px; min-height: 100vh; }
 
-  /* ── SIDEBAR ── */
-  .logo { padding: 24px 20px 20px; border-bottom: 1px solid var(--border); }
-  .logo-text { font-size: 16px; font-weight: 700; color: var(--teal); letter-spacing: -0.3px; }
+  /* ── SIDEBAR (branded) ── */
+  .logo { padding: 22px 20px 18px; border-bottom: 1px solid var(--border); }
+  .logo-text { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; background: linear-gradient(120deg, #00d4aa, #7c5cff); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .logo-sub { font-size: 11px; color: var(--text3); margin-top: 2px; }
-  .nav { padding: 16px 12px; flex: 1; }
-  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; cursor: pointer; color: var(--text2); font-size: 13px; transition: all 0.15s; margin-bottom: 2px; }
-  .nav-item:hover, .nav-item.active { background: var(--teal-dim); color: var(--teal); }
+  .nav { padding: 14px 12px; flex: 1; }
+  .nav-item { position: relative; display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 10px; cursor: pointer; color: var(--text2); font-size: 13px; font-weight: 500; transition: all 0.15s; margin-bottom: 3px; }
+  .nav-item:hover { background: rgba(255,255,255,.05); color: var(--text); }
+  .nav-item.active { background: linear-gradient(135deg, rgba(0,212,170,.16), rgba(124,92,255,.10)); color: var(--teal); font-weight: 700; }
+  .nav-item.active::before { content: ""; position: absolute; left: -12px; top: 50%; transform: translateY(-50%); width: 4px; height: 22px; border-radius: 0 4px 4px 0; background: linear-gradient(180deg, #00d4aa, #7c5cff); }
   .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
   .nav-section { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; padding: 12px 12px 4px; }
   .shift-indicator { margin: 12px; padding: 12px; background: var(--bg3); border-radius: var(--radius); border: 1px solid var(--border); }
@@ -1214,30 +1216,30 @@
     <div class="cards-grid" style="grid-template-columns:repeat(5,1fr);">
       <div class="kpi-card kpi-hero">
         <div class="kpi-label" id="kpi-rev-label">Umsatz heute</div>
-        <div class="kpi-val" id="kpi-today-rev" style="color:var(--dx-teal);">—</div>
-        <div class="dx-foot"><span class="dx-chip flat" id="kpi-rev-chip">—</span><span class="dx-cap" id="kpi-today-rev-sub">—</span></div>
+        <div class="kpi-val" id="kpi-today-rev" style="color:var(--dx-teal);">€0</div>
+        <div class="dx-foot"><span class="dx-chip flat" id="kpi-rev-chip">neu</span><span class="dx-cap" id="kpi-today-rev-sub">0 Transaktionen</span></div>
         <canvas class="dx-spark" id="spark-rev"></canvas>
       </div>
       <div class="kpi-card">
         <div class="kpi-label" id="kpi-sales-label">Sales heute</div>
-        <div class="kpi-val" id="kpi-today-sales" style="color:var(--dx-blue);">—</div>
-        <div class="dx-foot"><span class="dx-chip flat" id="kpi-sales-chip">—</span><span class="dx-cap" id="kpi-today-sales-sub">—</span></div>
+        <div class="kpi-val" id="kpi-today-sales" style="color:var(--dx-blue);">0</div>
+        <div class="dx-foot"><span class="dx-chip flat" id="kpi-sales-chip">neu</span><span class="dx-cap" id="kpi-today-sales-sub">Ø €0</span></div>
         <canvas class="dx-spark" id="spark-sales"></canvas>
       </div>
       <div class="kpi-card">
         <div class="kpi-label" id="kpi-avg-label">New Subs</div>
-        <div class="kpi-val" id="kpi-week-rev" style="color:var(--dx-purple);">—</div>
+        <div class="kpi-val" id="kpi-week-rev" style="color:var(--dx-purple);">0</div>
         <div class="dx-foot"><span class="dx-cap" id="kpi-week-sub">neue Kontakte</span></div>
         <canvas class="dx-spark" id="spark-subs"></canvas>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">ARPPU</div>
-        <div class="kpi-val" id="kpi-arppu" style="color:var(--dx-green);">—</div>
+        <div class="kpi-val" id="kpi-arppu" style="color:var(--dx-green);">€0</div>
         <div class="dx-foot"><span class="dx-cap">Ø pro Käufer</span></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Conversion</div>
-        <div class="kpi-val" id="kpi-conversion" style="color:var(--dx-yellow);">—</div>
+        <div class="kpi-val" id="kpi-conversion" style="color:var(--dx-yellow);">0%</div>
         <div class="dx-foot"><span class="dx-cap" id="kpi-conversion-sub">Käufer / gesamt</span></div>
       </div>
     </div>
@@ -1269,11 +1271,11 @@
     </div>
 
     <!-- ONLINE NOW WIDGET -->
-    <div id="dash-online-widget" style="margin-bottom:20px;background:var(--card);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:16px 20px;display:none;">
+    <div id="dash-online-widget" class="panel" style="margin-bottom:20px;padding:16px 20px;display:none;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-        <span style="width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;animation:pulse 1.5s infinite;"></span>
-        <span style="font-size:12px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.06em;">Jetzt online</span>
-        <span id="dash-online-count" style="background:rgba(34,197,94,0.15);color:#22c55e;font-size:11px;font-weight:700;border-radius:10px;padding:1px 8px;margin-left:auto;"></span>
+        <span style="width:8px;height:8px;background:var(--dx-green);border-radius:50%;display:inline-block;animation:pulse 1.5s infinite;"></span>
+        <span style="font-size:12px;font-weight:800;color:var(--dx-green);text-transform:uppercase;letter-spacing:.06em;">Jetzt online</span>
+        <span id="dash-online-count" style="background:rgba(34,197,94,0.13);color:var(--dx-green);font-size:11px;font-weight:800;border-radius:999px;padding:2px 10px;margin-left:auto;border:1px solid rgba(34,197,94,.3);"></span>
       </div>
       <div id="dash-online-list" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
     </div>
@@ -3488,11 +3490,11 @@ async function loadData() {
   const { salesUrl, shiftsUrl } = loadSettings();
   const _storedBase = (localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
   // Primary: Vercel proxy. Fallback: direct Railway URL if configured
-  async function _loadApiJson(path) {
+  async function _loadApiJson(path, timeout) {
     const urls = ['/api' + path];
     if (_storedBase && _storedBase !== '/api') urls.push(_storedBase + path);
     for (const u of urls) {
-      try { const r = await _fetchT(u, {}, 8000); if (r.ok) return await r.json(); } catch(_) {}
+      try { const r = await _fetchT(u, {}, timeout || 15000); if (r.ok) return await r.json(); } catch(_) {}
     }
     return [];
   }
@@ -3501,7 +3503,8 @@ async function loadData() {
     fetchCSV(salesUrl),
     fetchCSV(shiftsUrl),
     _loadApiJson('/sales'),
-    _loadApiJson('/conversations')
+    // slim projection: tiny payload so mobile doesn't time out on 1000s of rows
+    _loadApiJson('/conversations?slim=1')
   ]);
   salesData    = results[0].status === 'fulfilled' ? results[0].value : salesData;
   shiftsData   = results[1].status === 'fulfilled' ? results[1].value : shiftsData;
@@ -9621,6 +9624,10 @@ window.setCreatorsOvPeriod = function(p){
 window.renderCreatorsOverview = async function(){
   const panel = document.getElementById('creators-overview-panel');
   if (!panel) return;
+  // "Alle Creator"-Panel entfernt — bleibt dauerhaft ausgeblendet.
+  panel.style.display = 'none';
+  return;
+  // eslint-disable-next-line no-unreachable
   const admin = (typeof isAdmin === 'function') ? isAdmin() : true;
   if (!admin) { panel.style.display = 'none'; return; }
   try {
