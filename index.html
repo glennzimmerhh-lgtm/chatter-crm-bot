@@ -1172,7 +1172,7 @@
       <div class="topbar-right">
         <div class="date-badge" id="today-badge"></div>
         <button class="config-btn" onclick="openSettings()">⚙ Configure</button>
-        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Refresh</button>
+        <button class="refresh-btn" onclick="userRefresh()">↻ Refresh</button>
       </div>
     </div>
 
@@ -1278,6 +1278,27 @@
         <span id="dash-online-count" style="background:rgba(34,197,94,0.13);color:var(--dx-green);font-size:11px;font-weight:800;border-radius:999px;padding:2px 10px;margin-left:auto;border:1px solid rgba(34,197,94,.3);"></span>
       </div>
       <div id="dash-online-list" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+    </div>
+
+    <!-- WINBACK: silent-fan reactivation -->
+    <div id="winback-panel" class="panel" style="margin-bottom:20px;padding:16px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;gap:9px;">
+          <span style="font-size:14px;font-weight:800;color:var(--text);">💤 Winback — stille Fans</span>
+          <span id="winback-count" style="background:rgba(167,139,250,.14);color:var(--dx-purple);font-size:11px;font-weight:800;border-radius:999px;padding:2px 10px;border:1px solid rgba(167,139,250,.3);"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <select id="winback-days" onchange="loadWinback()" style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text2);border-radius:9px;font-size:12px;padding:6px 9px;cursor:pointer;outline:none;">
+            <option value="3">still ab 3 Tagen</option>
+            <option value="7">ab 7 Tagen</option>
+            <option value="14">ab 14 Tagen</option>
+            <option value="30">ab 30 Tagen</option>
+          </select>
+          <button onclick="loadWinback()" title="Neu laden" style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text2);border-radius:9px;font-size:13px;padding:6px 11px;cursor:pointer;">↻</button>
+        </div>
+      </div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;">Fans, die sich länger nicht gemeldet haben — sortiert nach Umsatz. Hol sie mit einem KI-Opener zurück.</div>
+      <div id="winback-list"><div style="color:var(--text3);font-size:12px;padding:8px 0;">Lade…</div></div>
     </div>
 
     <!-- MULTI-CREATOR ADMIN OVERVIEW: total on top, per-creator below -->
@@ -1505,7 +1526,7 @@
         <div class="topbar-title">Sales Log</div>
       </div>
       <div class="topbar-right">
-        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Refresh</button>
+        <button class="refresh-btn" onclick="userRefresh()">↻ Refresh</button>
       </div>
     </div>
     <div class="period-bar">
@@ -1550,7 +1571,7 @@
         <div class="topbar-title">Shift Overview</div>
       </div>
       <div class="topbar-right">
-        <button class="refresh-btn" onclick="_loadDataRetries=0;loadData()">↻ Refresh</button>
+        <button class="refresh-btn" onclick="userRefresh()">↻ Refresh</button>
       </div>
     </div>
     <div class="period-bar">
@@ -2379,7 +2400,7 @@
 </main>
 
 <!-- FLOATING REFRESH BUTTON -->
-<button class="fab-refresh" onclick="loadData()" title="Refresh">↻</button>
+<button class="fab-refresh" onclick="userRefresh()" title="Refresh">↻</button>
 
 <!-- MOBILE BOTTOM NAV -->
 <nav class="mobile-nav">
@@ -3526,7 +3547,35 @@ async function loadData() {
   renderSalesPage();
   renderShiftsPage();
   updateShiftGoal();
+
+  // Haptic "bump" when a user-triggered refresh has finished analysing the data
+  if (window._hapticOnLoad) { window._hapticOnLoad = false; try { hapticBump(); } catch(e) {} }
 }
+
+// Small haptic feedback: Vibration API (Android) + iOS 17.4+ switch-input trick
+window.hapticBump = function(){
+  try { if (navigator.vibrate) navigator.vibrate(14); } catch(e) {}
+  try {
+    let l = document.getElementById('_haptic_switch');
+    if (!l) {
+      l = document.createElement('label');
+      l.id = '_haptic_switch';
+      l.style.cssText = 'position:absolute;left:-9999px;width:0;height:0;opacity:0;pointer-events:none;';
+      const i = document.createElement('input');
+      i.type = 'checkbox'; i.setAttribute('switch', ''); i.setAttribute('aria-hidden', 'true');
+      l.appendChild(i);
+      document.body.appendChild(l);
+    }
+    l.click();   // toggling a <input switch> fires a system haptic on supported iOS
+  } catch(e) {}
+};
+
+// User-initiated refresh → reload data AND buzz when it's done
+window.userRefresh = function(){
+  window._hapticOnLoad = true;
+  _loadDataRetries = 0;
+  loadData();
+};
 
 // ── LEAD SOURCE TRACKING (dashboard) ─────────────────────────────────────────
 window.loadSourceStats = async function loadSourceStats() {
@@ -3605,6 +3654,7 @@ window.genSourceLink = function() {
 
 function renderDashboard() {
   if (window.loadSourceStats) window.loadSourceStats();
+  if (window.loadWinback) window.loadWinback();
   const p = currentPeriod;
   const tod = today();
   const periodLabels = { heute: 'Today', gestern: 'Yesterday', woche: 'This Week', monat: 'This Month' };
@@ -8073,6 +8123,82 @@ function _dxAgo(ts){
   if (s < 86400) return 'vor ' + Math.floor(s/3600) + ' Std';
   return d.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
 }
+// ── WINBACK — silent-fan reactivation ────────────────────────────────────────
+let _winbackOpeners = {};
+window.loadWinback = async function(){
+  const box = document.getElementById('winback-list');
+  const cnt = document.getElementById('winback-count');
+  if (!box) return;
+  const days = (document.getElementById('winback-days') || {}).value || 3;
+  const cid = window.activeCreatorId || 1;
+  box.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px 0;">Lade…</div>';
+  let list = [];
+  try {
+    const r = await fetch('/api/winback?creator_id=' + cid + '&days=' + days);
+    list = r.ok ? await r.json() : [];
+  } catch(_) { list = []; }
+  if (cnt) cnt.textContent = list.length ? (list.length + ' Fans') : '0';
+  if (!list.length) {
+    box.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px 0;">Keine stillen Fans in diesem Zeitraum. 🎉</div>';
+    return;
+  }
+  box.innerHTML = list.map(f => {
+    const name = f.internal_name || f.anon_id || 'Fan';
+    const spent = Number(f.spent || 0);
+    const spendChip = spent > 0
+      ? '<span style="font-size:10.5px;font-weight:800;color:var(--dx-teal);background:rgba(0,212,170,.12);border-radius:6px;padding:2px 7px;">€' + spent.toLocaleString('de-DE',{maximumFractionDigits:0}) + '</span>'
+      : '<span style="font-size:10.5px;color:var(--text3);">kein Umsatz</span>';
+    const tg = (f.tg_id || '').replace(/'/g, "\\'");
+    const anon = (f.anon_id || '').replace(/'/g, "\\'");
+    return '<div style="border-top:1px solid var(--border);padding:10px 0;">'
+      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+      +   '<div style="flex:1;min-width:140px;"><div style="font-size:13px;font-weight:600;color:var(--text);">' + name + '</div>'
+      +     '<div style="font-size:11px;color:var(--text3);">' + (f.days_silent||0) + ' Tage still · ' + (f.msg_count||0) + ' Nachrichten</div></div>'
+      +   spendChip
+      +   '<button onclick="winbackOpener(\'' + tg + '\', this)" style="background:linear-gradient(135deg,#a78bfa,#7c5cff);border:none;color:#fff;border-radius:8px;font-size:11.5px;font-weight:700;padding:6px 12px;cursor:pointer;white-space:nowrap;">✍️ KI-Opener</button>'
+      +   '<button onclick="openWinbackChat(\'' + tg + '\',\'' + anon + '\')" style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text2);border-radius:8px;font-size:11.5px;font-weight:700;padding:6px 12px;cursor:pointer;white-space:nowrap;">Chat</button>'
+      + '</div>'
+      + '<div id="wb-opener-' + tg + '" style="display:none;margin-top:8px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);border-radius:10px;padding:10px 12px;"></div>'
+      + '</div>';
+  }).join('');
+};
+
+window.winbackOpener = async function(tgId, btn){
+  const box = document.getElementById('wb-opener-' + tgId);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ …'; }
+  try {
+    const r = await fetch('/api/winback/opener', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tg_id: tgId }) });
+    const d = await r.json();
+    if (!r.ok || !d.opener) throw new Error(d.detail || 'Fehler');
+    _winbackOpeners[tgId] = d.opener;
+    if (box) {
+      box.style.display = 'block';
+      box.innerHTML = '<div style="font-size:12.5px;color:var(--text);line-height:1.5;white-space:pre-wrap;">' + d.opener.replace(/</g,'&lt;') + '</div>'
+        + '<div style="display:flex;gap:8px;margin-top:8px;">'
+        + '<button onclick="openWinbackChat(\'' + tgId.replace(/\x27/g,"\\x27") + '\',\'\',true)" style="background:var(--dx-teal);border:none;color:#04120e;border-radius:7px;font-size:11.5px;font-weight:800;padding:6px 12px;cursor:pointer;">➜ In Chat übernehmen</button>'
+        + '<button onclick="winbackOpener(\'' + tgId.replace(/\x27/g,"\\x27") + '\',this)" style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text2);border-radius:7px;font-size:11.5px;padding:6px 12px;cursor:pointer;">🔄 Neu</button>'
+        + '</div>';
+    }
+  } catch(e) {
+    if (box) { box.style.display = 'block'; box.innerHTML = '<div style="color:#ff5c7a;font-size:12px;">❌ ' + e.message + '</div>'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✍️ KI-Opener'; }
+  }
+};
+
+window.openWinbackChat = function(tgId, anon, withOpener){
+  try {
+    if (window.showPage) showPage('chat');
+    if (window.openConv) openConv(tgId, anon || '');
+    if (withOpener && _winbackOpeners[tgId]) {
+      setTimeout(() => {
+        const inp = document.getElementById('chat-input');
+        if (inp) { inp.value = _winbackOpeners[tgId]; inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight,160)+'px'; inp.focus(); }
+      }, 500);
+    }
+  } catch(e) {}
+};
+
 function renderDxActivityFeed(){
   const box = document.getElementById('dx-activity-feed');
   if (!box) return;
