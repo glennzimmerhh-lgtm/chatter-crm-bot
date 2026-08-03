@@ -6098,6 +6098,8 @@ if (checkAuth()) {
         break;
       case 'notification': {
         if (msg.notif_type === 'paypal' || msg.notif_type === 'revolut' || (msg.text && /money received/i.test(msg.text))) { try { showPayToast(msg.text || 'Money received', msg.notif_type); } catch(e){} }
+        // 💰 Money sound on real revenue events (sale or payment received) — not on new_sub/message
+        if (msg.notif_type === 'sale' || msg.notif_type === 'paypal' || msg.notif_type === 'revolut' || (msg.text && /money received/i.test(msg.text))) { try { playSaleSound(); } catch(e){} }
         if (msg.notif_type === 'ai_question') { try { if (window.loadAiq) loadAiq(); } catch(e){} }
         // Only badge for new_sub and sale — NOT messages
         if (msg.notif_type === 'message') break;
@@ -7998,6 +8000,45 @@ function revolutLogo(size) {
     + '<rect width="28" height="28" rx="7" fill="#0a0a0a"/>'
     + '<text x="14" y="20.5" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="18" font-weight="800" fill="#ffffff">R</text></svg>';
 }
+// ── MONEY SOUND (cash-register "ka-ching" via Web Audio, no file needed) ─────
+let _saleAudioCtx = null;
+function _getSaleAudioCtx(){
+  try {
+    if (!_saleAudioCtx) _saleAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_saleAudioCtx.state === 'suspended') _saleAudioCtx.resume().catch(function(){});
+    return _saleAudioCtx;
+  } catch(e) { return null; }
+}
+// Unlock audio on the first user interaction (browser autoplay policy)
+['click','touchstart','keydown'].forEach(function(ev){
+  window.addEventListener(ev, function(){ _getSaleAudioCtx(); }, { once: true });
+});
+window.playSaleSound = function(){
+  if (localStorage.getItem('crm_sale_sound') === '0') return;   // muted
+  const ctx = _getSaleAudioCtx(); if (!ctx) return;
+  const t0 = ctx.currentTime;
+  function ding(freq, start, dur, vol, type){
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || 'triangle'; o.frequency.value = freq;
+    o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.0001, t0 + start);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + start + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + dur);
+    o.start(t0 + start); o.stop(t0 + start + dur + 0.03);
+  }
+  // bright two-part cha-ching
+  ding(1046.5, 0.00, 0.15, 0.35, 'triangle'); // C6
+  ding(1318.5, 0.00, 0.15, 0.20, 'square');   // E6 — metallic edge
+  ding(1567.98, 0.085, 0.55, 0.34, 'triangle'); // G6 — ring-out
+  ding(2093.0, 0.085, 0.55, 0.14, 'square');    // C7 — shimmer
+};
+window.toggleSaleSound = function(){
+  const on = localStorage.getItem('crm_sale_sound') !== '0';
+  localStorage.setItem('crm_sale_sound', on ? '0' : '1');
+  if (!on) { try { playSaleSound(); } catch(e){} }   // preview when turning on
+  return !on;
+};
+
 function showPayToast(text, provider) {
   let host = document.getElementById('paypal-toast-host');
   if (!host) {
