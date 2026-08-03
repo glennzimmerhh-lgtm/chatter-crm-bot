@@ -2228,6 +2228,34 @@
   </div>
 
   <div id="page-chat" style="display:none;">
+    <style>
+      /* ── Chat redesign (scoped, branding-aligned) ─────────────────── */
+      #page-chat{ --cx-teal:#00d4aa; --cx-purple:#a78bfa; }
+      /* Conversation list items — softer cards, gradient active accent */
+      #page-chat .conv-item{ border-radius:12px; padding:10px 12px; margin:2px 6px; }
+      #page-chat .conv-item::before{ border-radius:12px 0 0 12px; }
+      #page-chat .conv-item.active{ background:linear-gradient(135deg, rgba(0,212,170,.14), rgba(124,92,255,.08)) !important; }
+      #page-chat .conv-name{ font-weight:650; }
+      #page-chat .conv-preview{ color:var(--text3); }
+      /* Chat header — glassy */
+      #page-chat .msg-topbar{ background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+      /* Message bubbles — rounder + richer */
+      #page-chat .msg-bubble{ max-width:70%; padding:11px 15px; border-radius:18px; font-size:13.5px; line-height:1.55; box-shadow:0 2px 10px rgba(0,0,0,.18); }
+      #page-chat .msg-in{ background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.07); border-bottom-left-radius:6px; }
+      #page-chat .msg-out{ background:linear-gradient(135deg,#0be0b8,#00b894); color:#04231d; border-bottom-right-radius:6px; box-shadow:0 6px 20px -6px rgba(0,212,170,.55); }
+      #page-chat .msg-out .msg-meta{ color:rgba(4,35,29,.55); }
+      /* Input bar — rounder field, gradient send */
+      #page-chat .reply-bar{ background:linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,.02)); border-top:1px solid var(--border); gap:8px; padding:12px 16px; }
+      #page-chat .reply-bar textarea{ border-radius:14px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); }
+      #page-chat .reply-bar textarea:focus{ border-color:rgba(0,212,170,.5); box-shadow:0 0 0 3px rgba(0,212,170,.12); }
+      #page-chat .reply-bar button{ border-radius:12px; background:linear-gradient(135deg,var(--cx-teal),#0bbf9c); color:#04231d; font-weight:800; box-shadow:0 6px 18px -8px rgba(0,212,170,.7); }
+      /* Emoji + scripts strip */
+      #page-chat .emoji-bar{ background:rgba(255,255,255,.015); }
+      #page-chat .emoji-btn{ border-radius:9px; }
+      #page-chat .scripts-btn{ border-radius:10px; }
+      /* "N Chats brauchen dich" banner + online mini → brand */
+      #page-chat .conv-list{ background:transparent; }
+    </style>
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
         <button class="hamburger" onclick="openSidebar()">
