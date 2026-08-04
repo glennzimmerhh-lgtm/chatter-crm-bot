@@ -2032,6 +2032,15 @@ async def _run_ai_hunter():
         await asyncio.sleep(1800)   # every 30 min
 
 
+async def _startup_call_video_sweep():
+    """One-time background sweep to bake orientation into existing call videos."""
+    await asyncio.sleep(25)   # let the app + DB settle first
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _normalize_all_call_videos)
+    except Exception as e:
+        print(f'startup call sweep error: {e}')
+
+
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -2047,6 +2056,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_run_paypal_poller())
     asyncio.create_task(_run_ai_followups())
     asyncio.create_task(_run_ai_hunter())
+    asyncio.create_task(_startup_call_video_sweep())   # bake portrait orientation into existing call videos
     # PyTgCalls is now initialized inside start_userbot() on every connect cycle
     # via _reinit_calls() — no separate _init_calls task needed.
     yield
@@ -5453,6 +5463,8 @@ def get_call_files(creator_id: int = 1):
         result = []
         try:
             for fname in sorted(os.listdir(directory)):
+                if fname.endswith('.norm.mp4'):
+                    continue   # hide auto-generated orientation-baked copies
                 fpath = os.path.join(directory, fname)
                 if os.path.isfile(fpath) and not fname.startswith('.'):
                     ext = fname.rsplit('.',1)[-1].lower() if '.' in fname else ''
@@ -5502,6 +5514,13 @@ async def upload_call_file(file: UploadFile = File(...), folder: str = '', creat
         if 'No space left' in str(e):
             raise HTTPException(507, 'Disk full')
         raise HTTPException(500, str(e))
+    # Portrait fix: bake orientation in the background so calls display upright.
+    if ext in ('mp4', 'mov', 'mkv', 'm4v'):
+        try:
+            import threading
+            threading.Thread(target=_normalize_call_video, args=(fpath,), daemon=True).start()
+        except Exception:
+            pass
     return {'ok': True, 'name': safe_name, 'folder': folder}
 
 # ── URL IMPORT ───────────────────────────────────────────────────────────────
@@ -5663,6 +5682,12 @@ def delete_call_file(filename: str, folder: str = '', creator_id: int = 1):
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
     os.remove(fpath)
+    try:
+        _np = _call_norm_path(fpath)
+        if os.path.isfile(_np):
+            os.remove(_np)
+    except Exception:
+        pass
     return {'ok': True}
 
 @app.get('/call/file/{filename}')
@@ -5928,6 +5953,99 @@ def _video_display_dims(path: str):
         return None
 
 
+def _video_rotation(path: str) -> int:
+    """Rotation flag in degrees (0/90/180/270), 0 if none."""
+    try:
+        import subprocess, json as _j
+        out = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+             '-show_streams', '-select_streams', 'v:0', path],
+            capture_output=True, text=True, timeout=15)
+        st = (_j.loads(out.stdout or '{}').get('streams') or [None])[0]
+        if not st:
+            return 0
+        rot = 0
+        try:
+            rot = int((st.get('tags') or {}).get('rotate') or 0)
+        except Exception:
+            pass
+        for sd in (st.get('side_data_list') or []):
+            if 'rotation' in sd:
+                try:
+                    rot = int(sd.get('rotation') or 0)
+                except Exception:
+                    pass
+        return abs(rot) % 360
+    except Exception:
+        return 0
+
+
+def _call_norm_path(path: str) -> str:
+    base, _ = os.path.splitext(path)
+    return base + '.norm.mp4'
+
+
+def _normalize_call_video(path: str) -> str:
+    """Bake rotation into the pixels so py-tgcalls shows portrait videos upright.
+    ffmpeg auto-rotates on decode by default, so a plain re-encode removes the
+    rotation flag and produces true-portrait frames. Cached as <name>.norm.mp4.
+    Returns the path that should be streamed (norm file, or original if no rotation)."""
+    try:
+        if path.endswith('.norm.mp4'):
+            return path
+        norm = _call_norm_path(path)
+        if (os.path.isfile(norm) and os.path.getsize(norm) > 0
+                and os.path.getmtime(norm) >= os.path.getmtime(path)):
+            return norm
+        if _video_rotation(path) not in (90, 270):
+            return path  # already upright — nothing to bake
+        import subprocess
+        cmd = ['ffmpeg', '-y', '-i', path,
+               '-vf', "scale='min(1280,iw)':-2",
+               '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-pix_fmt', 'yuv420p',
+               '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', norm]
+        print(f'🔄 Normalizing rotated call video: {os.path.basename(path)}')
+        subprocess.run(cmd, capture_output=True, timeout=1800)
+        if os.path.isfile(norm) and os.path.getsize(norm) > 0:
+            print(f'✅ Normalized (upright): {os.path.basename(norm)}')
+            return norm
+        print(f'⚠️ Normalize produced no file for {os.path.basename(path)}')
+        return path
+    except Exception as e:
+        print(f'normalize error ({path}): {e}')
+        return path
+
+
+def _normalize_all_call_videos():
+    """One-time background sweep: bake orientation for every existing rotated call
+    video across all creators, so old portrait recordings display upright too."""
+    try:
+        import glob
+        dirs = [CALLS_DIR]
+        try:
+            with db() as conn, conn.cursor() as c:
+                c.execute('SELECT id FROM creators')
+                for r in c.fetchall():
+                    if int(r['id']) != 1:
+                        dirs.append(_calls_dir(int(r['id'])))
+        except Exception:
+            pass
+        vids = []
+        for d in dirs:
+            for ext in ('mp4', 'mov', 'mkv', 'm4v'):
+                vids += glob.glob(os.path.join(d, '**', '*.' + ext), recursive=True)
+        for v in vids:
+            if v.endswith('.norm.mp4'):
+                continue
+            try:
+                _normalize_call_video(v)
+            except Exception as _e:
+                print(f'sweep normalize error {v}: {_e}')
+        print(f'✅ Call-video orientation sweep done ({len(vids)} files checked)')
+    except Exception as e:
+        print(f'call-video sweep error: {e}')
+
+
 @app.post('/call/start')
 async def start_fake_call(body: CallStartIn):
     """Initiate a pre-recorded call to a subscriber via Telegram."""
@@ -6013,6 +6131,21 @@ async def start_fake_call(body: CallStartIn):
                 print(f'⚠️ Dialog scan failed: {_e}')
         if not resolved:
             raise HTTPException(400, f'Cannot resolve Telegram user {peer}. The userbot may not have chatted with this user yet.')
+
+    # Portrait fix: use the orientation-baked copy if it exists; otherwise, for a
+    # rotated file, bake it in the background so the next call is upright.
+    if fpath:
+        _np = _call_norm_path(fpath)
+        if os.path.isfile(_np) and os.path.getmtime(_np) >= os.path.getmtime(fpath):
+            fpath = _np
+            print(f'🎬 Using orientation-baked call file: {os.path.basename(_np)}')
+        elif _video_rotation(fpath) in (90, 270):
+            try:
+                import threading
+                threading.Thread(target=_normalize_call_video, args=(fpath,), daemon=True).start()
+                print('🔄 Rotated call file — baking in background (next call will be upright)')
+            except Exception:
+                pass
 
     media_source = stream_url if stream_url else fpath
     label = stream_url if stream_url else body.filename
