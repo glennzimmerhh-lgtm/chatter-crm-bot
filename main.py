@@ -5455,6 +5455,41 @@ def call_status(creator_id: int = 1):
         'active_calls': active_calls,
     }
 
+@app.get('/call/diag')
+def call_diag(creator_id: int = 1):
+    """Diagnostics for the portrait-call fix: is ffmpeg present, what rotation
+    metadata do the videos have, and were they orientation-baked."""
+    import glob, subprocess, json as _j, shutil as _sh
+    _cd = _calls_dir(creator_id)
+    ffmpeg_ok = _sh.which('ffmpeg') is not None
+    ffprobe_ok = _sh.which('ffprobe') is not None
+    vids = []
+    for ext in ('mp4', 'mov', 'mkv', 'm4v', 'MOV', 'MP4'):
+        vids += glob.glob(os.path.join(_cd, '**', '*.' + ext), recursive=True)
+    files = []
+    for v in sorted(set(vids)):
+        if v.endswith('.norm.mp4'):
+            continue
+        entry = {'name': os.path.basename(v)}
+        try:
+            if ffprobe_ok:
+                r = subprocess.run(['ffprobe', '-v', 'quiet', '-print_format', 'json',
+                                    '-show_streams', '-select_streams', 'v:0', v],
+                                   capture_output=True, text=True, timeout=20)
+                st = (_j.loads(r.stdout or '{}').get('streams') or [{}])[0]
+                entry.update({
+                    'width': st.get('width'), 'height': st.get('height'),
+                    'rotate_tag': (st.get('tags') or {}).get('rotate'),
+                    'side_data': st.get('side_data_list'),
+                    'detected_rotation': _video_rotation(v),
+                })
+            entry['norm_exists'] = os.path.isfile(_call_norm_path(v))
+        except Exception as e:
+            entry['error'] = str(e)[:200]
+        files.append(entry)
+    return {'creator_id': creator_id, 'ffmpeg': ffmpeg_ok, 'ffprobe': ffprobe_ok,
+            'calls_dir': _cd, 'video_count': len(files), 'files': files}
+
 @app.get('/call/files')
 def get_call_files(creator_id: int = 1):
     """List recordings organised by folder. Returns {folders: [{name, label, files}]}"""
