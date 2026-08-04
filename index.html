@@ -9783,10 +9783,27 @@ document.addEventListener('DOMContentLoaded', () => {
           <div style="font-weight:700;color:var(--text,#e8e8ee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${active?'✓ ':''}${(c.name||'').replace(/</g,'&lt;')}</div>
           <div style="font-size:11px;color:var(--text3,#8a8a99);">${c.subs||0} subs · ${Math.round(c.revenue||0)}€ · ${status}</div>
         </div>
+        <button onclick="event.stopPropagation();renameCreator(${c.id},'${(c.name||'').replace(/'/g,"\\'").replace(/</g,'&lt;')}')" title="Umbenennen" style="background:none;border:none;color:var(--text3,#8a8a99);font-size:13px;cursor:pointer;padding:2px 4px;flex-shrink:0;">✏️</button>
         ${connectBtn}${openBadge}
       </div>`;
-    }).join('') + `<div onclick="addCreatorPrompt()" style="padding:9px 10px;border-top:1px solid var(--border,#2b2f3a);margin-top:4px;color:#6366f1;font-weight:700;cursor:pointer;">＋ Creator hinzufügen</div>`;
+    }).join('') + `<div onclick="addCreatorPrompt()" style="padding:9px 10px;border-top:1px solid var(--border,#2b2f3a);margin-top:4px;color:var(--teal,#00d4aa);font-weight:700;cursor:pointer;">＋ Creator hinzufügen</div>`;
     _renderName();
+  };
+  window.renameCreator = async function(id, currentName){
+    const name = prompt('Neuer Name für dieses Model:', currentName || '');
+    if (name === null) return;
+    const clean = name.trim();
+    if (!clean || clean === currentName) return;
+    try {
+      const r = await fetch('/api/creators/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: clean })
+      });
+      if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.detail || ('HTTP ' + r.status)); }
+      if (window.loadCreators) await window.loadCreators();
+      if (typeof _renderName === 'function') _renderName();
+    } catch(e) { alert('Umbenennen fehlgeschlagen: ' + e.message); }
   };
   window.connectCreatorTg = function(id){
     // Open the worker's per-creator Telegram login wizard in a new tab.
