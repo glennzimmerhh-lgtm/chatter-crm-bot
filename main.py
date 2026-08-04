@@ -2350,6 +2350,80 @@ def get_conversations(creator_id: Optional[int] = None, slim: int = 0):
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
+@app.get('/winback')
+def get_winback(creator_id: int = 1, days: int = 3, limit: int = 40):
+    """Silent-fan reactivation list: fans whose LAST INBOUND message is between
+    `days` and 60 days ago. Prioritised by lifetime spend so we win back money first."""
+    try:
+        days = max(1, int(days)); limit = min(100, max(1, int(limit)))
+    except Exception:
+        days, limit = 3, 40
+    now = datetime.now()
+    hi = (now - timedelta(days=days)).isoformat()      # silent at least `days`
+    lo = (now - timedelta(days=60)).isoformat()        # but not older than 60d
+    rows = []
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('''
+                SELECT c.tg_id, c.anon_id, c.internal_name, c.funnel_stage, c.msg_count,
+                       li.last_in, COALESCE(sp.spent,0) AS spent
+                FROM conversations c
+                JOIN (SELECT tg_id, MAX(timestamp) AS last_in FROM messages
+                      WHERE direction='in' GROUP BY tg_id) li ON li.tg_id = c.tg_id
+                LEFT JOIN (SELECT tg_id, SUM(amount) AS spent FROM sales GROUP BY tg_id) sp
+                       ON sp.tg_id = c.tg_id
+                WHERE c.creator_id = %s
+                  AND (c.is_muted IS NOT TRUE) AND (c.time_waster IS NOT TRUE)
+                  AND li.last_in < %s AND li.last_in > %s
+                ORDER BY spent DESC, li.last_in DESC
+                LIMIT %s''', (creator_id, hi, lo, limit))
+            rows = c.fetchall()
+    except Exception as e:
+        print(f'winback query error: {e}')
+        return []
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            last_in = datetime.fromisoformat(str(d.get('last_in')).replace('Z', ''))
+            d['days_silent'] = max(0, (now - last_in).days)
+        except Exception:
+            d['days_silent'] = days
+        d['spent'] = float(d.get('spent') or 0)
+        out.append(d)
+    return out
+
+class WinbackOpenerIn(BaseModel):
+    tg_id: str
+
+@app.post('/winback/opener')
+async def winback_opener(body: WinbackOpenerIn):
+    """Generate (but do NOT send) a personal winback opener via the AI engine.
+    The chatter reviews it and sends it themselves."""
+    if not AI_ENGINE_URL or not AI_ENGINE_TOKEN:
+        raise HTTPException(503, 'AI-Engine nicht konfiguriert (AI_ENGINE_URL / AI_ENGINE_TOKEN fehlen)')
+    guidance = ('Schreibe eine kurze, persönliche und lockere Wiederansprech-Nachricht (Winback) an diesen Fan, '
+                'der sich länger nicht gemeldet hat. Knüpfe natürlich an euren letzten Kontakt an, mach neugierig, '
+                'null Druck, kein Verkaufs-Pitch. Wirke echt und individuell, eine kurze Nachricht.')
+    payload = {'tg_id': body.tg_id, 'guidance': guidance, 'question': 'winback'}
+    loop = asyncio.get_event_loop()
+    def _compose():
+        req = _ureq_ai.Request(AI_ENGINE_URL + '/compose', data=_json_ai.dumps(payload).encode(),
+                               headers={'Content-Type': 'application/json',
+                                        'Authorization': 'Bearer ' + AI_ENGINE_TOKEN}, method='POST')
+        with _ureq_ai.urlopen(req, timeout=45) as r:
+            return _json_ai.loads(r.read())
+    try:
+        res = await loop.run_in_executor(None, _compose)
+        opener = (res.get('reply') or '').strip()
+        if not opener:
+            raise HTTPException(502, 'Engine lieferte keinen Text.')
+        return {'ok': True, 'opener': opener}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f'Opener-Generierung fehlgeschlagen: {e}')
+
 @app.get('/online')
 def get_online(creator_id: Optional[int] = None):
     with db() as conn:
@@ -5807,6 +5881,53 @@ async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str, cc=N
         _tg_priority = max(0, _tg_priority - 1)  # always resume broadcast
 
 
+def _video_display_dims(path: str):
+    """Return (width, height, fps) as ACTUALLY DISPLAYED — rotation-aware.
+    iPhone .mov files store landscape pixels + a 90° rotation flag; py-tgcalls
+    ignores that flag and shows them sideways. We read the real orientation so
+    portrait calls stay portrait."""
+    try:
+        import subprocess, json as _j
+        out = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+             '-show_streams', '-select_streams', 'v:0', path],
+            capture_output=True, text=True, timeout=15)
+        info = _j.loads(out.stdout or '{}')
+        st = (info.get('streams') or [None])[0]
+        if not st:
+            return None
+        w = int(st.get('width') or 0); h = int(st.get('height') or 0)
+        if not w or not h:
+            return None
+        rot = 0
+        try:
+            rot = int((st.get('tags') or {}).get('rotate') or 0)
+        except Exception:
+            pass
+        for sd in (st.get('side_data_list') or []):
+            if 'rotation' in sd:
+                try:
+                    rot = int(sd.get('rotation') or 0)
+                except Exception:
+                    pass
+        if abs(rot) % 360 in (90, 270):
+            w, h = h, w   # displayed orientation
+        fps = 30
+        try:
+            fr = st.get('avg_frame_rate') or st.get('r_frame_rate') or '30/1'
+            n, d = fr.split('/')
+            if float(d):
+                fps = int(round(float(n) / float(d)))
+            if fps < 1 or fps > 60:
+                fps = 30
+        except Exception:
+            pass
+        return (w, h, fps)
+    except Exception as e:
+        print(f'video probe error ({path}): {e}')
+        return None
+
+
 @app.post('/call/start')
 async def start_fake_call(body: CallStartIn):
     """Initiate a pre-recorded call to a subscriber via Telegram."""
@@ -5909,14 +6030,33 @@ async def start_fake_call(body: CallStartIn):
         if is_video:
             try:
                 from pytgcalls.types import VideoQuality
+                # Orientation-correct: probe the real (rotation-aware) dimensions of
+                # local files so PORTRAIT calls stay portrait instead of being forced
+                # into 1280x720 landscape.
+                _vparams = None
+                dims = _video_display_dims(fpath) if fpath else None
+                if dims:
+                    try:
+                        from pytgcalls.types import VideoParameters
+                        vw, vh, vfps = dims
+                        longest = max(vw, vh) or 1
+                        scale = min(1.0, 1280.0 / longest)   # cap long side at 1280
+                        vw2 = max(2, (int(round(vw * scale)) // 2) * 2)  # even numbers
+                        vh2 = max(2, (int(round(vh * scale)) // 2) * 2)
+                        _vparams = VideoParameters(vw2, vh2, vfps)
+                        print(f'🎬 Video stream {vw2}x{vh2}@{vfps} (orientation-correct)')
+                    except Exception as _vp_e:
+                        print(f'⚠️ VideoParameters build failed ({_vp_e}) — using HD_720p')
+                        _vparams = None
                 stream = MediaStream(
                     media_source,
                     audio_parameters=AudioQuality.HIGH,
-                    video_parameters=VideoQuality.HD_720p,
+                    video_parameters=_vparams or VideoQuality.HD_720p,
                 )
-                print(f'🎬 Video stream: {media_source} HD_720p+audio')
+                if _vparams is None:
+                    print(f'🎬 Video stream: {media_source} HD_720p+audio')
             except Exception as _vq_e:
-                print(f'⚠️ VideoQuality.HD_720p failed ({_vq_e}), falling back to audio-only')
+                print(f'⚠️ Video params failed ({_vq_e}), falling back to audio-only')
                 stream = MediaStream(media_source, audio_parameters=AudioQuality.HIGH)
         else:
             stream = MediaStream(media_source, audio_parameters=AudioQuality.HIGH)
