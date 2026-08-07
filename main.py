@@ -2689,17 +2689,28 @@ async def _bg_read_history(tg_id: str):
         print(f'ReadHistory skip: {e}')
 
 @app.get('/messages/{tg_id}')
-async def get_messages(tg_id: str, bg: BackgroundTasks):
+async def get_messages(tg_id: str, bg: BackgroundTasks, limit: int = 150, before: int = 0):
+    """Newest `limit` messages. `before`=<message id> loads the batch older than that
+    (for 'load older'). Small initial load → chats open fast."""
+    try:
+        limit = min(1000, max(20, int(limit)))
+    except Exception:
+        limit = 150
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
-            # Load only the most recent 500 messages (chat scrolls to newest anyway).
-            # Big win on long-running chats: avoids shipping thousands of rows per open.
-            c.execute('SELECT id,text,direction,timestamp,chatter,is_read,read_at,translation,tg_msg_id '
-                      'FROM messages WHERE tg_id=%s ORDER BY timestamp DESC LIMIT 500', (tg_id,))
+            if not before:
+                c.execute('UPDATE conversations SET unread=0 WHERE tg_id=%s', (tg_id,))
+            if before and int(before) > 0:
+                c.execute('SELECT id,text,direction,timestamp,chatter,is_read,read_at,translation,tg_msg_id '
+                          'FROM messages WHERE tg_id=%s AND id < %s ORDER BY id DESC LIMIT %s',
+                          (tg_id, int(before), limit))
+            else:
+                c.execute('SELECT id,text,direction,timestamp,chatter,is_read,read_at,translation,tg_msg_id '
+                          'FROM messages WHERE tg_id=%s ORDER BY id DESC LIMIT %s', (tg_id, limit))
             rows = c.fetchall()
     rows = list(reversed(rows))   # back to chronological order for the UI
-    bg.add_task(_bg_read_history, tg_id)
+    if not before:
+        bg.add_task(_bg_read_history, tg_id)
     return [dict(r) for r in rows]
 
 @app.post('/typing/{tg_id}')

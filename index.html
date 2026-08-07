@@ -4583,6 +4583,7 @@ if (checkAuth()) {
 
   // ── CHAT ─────────────────────────────────────────────────
   let currentChatTgId = null;
+  let _msgLimit = 150;   // initial messages loaded per chat (fast open); grows on "load older"
   window._getCurrentTgId = () => currentChatTgId;
   // Reset the open conversation (used on in-place model switch)
   window._resetChatView = function(){
@@ -4969,6 +4970,7 @@ if (checkAuth()) {
 
   window.openConv = async function openConv(tgId, anonId) {
     currentChatTgId = tgId;
+    _msgLimit = 150;   // fresh chat → load only the recent 150 (fast)
     if (typeof refreshAiFanBtn === 'function') refreshAiFanBtn(tgId);
     document.getElementById('msg-conv-name').textContent = anonId;
     const _conv = allConvs.find(x => x.tg_id === tgId) || {};
@@ -5937,9 +5939,17 @@ if (checkAuth()) {
     } catch {}
   }
 
+  window.loadOlderMsgs = async function(){
+    const el = document.getElementById('msg-list');
+    const before = el ? el.scrollHeight : 0;
+    _msgLimit += 300;
+    await loadMsgs();
+    if (el) { const after = el.scrollHeight; el.scrollTop = Math.max(0, after - before); }  // keep view position
+  };
+
   async function loadMsgs() {
     if (!currentChatTgId) return;
-    const msgs = await chatApiGet('/messages/' + currentChatTgId);
+    const msgs = await chatApiGet('/messages/' + currentChatTgId + '?limit=' + _msgLimit);
     if (!msgs) return;
     const el = document.getElementById('msg-list');
     if (!msgs.length) {
@@ -5947,7 +5957,10 @@ if (checkAuth()) {
       return;
     }
     const wasAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 40;
-    el.innerHTML = msgs.map((m, i) => {
+    const _olderBtn = (msgs.length >= _msgLimit)
+      ? '<div style="text-align:center;padding:10px;"><button onclick="loadOlderMsgs()" style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text2);border-radius:9px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;">⬆️ Ältere Nachrichten laden</button></div>'
+      : '';
+    el.innerHTML = _olderBtn + msgs.map((m, i) => {
       const dir = m.direction === 'in' ? 'in' : 'out';
       const time = m.timestamp ? parseTs(m.timestamp).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
       const ticks = dir === 'out' ? `<svg width="15" height="10" viewBox="0 0 15 10" style="margin-left:3px;vertical-align:middle;flex-shrink:0" fill="${m.is_read ? '#00d4aa' : 'rgba(255,255,255,0.35)'}"><path d="M0 5l1.4-1.4 3.1 3.1 6.1-6.1 1.4 1.4-7.5 7.5z"/><path d="M4 5l1.4-1.4 3.1 3.1 6.1-6.1 1.4 1.4-7.5 7.5z" opacity="0.7"/></svg>` : '';
