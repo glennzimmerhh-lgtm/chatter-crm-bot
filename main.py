@@ -5468,7 +5468,7 @@ def call_diag(creator_id: int = 1):
         vids += glob.glob(os.path.join(_cd, '**', '*.' + ext), recursive=True)
     files = []
     for v in sorted(set(vids)):
-        if v.endswith('.norm.mp4'):
+        if _is_call_norm(os.path.basename(v)):
             continue
         entry = {'name': os.path.basename(v)}
         try:
@@ -5498,8 +5498,8 @@ def get_call_files(creator_id: int = 1):
         result = []
         try:
             for fname in sorted(os.listdir(directory)):
-                if fname.endswith('.norm.mp4'):
-                    continue   # hide auto-generated orientation-baked copies
+                if _is_call_norm(fname):
+                    continue   # hide auto-generated prepared copies
                 fpath = os.path.join(directory, fname)
                 if os.path.isfile(fpath) and not fname.startswith('.'):
                     ext = fname.rsplit('.',1)[-1].lower() if '.' in fname else ''
@@ -6016,34 +6016,54 @@ def _video_rotation(path: str) -> int:
 
 
 def _call_norm_path(path: str) -> str:
+    # v2 = upright + loudness-normalized. New suffix so older quiet copies are rebuilt.
     base, _ = os.path.splitext(path)
-    return base + '.norm.mp4'
+    return base + '.norm2.mp4'
+
+def _is_call_norm(fname: str) -> bool:
+    return fname.endswith('.norm.mp4') or fname.endswith('.norm2.mp4')
 
 
 def _normalize_call_video(path: str) -> str:
-    """Bake rotation into the pixels so py-tgcalls shows portrait videos upright.
-    ffmpeg auto-rotates on decode by default, so a plain re-encode removes the
-    rotation flag and produces true-portrait frames. Cached as <name>.norm.mp4.
-    Returns the path that should be streamed (norm file, or original if no rotation)."""
+    """Prepare a call video for streaming: (1) bake rotation so portrait stays
+    upright, (2) loudness-normalize the audio so quiet calls are clearly audible.
+    Rotated files get a full re-encode; already-upright files only get their audio
+    boosted (video stream copied → fast). Cached as <name>.norm.mp4."""
     try:
-        if path.endswith('.norm.mp4'):
+        if _is_call_norm(os.path.basename(path)):
             return path
         norm = _call_norm_path(path)
         if (os.path.isfile(norm) and os.path.getsize(norm) > 0
                 and os.path.getmtime(norm) >= os.path.getmtime(path)):
             return norm
-        if _video_rotation(path) not in (90, 270):
-            return path  # already upright — nothing to bake
         import subprocess
-        cmd = ['ffmpeg', '-y', '-i', path,
-               '-vf', "scale='min(1280,iw)':-2",
-               '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-pix_fmt', 'yuv420p',
-               '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', norm]
-        print(f'🔄 Normalizing rotated call video: {os.path.basename(path)}')
+        LOUD = 'loudnorm=I=-14:TP=-1.5:LRA=11'   # streaming-loud, no clipping
+        rotated = _video_rotation(path) in (90, 270)
+        if rotated:
+            # Cap long side to 1280 (→ 720x1280 portrait); autorotate bakes rotation.
+            vf = ("scale='if(gte(iw,ih),min(1280,iw),-2)':'if(gte(iw,ih),-2,min(1280,ih))',"
+                  "scale=trunc(iw/2)*2:trunc(ih/2)*2")
+            cmd = ['ffmpeg', '-y', '-i', path, '-vf', vf, '-af', LOUD,
+                   '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '25', '-pix_fmt', 'yuv420p',
+                   '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', norm]
+        else:
+            # Already upright: keep video as-is, just make the audio louder (fast).
+            cmd = ['ffmpeg', '-y', '-i', path, '-c:v', 'copy', '-af', LOUD,
+                   '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', norm]
+        print(f'🔄 Normalizing call video ({"rotated+louder" if rotated else "louder"}): {os.path.basename(path)}')
         subprocess.run(cmd, capture_output=True, timeout=1800)
         if os.path.isfile(norm) and os.path.getsize(norm) > 0:
-            print(f'✅ Normalized (upright): {os.path.basename(norm)}')
+            print(f'✅ Normalized: {os.path.basename(norm)}')
             return norm
+        # Fallback for the copy path (e.g. non-h264 video): full re-encode
+        if not rotated:
+            cmd2 = ['ffmpeg', '-y', '-i', path, '-af', LOUD,
+                    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '25', '-pix_fmt', 'yuv420p',
+                    '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', norm]
+            subprocess.run(cmd2, capture_output=True, timeout=1800)
+            if os.path.isfile(norm) and os.path.getsize(norm) > 0:
+                print(f'✅ Normalized (re-encode): {os.path.basename(norm)}')
+                return norm
         print(f'⚠️ Normalize produced no file for {os.path.basename(path)}')
         return path
     except Exception as e:
@@ -6070,7 +6090,7 @@ def _normalize_all_call_videos():
             for ext in ('mp4', 'mov', 'mkv', 'm4v'):
                 vids += glob.glob(os.path.join(d, '**', '*.' + ext), recursive=True)
         for v in vids:
-            if v.endswith('.norm.mp4'):
+            if _is_call_norm(os.path.basename(v)):
                 continue
             try:
                 _normalize_call_video(v)
@@ -6167,18 +6187,18 @@ async def start_fake_call(body: CallStartIn):
         if not resolved:
             raise HTTPException(400, f'Cannot resolve Telegram user {peer}. The userbot may not have chatted with this user yet.')
 
-    # Portrait fix: use the orientation-baked copy if it exists; otherwise, for a
-    # rotated file, bake it in the background so the next call is upright.
-    if fpath:
+    # Use the prepared copy (upright + louder audio) if ready; otherwise prepare it
+    # in the background so the next call is correct.
+    if fpath and fpath.rsplit('.', 1)[-1].lower() in ('mp4', 'mov', 'mkv', 'm4v'):
         _np = _call_norm_path(fpath)
         if os.path.isfile(_np) and os.path.getmtime(_np) >= os.path.getmtime(fpath):
             fpath = _np
-            print(f'🎬 Using orientation-baked call file: {os.path.basename(_np)}')
-        elif _video_rotation(fpath) in (90, 270):
+            print(f'🎬 Using prepared call file (upright + louder): {os.path.basename(_np)}')
+        else:
             try:
                 import threading
                 threading.Thread(target=_normalize_call_video, args=(fpath,), daemon=True).start()
-                print('🔄 Rotated call file — baking in background (next call will be upright)')
+                print('🔄 Preparing call file in background (next call will be upright + louder)')
             except Exception:
                 pass
 
