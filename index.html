@@ -303,7 +303,7 @@
 
   .chat-layout {
     display: grid;
-    grid-template-columns: 300px 1fr 270px;
+    grid-template-columns: auto 300px 1fr 270px;
     gap: 0;
     height: calc(100vh - 128px);
     min-height: 500px;
@@ -786,7 +786,7 @@
   .chat-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #33334a; font-size: 13px; }
 
   @media (max-width: 900px) {
-    .chat-layout { grid-template-columns: 260px 1fr; }
+    .chat-layout { grid-template-columns: auto 260px 1fr; }
     .profile-panel { display: none; }
   }
   @media (max-width: 600px) {
@@ -795,7 +795,7 @@
     .msg-area { height: calc(100vh - 420px); min-height: 280px; }
   }
   @media (max-width: 900px) {
-    .chat-layout { grid-template-columns: 240px 1fr; }
+    .chat-layout { grid-template-columns: auto 240px 1fr; }
     .profile-panel { display: none; }
   }
   @media (max-width: 600px) {
@@ -2255,6 +2255,28 @@
       #page-chat .scripts-btn{ border-radius:10px; }
       /* "N Chats brauchen dich" banner + online mini → brand */
       #page-chat .conv-list{ background:transparent; }
+
+      /* ── Creator rail (CreatorHero-style model switcher) ──────────── */
+      #page-chat .creator-rail{ display:flex; flex-direction:column; align-items:center; gap:12px;
+        width:72px; flex-shrink:0; padding:14px 0; background:rgba(255,255,255,.02);
+        border-right:1px solid var(--border); overflow-y:auto; }
+      #page-chat .creator-rail.empty{ width:0; padding:0; border:none; overflow:hidden; }
+      #page-chat .creator-rail::-webkit-scrollbar{ width:0; }
+      #page-chat .cr-item{ position:relative; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; width:100%; }
+      #page-chat .cr-av{ width:46px; height:46px; border-radius:50%; object-fit:cover; display:flex; align-items:center; justify-content:center;
+        font-weight:800; font-size:17px; color:#04120e; background:linear-gradient(135deg,#00d4aa,#7c5cff);
+        border:2px solid transparent; transition:.15s; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+      #page-chat .cr-item:hover .cr-av{ transform:scale(1.06); }
+      #page-chat .cr-item.active .cr-av{ border-color:var(--cx-teal,#00d4aa); box-shadow:0 0 0 3px rgba(0,212,170,.25); }
+      #page-chat .cr-name{ font-size:9.5px; color:var(--text3); max-width:66px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; }
+      #page-chat .cr-item.active .cr-name{ color:var(--cx-teal,#00d4aa); font-weight:700; }
+      #page-chat .cr-dot{ position:absolute; right:10px; top:36px; width:11px; height:11px; border-radius:50%; border:2px solid var(--bg2,#0e1420); }
+      #page-chat .cr-badge{ position:absolute; right:6px; top:-3px; min-width:17px; height:17px; padding:0 4px; border-radius:9px;
+        background:#ef4444; color:#fff; font-size:10px; font-weight:800; line-height:17px; text-align:center; border:2px solid var(--bg2,#0e1420); }
+      @media(max-width:768px){
+        #page-chat .creator-rail{ width:100%; flex-direction:row; border-right:none; border-bottom:1px solid var(--border); padding:8px; gap:10px; }
+        #page-chat .cr-name{ display:none; }
+      }
     </style>
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -2283,6 +2305,8 @@
     </div>
 
     <div class="chat-layout">
+      <!-- Creator rail: model avatars, click to switch model + load its chats -->
+      <div class="creator-rail" id="creator-rail"></div>
       <!-- Conversation list -->
       <div class="conv-list">
         <!-- Online Now Panel -->
@@ -9763,6 +9787,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window._creators = _creators;
     // Load this model's payment texts (Marie = creator 1 keeps built-in defaults)
     if (window.loadCreatorPaytexts) window.loadCreatorPaytexts();
+    renderCreatorRail();
     if (!_creators.length) { host.style.display='none'; return; }
     host.style.display = 'block';
     menu.innerHTML = _creators.map(c => {
@@ -9789,6 +9814,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('') + `<div onclick="addCreatorPrompt()" style="padding:9px 10px;border-top:1px solid var(--border,#2b2f3a);margin-top:4px;color:var(--teal,#00d4aa);font-weight:700;cursor:pointer;">＋ Creator hinzufügen</div>`;
     _renderName();
   };
+  // CreatorHero-style left model rail on the chat page
+  window.renderCreatorRail = function(){
+    const rail = document.getElementById('creator-rail');
+    if (!rail) return;
+    const list = window._creators || [];
+    // Keep the element in the grid (collapse to 0) with ≤1 model so layout stays intact
+    if (list.length <= 1) { rail.classList.add('empty'); rail.innerHTML = ''; return; }
+    rail.classList.remove('empty');
+    const cur = window.activeCreatorId || 1;
+    rail.innerHTML = list.map(c => {
+      const active = c.id === cur;
+      const letter = (c.name || '?').trim().charAt(0).toUpperCase();
+      const av = c.avatar_url
+        ? `<img class="cr-av" src="${c.avatar_url}" alt="${(c.name||'').replace(/"/g,'&quot;')}">`
+        : `<div class="cr-av">${letter}</div>`;
+      const dotColor = c.connected ? '#22c55e' : (c.has_session ? '#f59e0b' : '#8a8a99');
+      const open = c.open_chats || 0;
+      const badge = (!active && open > 0)
+        ? `<span class="cr-badge">${open > 99 ? '99+' : open}</span>` : '';
+      const nm = (c.name || ('Model ' + c.id)).replace(/</g,'&lt;');
+      return `<div class="cr-item ${active ? 'active' : ''}" onclick="setActiveCreator(${c.id})" title="${nm}">
+        <div style="position:relative;">${av}<span class="cr-dot" style="background:${dotColor};"></span>${badge}</div>
+        <span class="cr-name">${nm}</span>
+      </div>`;
+    }).join('');
+  };
+
   window.renameCreator = async function(id, currentName){
     const name = prompt('Neuer Name für dieses Model:', currentName || '');
     if (name === null) return;
