@@ -1071,6 +1071,7 @@ async def start_userbot():
             _tg_client_ready = True
             _creator_clients[1] = tg_client   # Marie = creator 1 in the registry
             print('✅ Userbot verbunden!')
+            asyncio.create_task(_update_creator_avatar(1, tg_client))
             retry_delay = 5  # reset on success
 
             # ── Re-init pytgcalls on every connect cycle ──────────────────────
@@ -1173,6 +1174,7 @@ async def _run_creator_userbot(cid: int, session_str: str):
             await client.start()
             _creator_clients[cid] = client
             print(f'✅ Creator-{cid} Userbot verbunden!')
+            asyncio.create_task(_update_creator_avatar(cid, client))
             # Own PyTgCalls instance so this creator can run calls in parallel to Marie
             asyncio.create_task(_reinit_calls(client, cid))
             delay = 5
@@ -2342,21 +2344,39 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # ── CONVERSATIONS ─────────────────────────────────────────────────────────────
 @app.get('/conversations')
-def get_conversations(creator_id: Optional[int] = None, slim: int = 0):
+def get_conversations(creator_id: Optional[int] = None, slim: int = 0,
+                      limit: Optional[int] = None, q: Optional[str] = None):
     # slim=1 → tiny projection for the dashboard (new-subs/conversion counting).
-    # Avoids shipping thousands of full rows to mobile clients on every load.
+    # limit → only the N most-recent conversations (fast chat-list load).
+    # q → search across ALL conversations (name / username / id), so older chats
+    #     remain findable even when the list is limited.
     if slim:
         cols = 'SELECT tg_id,anon_id,first_time,creator_id FROM conversations'
     else:
         cols = ('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,'
                 'time_waster,is_muted,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,'
                 'call_followup_note,is_online,last_seen,creator_id FROM conversations')
+    where, params = [], []
+    if creator_id is not None:
+        where.append('creator_id=%s'); params.append(creator_id)
+    qs = (q or '').strip()
+    if qs:
+        where.append('(anon_id ILIKE %s OR COALESCE(internal_name,\'\') ILIKE %s '
+                     'OR COALESCE(tg_username,\'\') ILIKE %s OR CAST(tg_id AS TEXT) ILIKE %s)')
+        like = f'%{qs}%'
+        params += [like, like, like, like]
+    sql = cols + (' WHERE ' + ' AND '.join(where) if where else '') + ' ORDER BY last_time DESC NULLS LAST'
+    try:
+        lim = int(limit) if limit else 0
+    except Exception:
+        lim = 0
+    if qs and not lim:
+        lim = 100   # cap search results
+    if lim > 0:
+        sql += ' LIMIT %s'; params.append(lim)
     with db() as conn:
         with conn.cursor() as c:
-            if creator_id is not None:
-                c.execute(cols + ' WHERE creator_id=%s ORDER BY last_time DESC NULLS LAST', (creator_id,))
-            else:
-                c.execute(cols + ' ORDER BY last_time DESC NULLS LAST')
+            c.execute(sql, tuple(params))
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
@@ -5182,6 +5202,34 @@ def remove_from_list(list_id: int, tg_id: str):
     return {'ok': True}
 
 # ── CREATORS (multi-creator support) ──────────────────────────────────────────
+def _creator_avatar_dir() -> str:
+    d = os.path.join(VAULT_DIR, '_creator_avatars')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+async def _update_creator_avatar(cid: int, client):
+    """Download the model account's Telegram profile photo and set it as the
+    creator avatar (shown in the model rail / switcher)."""
+    try:
+        path = os.path.join(_creator_avatar_dir(), f'{cid}.jpg')
+        res = await client.download_profile_photo('me', file=path)
+        if res and os.path.isfile(path) and os.path.getsize(path) > 0:
+            url = f'/api/creator-avatar/{cid}'
+            with db() as conn, conn.cursor() as c:
+                c.execute('UPDATE creators SET avatar_url=%s WHERE id=%s', (url, cid))
+            print(f'✅ Creator {cid} Telegram-Avatar aktualisiert')
+        else:
+            print(f'ℹ️ Creator {cid} hat kein Profilbild')
+    except Exception as e:
+        print(f'creator avatar error ({cid}): {e}')
+
+@app.get('/creator-avatar/{cid}')
+def get_creator_avatar(cid: int):
+    path = os.path.join(_creator_avatar_dir(), f'{cid}.jpg')
+    if not os.path.isfile(path):
+        raise HTTPException(404, 'no avatar')
+    return FileResponse(path, media_type='image/jpeg')
+
 @app.get('/creators')
 def list_creators():
     """All creators with their live sub + revenue counts, for the switcher + overview."""

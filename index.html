@@ -4572,6 +4572,15 @@ if (checkAuth()) {
   loadData();
   setInterval(loadData, 60000);
 
+  // After a model switch we reload the page — return to where the chatter was (e.g. Chat)
+  try {
+    const _rp = localStorage.getItem('crm_return_page');
+    if (_rp) {
+      localStorage.removeItem('crm_return_page');
+      if (_rp !== 'dashboard') setTimeout(() => { try { showPage(_rp); } catch(e){} }, 60);
+    }
+  } catch(e) {}
+
   // ── CHAT ─────────────────────────────────────────────────
   let currentChatTgId = null;
   window._getCurrentTgId = () => currentChatTgId;
@@ -4657,7 +4666,9 @@ if (checkAuth()) {
 
   window._refreshConvs = async function refreshConvs() {
     const _cid = window.activeCreatorId || 1;
-    const data = await chatApiGet('/conversations?creator_id=' + _cid);
+    // Load only the 100 most-recent conversations → fast switching. Older chats
+    // are still reachable via search (searches the backend across all).
+    const data = await chatApiGet('/conversations?creator_id=' + _cid + '&limit=100');
     if (!data) return;
     allConvs = data;
     renderConvList(applyConvFilters(data));
@@ -4697,8 +4708,18 @@ if (checkAuth()) {
     return filtered;
   }
 
+  let _convSearchTimer = null;
   window.filterConvs = function filterConvs(q) {
-    renderConvList(applyConvFilters(allConvs));
+    const query = (document.getElementById('conv-search-input')?.value || '').trim();
+    // Short/empty query → filter the loaded recent chats instantly.
+    if (query.length < 2) { renderConvList(applyConvFilters(allConvs)); return; }
+    // Longer query → search the backend across ALL chats (older ones too).
+    clearTimeout(_convSearchTimer);
+    _convSearchTimer = setTimeout(async () => {
+      const _cid = window.activeCreatorId || 1;
+      const res = await chatApiGet('/conversations?creator_id=' + _cid + '&q=' + encodeURIComponent(query));
+      if (res) renderConvList(applyConvFilters(res));
+    }, 250);
   }
 
 
@@ -9772,11 +9793,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const b = host.querySelector('#creator-switch-otherbadge');
     if (b) { if (otherOpen > 0) { b.textContent = otherOpen > 99 ? '99+' : otherOpen; b.style.display = 'block'; } else { b.style.display = 'none'; } }
   }
+  function _currentVisiblePage(){
+    const pages = ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges'];
+    for (const p of pages){ const el = document.getElementById('page-'+p); if (el && el.style.display !== 'none') return p; }
+    return 'dashboard';
+  }
   window.setActiveCreator = function(id){
     window.activeCreatorId = id;
     localStorage.setItem('crm_active_creator', String(id));
+    // Remember which page we're on so the reload returns here (e.g. stay on Chat)
+    try { localStorage.setItem('crm_return_page', _currentVisiblePage()); } catch(e){}
     _renderName(); menu.style.display = 'none';
-    // Stage 2 will re-scope data; for now reload so all views pick up the choice.
     location.reload();
   };
   window.loadCreators = async function(){
