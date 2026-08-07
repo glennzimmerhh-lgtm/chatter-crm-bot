@@ -528,6 +528,7 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_messages_tg_ts ON messages(tg_id, timestamp)",
                 "CREATE INDEX IF NOT EXISTS idx_messages_creator ON messages(creator_id)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_creator ON conversations(creator_id)",
+                "CREATE INDEX IF NOT EXISTS idx_conv_creator_time ON conversations(creator_id, last_time DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_online ON conversations(is_online)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_tg_id ON sales(tg_id)",
 

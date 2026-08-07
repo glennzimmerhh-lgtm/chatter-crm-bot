@@ -4584,6 +4584,15 @@ if (checkAuth()) {
   // ── CHAT ─────────────────────────────────────────────────
   let currentChatTgId = null;
   window._getCurrentTgId = () => currentChatTgId;
+  // Reset the open conversation (used on in-place model switch)
+  window._resetChatView = function(){
+    currentChatTgId = null;
+    const nm = document.getElementById('msg-conv-name'); if (nm) nm.textContent = 'Select conversation';
+    const st = document.getElementById('msg-conv-status'); if (st) st.textContent = '';
+    const ml = document.getElementById('msg-list'); if (ml) ml.innerHTML = '';
+    const pp = document.getElementById('profile-panel');
+    if (pp) pp.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:13px;padding:20px;text-align:center;">← Select conversation<br>to view profile</div>';
+  };
   let allConvs = [];
   let chatMsgInterval = null;
   let currentPaymentRef = '';
@@ -7143,6 +7152,7 @@ async function refreshOnlinePanel() {
   } catch(e) {}
 }
 // Poll online status every 15 seconds
+window.refreshOnlinePanel = refreshOnlinePanel;
 setInterval(refreshOnlinePanel, 15000);
 refreshOnlinePanel();
 
@@ -9799,12 +9809,21 @@ document.addEventListener('DOMContentLoaded', () => {
     return 'dashboard';
   }
   window.setActiveCreator = function(id){
+    if (id === (window.activeCreatorId || 1)) { menu.style.display = 'none'; return; }
     window.activeCreatorId = id;
     localStorage.setItem('crm_active_creator', String(id));
-    // Remember which page we're on so the reload returns here (e.g. stay on Chat)
-    try { localStorage.setItem('crm_return_page', _currentVisiblePage()); } catch(e){}
     _renderName(); menu.style.display = 'none';
-    location.reload();
+    renderCreatorRail();
+    // In-place re-scope of the chat/creator views — NO full page reload (instant)
+    try { if (window._resetChatView) window._resetChatView(); } catch(e){}
+    try { const s = document.getElementById('conv-search-input'); if (s) s.value = ''; } catch(e){}
+    try { if (window.loadCreatorPaytexts) window.loadCreatorPaytexts(); } catch(e){}
+    try { if (window._refreshConvs) window._refreshConvs(); } catch(e){}
+    try { if (window.refreshOnlinePanel) window.refreshOnlinePanel(); } catch(e){}
+    try { if (window.loadRadar) window.loadRadar(); } catch(e){}
+    try { if (window.loadAiq) window.loadAiq(); } catch(e){}
+    try { if (window.loadWinback) window.loadWinback(); } catch(e){}
+    try { if (window._refreshChatStatus) window._refreshChatStatus(); } catch(e){}
   };
   window.loadCreators = async function(){
     try {
