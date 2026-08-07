@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chatter CRM – Login</title>
+<title>ZF CRM – Login</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root {
@@ -933,7 +933,7 @@
 <!-- LOGIN SCREEN -->
 <div class="login-screen" id="login-screen">
   <div class="login-box">
-    <div class="login-logo">Chatter CRM</div>
+    <div class="login-logo">ZF CRM</div>
     <div class="login-sub">Please log in to continue</div>
     <div class="login-field">
       <label>Username</label>
@@ -951,7 +951,7 @@
 <!-- LOADING SCREEN -->
 <div class="loading-screen" id="loading-screen" style="display:none;">
   <div class="loading-logo-wrap">
-    <div class="loading-logo-text">Chatter CRM</div>
+    <div class="loading-logo-text">ZF CRM</div>
     <div class="loading-logo-sub">Loading your dashboard...</div>
   </div>
   <div>
@@ -969,7 +969,7 @@
 <aside class="sidebar" id="sidebar">
   <div class="logo" style="display:flex;align-items:center;justify-content:space-between;">
     <div>
-      <div class="logo-text">Chatter CRM</div>
+      <div class="logo-text">ZF CRM</div>
       <div class="logo-sub">Telegram Sales Tracker</div>
     </div>
     <button class="hamburger" onclick="closeSidebar()">
@@ -2961,7 +2961,7 @@ function doLogout() {
   document.getElementById('login-pw').value = '';
   document.querySelector('.sidebar').style.display = 'none';
   document.querySelector('.main').style.display = 'none';
-  document.title = 'Chatter CRM – Login';
+  document.title = 'ZF CRM – Login';
 }
 
 function showApp(user) {
@@ -2970,7 +2970,7 @@ function showApp(user) {
   document.querySelector('.main').style.display = 'block';
   document.getElementById('user-name-display').textContent = user;
   document.getElementById('user-avatar').textContent = user[0].toUpperCase();
-  document.title = 'Chatter CRM';
+  document.title = 'ZF CRM';
   // Check backend status immediately on login
   _checkBackend();
 
@@ -3685,8 +3685,8 @@ function renderDashboard() {
   if (window.loadWinback) window.loadWinback();
   const p = currentPeriod;
   const tod = today();
-  const periodLabels = { heute: 'Today', gestern: 'Yesterday', woche: 'This Week', monat: 'This Month' };
-  const label = periodLabels[p];
+  const periodLabels = { heute: 'Today', gestern: 'Yesterday', woche: 'This Week', monat: 'This Month', range: 'Zeitraum' };
+  const label = periodLabels[p] || 'Zeitraum';
 
   const filteredSales  = filterByPeriod(salesData,  'Datum', p);
   const filteredShifts = filterByPeriod(shiftsData, 'Datum', p);
