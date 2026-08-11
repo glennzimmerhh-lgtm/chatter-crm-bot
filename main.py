@@ -807,8 +807,14 @@ async def _reinit_calls(client, creator_id: int = 1):
         await new_client.start()
 
         @new_client.on_update()
-        async def _on_call_update(update):
+        async def _on_call_update(*_args):
+            # py-tgcalls changed the handler signature across versions: older versions
+            # call (update), newer ones call (client, update). Accept both — the update
+            # object is always the LAST positional argument.
+            update = _args[-1] if _args else None
             try:
+                if update is None:
+                    return
                 update_type = type(update).__name__
                 chat_id_raw = getattr(update, 'chat_id', None)
                 print(f'📡 pytgcalls update (creator {creator_id}): {update_type} chat_id={chat_id_raw}')
