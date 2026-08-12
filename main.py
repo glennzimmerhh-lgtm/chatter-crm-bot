@@ -6291,7 +6291,10 @@ async def start_fake_call(body: CallStartIn):
                 dims = _video_display_dims(fpath) if fpath else None
                 if dims:
                     try:
-                        from pytgcalls.types import VideoParameters
+                        try:
+                            from pytgcalls.types.raw import VideoParameters   # py-tgcalls 2.x
+                        except Exception:
+                            from pytgcalls.types import VideoParameters       # older layout
                         vw, vh, vfps = dims
                         longest = max(vw, vh) or 1
                         scale = min(1.0, 1280.0 / longest)   # cap long side at 1280
