@@ -949,7 +949,9 @@ async def start_userbot():
                     """Fires when subscriber hangs up or a call is discarded."""
                     try:
                         if isinstance(update.phone_call, _PhoneCallDiscarded):
-                            print(f'📵 Telethon: PhoneCallDiscarded — ending creator-1 active calls')
+                            _rsn = type(getattr(update.phone_call, 'reason', None)).__name__
+                            _dur = getattr(update.phone_call, 'duration', None)
+                            print(f'📵 Telethon: PhoneCallDiscarded (reason={_rsn}, duration={_dur}s) — ending creator-1 active calls')
                             # This event fires on Marie's (creator 1) account only, so
                             # end ONLY creator-1 calls — other models keep running.
                             ended = [k for k in list(active_calls.keys()) if _creator_id_for_tg(k) == 1]
