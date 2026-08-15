@@ -784,34 +784,20 @@ tg_client: Optional[TelegramClient] = None
 _tg_client_ready = False   # True only when client is started and connected
 _userbot_running = False
 
-async def _reinit_calls(client, creator_id: int = 1):
-    """(Re-)initialize PyTgCalls bound to the given Telethon client for a creator.
-    Each creator has its own PyTgCalls instance so calls can run in parallel
-    (one per Telegram account). Creator 1 also updates the global calls_client
-    for backward compatibility."""
-    global calls_client
-    await asyncio.sleep(3)   # let Telethon fully settle
+async def _make_calls_client(client, creator_id: int = 1):
+    """Create + start a fresh PyTgCalls bound to `client`, WITH the call-end handler
+    registered. Returns the started client (or None on failure). Used by both the
+    startup reinit and the per-call fresh-client rebuild."""
     if not _PYTGCALLS_OK or not client:
-        return
-    # Stop old instance for this creator cleanly
-    old = _creator_calls_clients.get(creator_id)
-    if old:
-        try:
-            await old.stop()
-        except Exception:
-            pass
-        _creator_calls_clients.pop(creator_id, None)
-    if creator_id == 1:
-        calls_client = None
+        return None
     try:
         new_client = PyTgCalls(client)
         await new_client.start()
 
         @new_client.on_update()
         async def _on_call_update(*_args):
-            # py-tgcalls changed the handler signature across versions: older versions
-            # call (update), newer ones call (client, update). Accept both — the update
-            # object is always the LAST positional argument.
+            # py-tgcalls changed the handler signature across versions: older ones call
+            # (update), newer ones (client, update). The update is always the LAST arg.
             update = _args[-1] if _args else None
             try:
                 if update is None:
@@ -821,9 +807,8 @@ async def _reinit_calls(client, creator_id: int = 1):
                 if chat_id_raw is None:
                     return
                 tg_id_str = _conv_key(chat_id_raw, creator_id)
-                # Detect "call ended" — py-tgcalls 2.3.x delivers this as a ChatUpdate
-                # whose .status is one of the end flags (DISCARDED_CALL, LEFT_CALL, …).
-                # Older versions used dedicated *Ended type names.
+                # "Call ended" — py-tgcalls 2.3.x delivers a ChatUpdate whose .status is
+                # an end flag (DISCARDED_CALL, LEFT_CALL, …); older versions used *Ended.
                 _sname = str(getattr(update, 'status', '') or '')
                 _END = ('DISCARDED_CALL', 'KICKED', 'LEFT_CALL', 'BUSY_CALL', 'CLOSED_VOICE_CHAT', 'LEFT_GROUP')
                 _ut = update_type.lower()
@@ -831,8 +816,7 @@ async def _reinit_calls(client, creator_id: int = 1):
                           or update_type in {'StreamAudioEnded', 'StreamVideoEnded', 'StreamEnded'}
                           or any(s in _sname for s in _END))
                 if not is_end:
-                    return   # ignore the constant stream/connection status updates (no log spam)
-                # Leave the ntgcalls call ONCE to stop the endless reconnect loop.
+                    return   # ignore constant stream/connection status updates (no log spam)
                 if chat_id_raw in _left_call_chats:
                     return
                 _left_call_chats.add(chat_id_raw)
@@ -850,12 +834,35 @@ async def _reinit_calls(client, creator_id: int = 1):
             except Exception as e:
                 print(f'⚠️ _on_call_update: {e}')
 
+        return new_client
+    except Exception as e:
+        print(f'⚠️ make_calls_client failed (creator {creator_id}): {e}')
+        return None
+
+
+async def _reinit_calls(client, creator_id: int = 1):
+    """(Re-)initialize PyTgCalls bound to the given Telethon client for a creator.
+    Each creator has its own PyTgCalls instance so calls can run in parallel."""
+    global calls_client
+    await asyncio.sleep(3)   # let Telethon fully settle
+    if not _PYTGCALLS_OK or not client:
+        return
+    old = _creator_calls_clients.get(creator_id)
+    if old:
+        try:
+            if hasattr(old, 'stop'):
+                await old.stop()
+        except Exception:
+            pass
+        _creator_calls_clients.pop(creator_id, None)
+    if creator_id == 1:
+        calls_client = None
+    new_client = await _make_calls_client(client, creator_id)
+    if new_client is not None:
         _creator_calls_clients[creator_id] = new_client
         if creator_id == 1:
             calls_client = new_client
         print(f'✅ PyTgCalls (re-)initialized for creator {creator_id}')
-    except Exception as e:
-        print(f'⚠️ PyTgCalls reinit failed (creator {creator_id}): {e}')
 
 
 def _calls_client_for(tg_id) -> Optional[object]:
@@ -5963,15 +5970,16 @@ async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str, cc=N
                     print(f'🔄 DH error attempt {_attempt+1} — reiniting calls client (creator {_cid})')
                     if cl and _PYTGCALLS_OK:
                         try:
-                            if cc:
+                            if cc and hasattr(cc, 'stop'):
                                 try: await cc.stop()
                                 except Exception: pass
-                            cc = PyTgCalls(cl)
-                            await cc.start()
-                            _creator_calls_clients[_cid] = cc
-                            if _cid == 1:
-                                calls_client = cc
-                            print(f'✅ calls client restarted for retry {_attempt+2} (creator {_cid})')
+                            _fresh = await _make_calls_client(cl, _cid)
+                            if _fresh is not None:
+                                cc = _fresh
+                                _creator_calls_clients[_cid] = cc
+                                if _cid == 1:
+                                    calls_client = cc
+                                print(f'✅ calls client restarted for retry {_attempt+2} (creator {_cid})')
                         except Exception as _re:
                             print(f'⚠️ reinit failed: {_re}')
                     await asyncio.sleep(2)
@@ -6179,28 +6187,41 @@ async def start_fake_call(body: CallStartIn):
     # model, cleanly tear down any previous/lingering call on the same account —
     # this is what makes the 2nd, 3rd, … call reliable (py-tgcalls 2.3.x keeps the
     # connection registered until leave_call, and there is no global stop()).
-    _same_creator = [k for k in list(active_calls.keys()) if _creator_id_for_tg(k) == _cid]
-    for _sk in _same_creator:
+    _left_any = False
+    for _sk in [k for k in list(active_calls.keys()) if _creator_id_for_tg(k) == _cid]:
         try:
             if cc and hasattr(cc, 'leave_call'):
                 await asyncio.wait_for(cc.leave_call(int(_real_tg_id(_sk))), timeout=6)
+                _left_any = True
         except Exception as _le:
             print(f'pre-call cleanup leave_call({_sk}): {_le}')
         active_calls.pop(_sk, None)
         asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': _sk}))
-    # Also proactively drop ANY stray call still registered on this creator's client.
-    # In py-tgcalls 2.3.x `calls` is an async property returning {chat_id: Call}.
+    # Also proactively drop ANY stray call still registered on this creator's client
+    # (py-tgcalls 2.3.x keeps it in `calls` until leave_call; a lingering one blocks
+    # every following call — this is the "only the first call works" bug).
     try:
         _active_map = await cc.calls
         for _cid_active in list(_active_map.keys()):
             try:
                 await asyncio.wait_for(cc.leave_call(_cid_active), timeout=6)
+                _left_any = True
             except Exception:
                 pass
+            _left_call_chats.discard(_cid_active)
     except Exception:
         pass
-    if _same_creator:
-        await asyncio.sleep(0.8)   # let ntgcalls fully release before the new call
+    # If the previous call left the client dirty, rebuild it fresh (WITH the update
+    # handler) — the most reliable way to guarantee the 2nd, 3rd, … call connects.
+    if _left_any and _cl:
+        _fresh = await _make_calls_client(_cl, _cid)
+        if _fresh is not None:
+            _creator_calls_clients[_cid] = _fresh
+            if _cid == 1:
+                calls_client = _fresh
+            cc = _fresh
+            print(f'🔄 Fresh calls client after previous call (creator {_cid})')
+        await asyncio.sleep(1.0)   # let ntgcalls settle before the new call
 
 
     # ── Resolve file path OR direct/Drive URL ─────────────────────────────────
