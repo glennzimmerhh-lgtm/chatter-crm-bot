@@ -69,6 +69,7 @@ except Exception as _e:
 calls_client: Optional[object] = None            # creator 1 (Marie) — backward compat
 _creator_calls_clients: dict = {}                # creator_id -> PyTgCalls (one call per creator)
 active_calls: dict = {}   # conv_key → {file, chatter, started_at}  (key encodes creator, e.g. "2:realid")
+_left_call_chats: set = set()   # raw chat_ids we've already left (dedupe leave_call in the reconnect loop)
 _tg_priority: int = 0    # >0 = broadcast pauses (reply/call in progress)
 
 import sqlite3 as _sqlite3
@@ -817,41 +818,35 @@ async def _reinit_calls(client, creator_id: int = 1):
                     return
                 update_type = type(update).__name__
                 chat_id_raw = getattr(update, 'chat_id', None)
-                print(f'📡 pytgcalls update (creator {creator_id}): {update_type} chat_id={chat_id_raw}')
-                # Map the raw telegram id back to the conversation key for this creator
-                tg_id_str = _conv_key(chat_id_raw, creator_id) if chat_id_raw is not None else ''
-                if not tg_id_str or tg_id_str not in active_calls:
+                if chat_id_raw is None:
                     return
-                update_str = update_type.lower()
-                STREAM_END_TYPES = {
-                    'StreamAudioEnded', 'StreamVideoEnded', 'StreamEnded',
-                    'AudioStreamEnded', 'VideoStreamEnded',
-                }
-                is_stream_end = update_type in STREAM_END_TYPES or 'ended' in update_str or 'finish' in update_str
+                tg_id_str = _conv_key(chat_id_raw, creator_id)
+                # Detect "call ended" — py-tgcalls 2.3.x delivers this as a ChatUpdate
+                # whose .status is one of the end flags (DISCARDED_CALL, LEFT_CALL, …).
+                # Older versions used dedicated *Ended type names.
+                _sname = str(getattr(update, 'status', '') or '')
+                _END = ('DISCARDED_CALL', 'KICKED', 'LEFT_CALL', 'BUSY_CALL', 'CLOSED_VOICE_CHAT', 'LEFT_GROUP')
+                _ut = update_type.lower()
+                is_end = ('ended' in _ut or 'finish' in _ut
+                          or update_type in {'StreamAudioEnded', 'StreamVideoEnded', 'StreamEnded'}
+                          or any(s in _sname for s in _END))
+                if not is_end:
+                    return   # ignore the constant stream/connection status updates (no log spam)
+                # Leave the ntgcalls call ONCE to stop the endless reconnect loop.
+                if chat_id_raw in _left_call_chats:
+                    return
+                _left_call_chats.add(chat_id_raw)
+                print(f'📵 Call ended (creator {creator_id}) chat={chat_id_raw} [{_sname or update_type}] — leaving to stop reconnect')
                 try:
-                    from pytgcalls.types import StreamEnded as _SE
-                    if isinstance(update, _SE):
-                        is_stream_end = True
-                except ImportError:
-                    pass
-                if is_stream_end:
-                    print(f'🔔 Stream ended for {tg_id_str} — hanging up')
-                    _peer_id = int(_real_tg_id(tg_id_str))
-                    try:
-                        if hasattr(new_client, 'leave_call'):
-                            await new_client.leave_call(_peer_id)
-                        elif hasattr(new_client, 'leave'):
-                            await new_client.leave(_peer_id)
-                    except Exception as _e:
-                        print(f'⚠️ leave_call: {_e}')
+                    if hasattr(new_client, 'leave_call'):
+                        await new_client.leave_call(int(_real_tg_id(tg_id_str)))
+                except Exception as _e:
+                    print(f'⚠️ leave_call: {_e}')
+                if tg_id_str in active_calls:
+                    _folder = (active_calls.get(tg_id_str) or {}).get('folder', '')
                     active_calls.pop(tg_id_str, None)
                     asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
-                    return
-                CALL_END_TYPES = {'CallEnded', 'KickedFromGroupCallParticipant', 'ClosedVoiceChat', 'GroupCallEnded'}
-                if update_type in CALL_END_TYPES or 'ended' in update_str:
-                    print(f'📵 Call ended by subscriber {tg_id_str}')
-                    active_calls.pop(tg_id_str, None)
-                    asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': tg_id_str}))
+                    asyncio.create_task(_ai_post_call_followup(tg_id_str, _folder))
             except Exception as e:
                 print(f'⚠️ _on_call_update: {e}')
 
@@ -6180,12 +6175,32 @@ async def start_fake_call(body: CallStartIn):
     if not cc:
         raise HTTPException(503, 'Calls client not ready yet for this model (wait a few seconds after startup).')
     # Telegram supports ONE active call PER ACCOUNT. With multiple creators (each its
-    # own account) calls can run in parallel — so only block calls for the SAME creator.
-    if body.tg_id in active_calls:
-        raise HTTPException(409, 'Ein Call mit diesem Subscriber läuft bereits.')
-    _same_creator = [k for k in active_calls if _creator_id_for_tg(k) == _cid and k != body.tg_id]
+    # own account) calls can run in parallel. Before starting a new call for THIS
+    # model, cleanly tear down any previous/lingering call on the same account —
+    # this is what makes the 2nd, 3rd, … call reliable (py-tgcalls 2.3.x keeps the
+    # connection registered until leave_call, and there is no global stop()).
+    _same_creator = [k for k in list(active_calls.keys()) if _creator_id_for_tg(k) == _cid]
+    for _sk in _same_creator:
+        try:
+            if cc and hasattr(cc, 'leave_call'):
+                await asyncio.wait_for(cc.leave_call(int(_real_tg_id(_sk))), timeout=6)
+        except Exception as _le:
+            print(f'pre-call cleanup leave_call({_sk}): {_le}')
+        active_calls.pop(_sk, None)
+        asyncio.create_task(ws_manager.broadcast({'type': 'call_ended', 'tg_id': _sk}))
+    # Also proactively drop ANY stray call still registered on this creator's client.
+    # In py-tgcalls 2.3.x `calls` is an async property returning {chat_id: Call}.
+    try:
+        _active_map = await cc.calls
+        for _cid_active in list(_active_map.keys()):
+            try:
+                await asyncio.wait_for(cc.leave_call(_cid_active), timeout=6)
+            except Exception:
+                pass
+    except Exception:
+        pass
     if _same_creator:
-        raise HTTPException(409, f'Bei diesem Model läuft bereits ein anderer Call (Subscriber {_real_tg_id(_same_creator[0])}). Bitte erst diesen Call beenden. (Calls anderer Models laufen weiter parallel.)')
+        await asyncio.sleep(0.8)   # let ntgcalls fully release before the new call
 
 
     # ── Resolve file path OR direct/Drive URL ─────────────────────────────────
@@ -6323,6 +6338,7 @@ async def start_fake_call(body: CallStartIn):
         raise HTTPException(500, f'Stream build error: {e}')
 
     # ── Register call immediately so duplicate-call check works ──────────────
+    _left_call_chats.discard(peer)   # allow this chat's next end-event to be handled again
     now_ts = datetime.now().isoformat()
     active_calls[body.tg_id] = {
         'file': label,
