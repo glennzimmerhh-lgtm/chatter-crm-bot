@@ -5811,6 +5811,49 @@ def serve_call_file(filename: str, folder: str = '', creator_id: int = 1):
         raise HTTPException(404, 'Not found')
     return FileResponse(fpath)
 
+class CallMoveIn(BaseModel):
+    filename: str
+    from_folder: str = ''   # '' = root, 'fake_checks', 'paid_calls'
+    to_folder: str = ''
+    creator_id: int = 1
+
+@app.post('/call/move')
+def move_call_file(body: CallMoveIn):
+    """Move a recording between folders ('' = Alle/root, 'fake_checks', 'paid_calls').
+    Also moves the prepared/normalized copy so the call stays instant."""
+    fn = body.filename
+    src_f = body.from_folder or ''
+    dst_f = body.to_folder or ''
+    if '..' in fn or '..' in src_f or '..' in dst_f:
+        raise HTTPException(400, 'Invalid')
+    if src_f and src_f not in CALL_FOLDERS:
+        raise HTTPException(400, f'Invalid source folder. Choose from: {CALL_FOLDERS} or root')
+    if dst_f and dst_f not in CALL_FOLDERS:
+        raise HTTPException(400, f'Invalid target folder. Choose from: {CALL_FOLDERS} or root')
+    if src_f == dst_f:
+        return {'ok': True, 'unchanged': True}
+    _cd = _calls_dir(body.creator_id)
+    src_dir = os.path.join(_cd, src_f) if src_f else _cd
+    dst_dir = os.path.join(_cd, dst_f) if dst_f else _cd
+    os.makedirs(dst_dir, exist_ok=True)
+    src = os.path.join(src_dir, fn)
+    if not os.path.isfile(src):
+        raise HTTPException(404, 'Not found')
+    dst = os.path.join(dst_dir, fn)
+    if os.path.exists(dst):
+        base, e = os.path.splitext(fn)
+        fn = f'{base}_{int(datetime.now().timestamp())}{e}'
+        dst = os.path.join(dst_dir, fn)
+    shutil.move(src, dst)
+    # move the prepared/normalized copy too, if present
+    try:
+        src_np = _call_norm_path(src)
+        if os.path.isfile(src_np):
+            shutil.move(src_np, _call_norm_path(dst))
+    except Exception:
+        pass
+    return {'ok': True, 'name': fn, 'folder': dst_f}
+
 class CallStartIn(BaseModel):
     tg_id: str
     filename: str = ''
