@@ -4387,9 +4387,10 @@ function renderSalesPage() {
     const datum = d.toLocaleDateString('de-DE');
     const uhrzeit = d.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
     const statusColor = s.status === 'rejected' ? 'rgba(255,92,122,.1)' : s.status === 'pending' ? 'rgba(255,209,102,.06)' : 'transparent';
+    const _modelTag = s.creator_name ? `<div style="margin-top:3px;"><span style="background:rgba(124,92,255,.16);color:#a78bfa;font-size:10px;font-weight:700;border-radius:6px;padding:1px 6px;">👤 ${s.creator_name}</span></div>` : '';
     return `<tr style="border-left:3px solid #ffd166;background:${statusColor}">
       <td>${datum}</td><td>${uhrzeit}</td>
-      <td style="font-size:12px;">${s.anon_id||'—'}</td>
+      <td style="font-size:12px;">${s.anon_id||'—'}${_modelTag}</td>
       <td>${s.chatter||'—'}</td>
       <td style="color:#00d4aa;font-weight:600">${fmt(s.amount||0)}</td>
       <td style="color:#8888a0">${s.product||'—'}${s.notes ? ' · '+s.notes : ''}</td>
@@ -8546,7 +8547,9 @@ function renderDxActivityFeed(){
     if (isSale) { ic='💰'; bg='rgba(34,197,94,.14)'; txt='<b>' + parseFloat(n.amount||0).toFixed(0) + '€</b> Sale · ' + (n.product || 'Produkt'); }
     else if (isPay) { ic='✅'; bg='rgba(0,212,170,.14)'; txt='<b>Zahlung</b> · ' + (n.text || 'Money received'); }
     else { ic='🆕'; bg='rgba(167,139,250,.14)'; txt='Neuer Sub · ' + (n.name || n.anon_id || ''); }
-    const meta = _dxAgo(n.ts) + (n.chatter ? ' · ' + n.chatter : '');
+    const modelBadge = n.creator_name ? '<span style="background:rgba(124,92,255,.16);color:#a78bfa;font-size:10px;font-weight:700;border-radius:6px;padding:1px 6px;margin-left:6px;">👤 ' + n.creator_name + '</span>' : '';
+    const meta = _dxAgo(n.ts) + (n.chatter ? ' · ' + n.chatter : '') ;
+    txt = txt + modelBadge;
     return '<div class="dx-feed"><div class="dx-fic" style="background:' + bg + '">' + ic + '</div>'
       + '<div><div class="ft">' + txt + '</div><div class="fs">' + meta + '</div></div></div>';
   }).join('');

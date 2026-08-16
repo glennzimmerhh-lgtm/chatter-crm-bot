@@ -3793,6 +3793,13 @@ def get_notifications(limit: int = 80):
     events = []
     with db() as conn:
         with conn.cursor() as c:
+            try:
+                c.execute('SELECT id, name FROM creators')
+                _cnames = {r['id']: r['name'] for r in c.fetchall()}
+            except Exception:
+                _cnames = {}
+            def _cn(tgid):
+                return _cnames.get(_creator_id_for_tg(tgid), '')
             # New subscribers
             c.execute('''SELECT tg_id, anon_id, internal_name, tg_username, first_time as ts
                          FROM conversations ORDER BY first_time DESC LIMIT %s''', (limit,))
@@ -3800,6 +3807,7 @@ def get_notifications(limit: int = 80):
                 events.append({'type': 'new_sub', 'ts': str(r['ts']),
                                'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
                                'name': r['internal_name'] or r['anon_id'],
+                               'creator_name': _cn(r['tg_id']),
                                'username': r['tg_username'] or ''})
             # Incoming messages (last N)
             c.execute('''SELECT m.tg_id, m.text, m.timestamp as ts,
@@ -3823,6 +3831,7 @@ def get_notifications(limit: int = 80):
                 events.append({'type': 'sale', 'ts': str(r['ts']),
                                'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
                                'name': r['internal_name'] or r['anon_id'],
+                               'creator_name': _cn(r['tg_id']),
                                'amount': float(r['amount']), 'product': r['product'] or '',
                                'chatter': r['chatter'] or ''})
             # PayPal / Revolut payments (parsed from email)
@@ -5294,10 +5303,18 @@ def get_sales(limit: int = 200):
                 (limit,)
             )
             rows = c.fetchall()
+            try:
+                c.execute('SELECT id, name FROM creators')
+                _names = {r['id']: r['name'] for r in c.fetchall()}
+            except Exception:
+                _names = {}
     result = []
     for r in rows:
         d = dict(r)
         d['screenshot_url'] = f'/sale/{r["id"]}/screenshot' if r['screenshot'] else ''
+        _cid = _creator_id_for_tg(r['tg_id'])
+        d['creator_id'] = _cid
+        d['creator_name'] = _names.get(_cid, f'Creator {_cid}')
         result.append(d)
     return result
 
