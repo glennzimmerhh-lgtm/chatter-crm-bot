@@ -35,6 +35,10 @@ os.makedirs(PROOFS_DIR, exist_ok=True)
 MEDIA_CACHE_DIR = os.path.join(VAULT_DIR, '_media')
 os.makedirs(MEDIA_CACHE_DIR, exist_ok=True)
 
+# Anti-scam image pool: every photo a fan sends, kept for end-of-day review
+MEDIA_POOL_DIR = os.environ.get('MEDIA_POOL_PATH', os.path.join(VAULT_DIR, '_pool'))
+os.makedirs(MEDIA_POOL_DIR, exist_ok=True)
+
 # Fake call recordings directory
 CALLS_DIR = os.path.join(VAULT_DIR, '_calls')
 CALL_FOLDERS = ['fake_checks', 'paid_calls']  # fixed folder names
@@ -467,6 +471,30 @@ def init_db():
                 text        TEXT DEFAULT '',
                 PRIMARY KEY (creator_id, slot)
             )''')
+            # Anti-scam: every blocked outgoing message (email / foreign link / blocked word).
+            c.execute('''CREATE TABLE IF NOT EXISTS scam_incidents (
+                id         SERIAL PRIMARY KEY,
+                tg_id      TEXT DEFAULT '',
+                creator_id INTEGER DEFAULT 1,
+                chatter    TEXT DEFAULT '',
+                kind       TEXT DEFAULT '',
+                detail     TEXT DEFAULT '',
+                text       TEXT DEFAULT '',
+                ts         TEXT NOT NULL
+            )''')
+            # Image pool: every photo a fan sends, saved for end-of-day review.
+            c.execute('''CREATE TABLE IF NOT EXISTS media_pool (
+                id         SERIAL PRIMARY KEY,
+                tg_id      TEXT DEFAULT '',
+                creator_id INTEGER DEFAULT 1,
+                anon_id    TEXT DEFAULT '',
+                filename   TEXT NOT NULL,
+                caption    TEXT DEFAULT '',
+                ts         TEXT NOT NULL,
+                reviewed   INTEGER DEFAULT 0
+            )''')
+            c.execute("CREATE INDEX IF NOT EXISTS idx_media_pool_ts ON media_pool(ts DESC)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_scam_ts ON scam_incidents(ts DESC)")
             # Users table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
                 id            INTEGER PRIMARY KEY,
@@ -1022,6 +1050,9 @@ async def start_userbot():
                     'text': text[:80],
                     'timestamp': now_ts,
                 }))
+                # Anti-scam image pool: keep every fan photo for daily review
+                if event.photo:
+                    asyncio.create_task(_save_incoming_photo_to_pool(event, tg_id, 1))
                 # Autonomous AI chatter — master-switched, defaults OFF
                 if event.text:
                     asyncio.create_task(_ai_autorespond(tg_id, text))
@@ -1087,6 +1118,14 @@ async def start_userbot():
             print('✅ Userbot verbunden!')
             asyncio.create_task(_update_creator_avatar(1, tg_client))
             retry_delay = 5  # reset on success
+            # One-time "system is up" ping so you know alerts reach you (not on every reconnect).
+            global _alert_startup_sent
+            if not _alert_startup_sent:
+                _alert_startup_sent = True
+                async def _startup_ping():
+                    await asyncio.sleep(4)
+                    send_admin_alert('✅ ZF CRM ist online. Fehler-Alerts sind aktiv.', key='startup')
+                asyncio.create_task(_startup_ping())
 
             # ── Re-init pytgcalls on every connect cycle ──────────────────────
             # calls_client must be tied to the CURRENT tg_client instance.
@@ -1166,6 +1205,8 @@ async def _run_creator_userbot(cid: int, session_str: str):
                     'direction': 'in', 'timestamp': now_ts, 'tg_msg_id': msg_tg_id, 'creator_id': _cid}))
                 asyncio.create_task(ws_manager.broadcast({'type': 'notification', 'notif_type': 'message',
                     'tg_id': key, 'text': text[:80], 'timestamp': now_ts, 'creator_id': _cid}))
+                if event.photo:
+                    asyncio.create_task(_save_incoming_photo_to_pool(event, key, _cid))
 
             @client.on(events.NewMessage(outgoing=True, func=lambda e: e.is_private))
             async def _c_out(event, _cid=cid):
@@ -2904,6 +2945,13 @@ class ReplyIn(BaseModel):
 async def post_reply(body: ReplyIn, background_tasks: BackgroundTasks):
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
+    # Anti-scam: block emails / foreign links / blocked words BEFORE anything is sent.
+    _ok, _kind, _detail = _scan_outgoing(body.text)
+    if not _ok:
+        _log_scam_incident(body.tg_id, body.chatter, _kind, _detail, body.text)
+        raise HTTPException(400,
+            f'🛑 Nachricht blockiert · {_SCAM_LABELS.get(_kind, _kind)} „{_detail}" ist nicht erlaubt. '
+            f'Zahlungen laufen NUR über die offiziellen Kanäle. Der Vorfall wurde gemeldet.')
     # Look up access_hash from DB (no extra Telegram roundtrip needed)
     peer_int = int(_real_tg_id(body.tg_id))
     access_hash = 0
@@ -3049,9 +3097,306 @@ def set_setting(key: str, value: str):
             c.execute('INSERT INTO crm_settings (key,value) VALUES (%s,%s) ON CONFLICT (key) DO UPDATE SET value=%s',
                       (key, value, value))
 
+# ── ADMIN ERROR ALERTS (Telegram to self) ───────────────────────────────────
+# Sends a Telegram DM whenever a real failure is printed. De-duplicated (same
+# error muted for 10 min) and globally rate-limited so it can never spam you.
+import time as _time_mod
+import builtins as _builtins
+
+ALERT_TG_ID_ENV = os.environ.get('ALERT_TG_ID', '').strip()
+_orig_print = _builtins.print
+_alert_last_sent: dict = {}      # dedup-key -> last-sent timestamp
+_alert_window: list = []         # recent send timestamps (global rate limit)
+_alert_startup_sent = False      # so the "online" ping fires once, not on every reconnect
+_ALERT_DEDUP_S = 600             # same error suppressed for 10 minutes
+_ALERT_MAX_PER_MIN = 6           # hard cap so a flood can't spam you
+
+# Lines that mean "something really broke" → alert.
+_ALERT_TRIGGERS = (
+    '❌', 'Userbot getrennt', 'Userbot Fehler', 'make_calls_client failed',
+    'PyTgCalls reinit failed', 'reinit failed', 'No space left', 'Disk full',
+    'Disk voll', 'DB-Fehler', 'Datenbank', 'CRITICAL', 'Call fehlgeschlagen',
+)
+# Noisy but harmless / self-recovering lines → never alert.
+_ALERT_IGNORE = (
+    'Auto-online-msg error', 'Task was destroyed', 'coroutine ignored',
+    'Could not find a matching Constructor', 'retry in', 'GeneratorExit',
+    '(alert send failed', 'AI online-outreach error',
+)
+
+def _alert_target():
+    """Where to send alerts: setting 'alert_tg_target' → ALERT_TG_ID env → 'me' (Saved Messages)."""
+    try:
+        t = (get_setting('alert_tg_target', '') or '').strip()
+    except Exception:
+        t = ''
+    t = t or ALERT_TG_ID_ENV
+    if not t:
+        return 'me'
+    if t.lstrip('-').isdigit():
+        try:
+            return int(t)
+        except Exception:
+            return t
+    return t  # @username
+
+def send_admin_alert(text: str, key: str = ''):
+    """Queue a Telegram alert to the admin. Thread-safe, deduped, rate-limited."""
+    try:
+        try:
+            if get_setting('alerts_enabled', '1') != '1':
+                return
+        except Exception:
+            pass  # settings not reachable yet — still try to send
+        now = _time_mod.time()
+        dk = (key or text)[:80]
+        if now - _alert_last_sent.get(dk, 0) < _ALERT_DEDUP_S:
+            return
+        while _alert_window and now - _alert_window[0] > 60:
+            _alert_window.pop(0)
+        if len(_alert_window) >= _ALERT_MAX_PER_MIN:
+            return
+        loop = MAIN_LOOP
+        if loop is None or not loop.is_running():
+            return  # app loop not ready — nothing we can do
+        _alert_last_sent[dk] = now
+        _alert_window.append(now)
+
+        async def _send():
+            try:
+                if not tg_client or not tg_client.is_connected():
+                    return
+                stamp = datetime.now().strftime('%d.%m. %H:%M:%S')
+                await tg_client.send_message(
+                    _alert_target(),
+                    f'🚨 ZF CRM Alert · {stamp}\n\n{str(text)[:1500]}')
+            except Exception as _e:
+                _orig_print(f'(alert send failed: {_e})')
+        asyncio.run_coroutine_threadsafe(_send(), loop)
+    except Exception:
+        pass
+
+def _alerting_print(*args, **kwargs):
+    _orig_print(*args, **kwargs)
+    try:
+        msg = ' '.join(str(a) for a in args)
+        if any(ig in msg for ig in _ALERT_IGNORE):
+            return
+        if any(tr in msg for tr in _ALERT_TRIGGERS):
+            send_admin_alert(msg)
+    except Exception:
+        pass
+
+# Install the hook so every print() with an error marker forwards an alert.
+_builtins.print = _alerting_print
+
+# ── ANTI-SCAM OUTGOING GUARD ─────────────────────────────────────────────────
+# Blocks any chatter message that leaks an email, a non-whitelisted link, or a
+# blocked word (voucher/icloud/…). A chatter scammed us by routing gift-card
+# codes to his own iCloud mail — this makes that impossible.
+import re as _re
+
+# Only these emails/domains may ever be sent. Everything else is blocked.
+DEFAULT_BLOCKED_WORDS = ('gutschein,voucher,icloud,gmail,gmx,web.de,outlook,hotmail,'
+    'paysafe,steam,google play,itunes,giftcard,gift card,gift-card,sende den code,'
+    'schick den code,code an,mail an,schreib mir auf,cashapp,cash app,venmo,zelle,'
+    'skrill,neteller,monero,btc wallet,eigene mail,private mail')
+DEFAULT_ALLOWED_DOMAINS = 'zf-crm.com,paypal.me,dropbox.com,onlyfans.com'
+
+_EMAIL_RE = _re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
+_URL_RE = _re.compile(
+    r'(?:https?://|www\.)\S+'
+    r'|(?<![\w.])(?:[a-z0-9-]+\.)+(?:com|net|org|de|me|io|co|gg|to|link|xyz|info|'
+    r'shop|store|app|onlyfans|dropbox|paypal|fansly|tv|cc|ru|uk|at|ch|eu)(?:/\S*)?',
+    _re.I)
+
+def _scam_word_list():
+    raw = get_setting('blocked_words', '') or DEFAULT_BLOCKED_WORDS
+    return [w.strip().lower() for w in _re.split(r'[,\n]', raw) if w.strip()]
+
+def _scam_allowed_domains():
+    raw = get_setting('allowed_domains', '') or DEFAULT_ALLOWED_DOMAINS
+    return [d.strip().lower().lstrip('.') for d in _re.split(r'[,\n]', raw) if d.strip()]
+
+def _scam_allowed_emails() -> set:
+    """Whitelisted emails = the 'allowed_emails' setting PLUS every email that appears
+    in the creators' official payment texts (so real PayPal addresses always pass)."""
+    allow = set()
+    try:
+        for e in _EMAIL_RE.findall(get_setting('allowed_emails', '') or ''):
+            allow.add(e.lower())
+    except Exception:
+        pass
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT text FROM creator_paytexts")
+            for row in c.fetchall():
+                for e in _EMAIL_RE.findall(row.get('text') or ''):
+                    allow.add(e.lower())
+    except Exception:
+        pass
+    return allow
+
+def _url_host(raw: str) -> str:
+    h = _re.sub(r'^https?://', '', raw.strip(), flags=_re.I)
+    h = _re.sub(r'^www\.', '', h, flags=_re.I)
+    return h.split('/')[0].split('?')[0].split(':')[0].strip().lower()
+
+_SCAM_LABELS = {'blocked_word': 'Verbotenes Wort', 'email': 'E-Mail-Adresse', 'link': 'Fremder Link'}
+
+def _scan_outgoing(text: str):
+    """Returns (ok, kind, detail). ok=False means the message must NOT be sent."""
+    if not text:
+        return (True, '', '')
+    try:
+        if get_setting('scam_guard_enabled', '1') != '1':
+            return (True, '', '')
+    except Exception:
+        return (True, '', '')
+    low = text.lower()
+    for w in _scam_word_list():
+        if w and w in low:
+            return (False, 'blocked_word', w)
+    emails = _EMAIL_RE.findall(text)
+    if emails:
+        allow = _scam_allowed_emails()
+        for e in emails:
+            if e.lower() not in allow:
+                return (False, 'email', e)
+    doms = _scam_allowed_domains()
+    for m in _URL_RE.finditer(text):
+        host = _url_host(m.group(0))
+        if host and '.' in host and not any(host == d or host.endswith('.' + d) for d in doms):
+            return (False, 'link', host)
+    return (True, '', '')
+
+def _log_scam_incident(tg_id: str, chatter: str, kind: str, detail: str, text: str):
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute(
+                "INSERT INTO scam_incidents (tg_id,creator_id,chatter,kind,detail,text,ts) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (tg_id, _creator_id_for_tg(tg_id), chatter, kind, detail, (text or '')[:500], datetime.now().isoformat()))
+    except Exception as e:
+        _orig_print(f'scam log error: {e}')
+    send_admin_alert(
+        f'🛑 BLOCKIERT · {_SCAM_LABELS.get(kind, kind)}: {detail}\n'
+        f'Chatter: {chatter}\nFan: {tg_id}\nText: {(text or "")[:300]}',
+        key=f'scam:{chatter}:{kind}:{detail}')
+
+@app.get('/scam/incidents')
+def scam_incidents(limit: int = 100):
+    with db() as conn, conn.cursor() as c:
+        c.execute("SELECT * FROM scam_incidents ORDER BY id DESC LIMIT %s", (min(limit, 500),))
+        return {'incidents': [dict(r) for r in c.fetchall()]}
+
+# ── IMAGE POOL (every fan photo, for daily review) ───────────────────────────
+async def _save_incoming_photo_to_pool(event, tg_id: str, creator_id: int = 1):
+    """Download a fan's photo into the pool + index it. Fire-and-forget."""
+    try:
+        ts = datetime.now()
+        safe = f"{creator_id}_{_real_tg_id(tg_id)}_{int(ts.timestamp())}_{getattr(event, 'id', 0)}.jpg"
+        fpath = os.path.join(MEDIA_POOL_DIR, safe)
+        saved = await event.download_media(file=fpath)
+        if not saved:
+            return
+        real_name = os.path.basename(saved)
+        cap = ''
+        try:
+            cap = (getattr(event, 'message', None).message or '')[:300] if getattr(event, 'message', None) else ''
+        except Exception:
+            cap = ''
+        with db() as conn, conn.cursor() as c:
+            c.execute(
+                "INSERT INTO media_pool (tg_id,creator_id,anon_id,filename,caption,ts) VALUES (%s,%s,%s,%s,%s,%s)",
+                (tg_id, creator_id, '', real_name, cap, ts.isoformat()))
+    except Exception as e:
+        print(f'media pool save error: {e}')
+
+@app.get('/media-pool')
+def get_media_pool(date: str = '', creator_id: int = 0, limit: int = 300):
+    """List pooled fan photos. date='YYYY-MM-DD' filters to that day; creator_id=0 = all."""
+    q = "SELECT * FROM media_pool WHERE 1=1"
+    params = []
+    if date:
+        q += " AND ts >= %s AND ts < %s"
+        params += [date + 'T00:00:00', date + 'T23:59:59']
+    if creator_id:
+        q += " AND creator_id = %s"
+        params.append(creator_id)
+    q += " ORDER BY id DESC LIMIT %s"
+    params.append(min(limit, 1000))
+    with db() as conn, conn.cursor() as c:
+        c.execute(q, tuple(params))
+        rows = [dict(r) for r in c.fetchall()]
+    return {'count': len(rows), 'items': rows}
+
+@app.get('/media-pool/{filename}')
+def serve_pool_image(filename: str):
+    if '..' in filename or '/' in filename:
+        raise HTTPException(400, 'Invalid')
+    fpath = os.path.join(MEDIA_POOL_DIR, filename)
+    if not os.path.isfile(fpath):
+        raise HTTPException(404, 'Not found')
+    return FileResponse(fpath)
+
+@app.post('/media-pool/{item_id}/reviewed')
+def mark_pool_reviewed(item_id: int):
+    with db() as conn, conn.cursor() as c:
+        c.execute("UPDATE media_pool SET reviewed=1 WHERE id=%s", (item_id,))
+    return {'ok': True}
+
+# ── REVENUE BREAKDOWN (per creator + per payment method) ─────────────────────
+@app.get('/stats/breakdown')
+def stats_breakdown(period: str = 'today'):
+    now = datetime.now()
+    if period == 'today':
+        since = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    elif period == '7d':
+        since = (now - timedelta(days=7)).isoformat()
+    elif period == '30d':
+        since = (now - timedelta(days=30)).isoformat()
+    else:
+        since = '1970-01-01T00:00:00'
+    with db() as conn, conn.cursor() as c:
+        c.execute("SELECT tg_id, amount, payment_method FROM sales "
+                  "WHERE (status='approved' OR status IS NULL OR status='') AND timestamp >= %s", (since,))
+        rows = [dict(r) for r in c.fetchall()]
+        try:
+            c.execute("SELECT id, name FROM creators")
+            names = {r['id']: r['name'] for r in c.fetchall()}
+        except Exception:
+            names = {}
+    def _method_label(m: str) -> str:
+        s = (m or '').strip().lower()
+        if not s:
+            return 'Unbekannt'
+        if 'paypal' in s: return 'PayPal'
+        if 'amazon' in s or 'gift' in s or 'gutschein' in s: return 'Amazon'
+        if 'bank' in s or 'sepa' in s or 'überweis' in s or 'iban' in s: return 'Bank'
+        if 'paysafe' in s: return 'Paysafe'
+        if 'crypto' in s or 'btc' in s or 'bitcoin' in s: return 'Crypto'
+        return (m or '').strip().title()
+    by_creator, by_method = {}, {}
+    total = 0.0
+    for r in rows:
+        cid = _creator_id_for_tg(r['tg_id'])
+        amt = float(r['amount'] or 0)
+        total += amt
+        bc = by_creator.setdefault(cid, {'creator_id': cid, 'name': names.get(cid, f'Creator {cid}'), 'revenue': 0.0, 'count': 0})
+        bc['revenue'] += amt; bc['count'] += 1
+        lbl = _method_label(r['payment_method'])
+        mm = by_method.setdefault(lbl, {'method': lbl, 'revenue': 0.0, 'count': 0})
+        mm['revenue'] += amt; mm['count'] += 1
+    return {
+        'period': period,
+        'total': round(total, 2),
+        'by_creator': sorted(by_creator.values(), key=lambda x: -x['revenue']),
+        'by_method': sorted(by_method.values(), key=lambda x: -x['revenue']),
+    }
+
 @app.get('/settings/crm')
 def get_crm_settings():
-    keys = ['auto_online_enabled','auto_online_text','auto_online_cooldown_h','auto_online_stages','shift_goal','noones_key','noones_secret']
+    keys = ['auto_online_enabled','auto_online_text','auto_online_cooldown_h','auto_online_stages','shift_goal','noones_key','noones_secret','alerts_enabled','alert_tg_target','scam_guard_enabled','blocked_words','allowed_domains','allowed_emails']
     result = {}
     with db() as conn:
         with conn.cursor() as c:
@@ -3069,6 +3414,12 @@ class SettingsUpdate(BaseModel):
     shift_goal: Optional[str] = None
     noones_key: Optional[str] = None
     noones_secret: Optional[str] = None
+    alerts_enabled: Optional[str] = None
+    alert_tg_target: Optional[str] = None
+    scam_guard_enabled: Optional[str] = None
+    blocked_words: Optional[str] = None
+    allowed_domains: Optional[str] = None
+    allowed_emails: Optional[str] = None
 
 @app.post('/settings/crm')
 def save_crm_settings(body: SettingsUpdate):
@@ -3076,6 +3427,12 @@ def save_crm_settings(body: SettingsUpdate):
         if v is not None:
             set_setting(k, v)
     return {'ok': True}
+
+@app.post('/alerts/test')
+async def alerts_test():
+    """Send a test alert so you can confirm it reaches your Telegram."""
+    send_admin_alert('✅ Test-Alert — die Fehler-Benachrichtigungen funktionieren.', key='test')
+    return {'ok': True, 'target': str(_alert_target())}
 
 # ── AI ENDPOINTS ─────────────────────────────────────────────────────────────
 import urllib.request as _urllib_req

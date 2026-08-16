@@ -1032,6 +1032,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
       Payments
     </div>
+    <div class="nav-item admin-only" onclick="openMediaPool()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+      Bild-Pool <span id="nav-pool-badge" style="display:none;background:#7c5cff;color:#fff;border-radius:8px;padding:0 5px;font-size:10px;font-weight:700;margin-left:4px;"></span>
+    </div>
     <div class="nav-item admin-only" onclick="showPage('pledges')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       Pledges <span id="nav-pledges-badge" style="display:none;background:#ff5c7a;color:#fff;border-radius:8px;padding:0 5px;font-size:10px;font-weight:700;margin-left:4px;"></span>
@@ -1299,6 +1303,29 @@
       </div>
       <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;">Fans, die sich länger nicht gemeldet haben — sortiert nach Umsatz. Hol sie mit einem KI-Opener zurück.</div>
       <div id="winback-list"><div style="color:var(--text3);font-size:12px;padding:8px 0;">Lade…</div></div>
+    </div>
+
+    <!-- REVENUE BREAKDOWN: per model + per payment method -->
+    <div id="revenue-breakdown-panel" class="panel" style="margin-bottom:20px;padding:16px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+        <span style="font-size:14px;font-weight:800;color:var(--text);">📊 Umsatz-Aufteilung</span>
+        <div style="display:flex;gap:6px;" id="rbd-periods">
+          <button class="period-btn active" data-p="today" onclick="setBreakdownPeriod('today')">Heute</button>
+          <button class="period-btn" data-p="7d" onclick="setBreakdownPeriod('7d')">7 Tage</button>
+          <button class="period-btn" data-p="30d" onclick="setBreakdownPeriod('30d')">30 Tage</button>
+          <button class="period-btn" data-p="all" onclick="setBreakdownPeriod('all')">Alle</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;">
+        <div>
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Pro Model</div>
+          <div id="rbd-creators"><div style="color:var(--text3);font-size:12px;">Lade…</div></div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Pro Zahlungsweg</div>
+          <div id="rbd-methods"><div style="color:var(--text3);font-size:12px;">Lade…</div></div>
+        </div>
+      </div>
     </div>
 
     <!-- MULTI-CREATOR ADMIN OVERVIEW: total on top, per-creator below -->
@@ -1993,6 +2020,29 @@
             <div id="ao-save-status" style="font-size:12px;color:#22c55e;display:none;">✅ Saved</div>
           </div>
         </div>
+
+        <!-- ANTI-SCAM GUARD -->
+        <div class="panel" style="margin-top:20px;padding:18px 20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+            <div style="font-size:14px;font-weight:800;color:var(--text);">🛡️ Anti-Scam-Schutz</div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer;">
+              <input type="checkbox" id="scam-enabled" onchange="saveScamSettings()"> <span id="scam-enabled-label">An</span>
+            </label>
+          </div>
+          <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px;line-height:1.5;">Chatter-Nachrichten mit E-Mail-Adressen, fremden Links oder verbotenen Wörtern werden hart blockiert und dir per Telegram gemeldet. Eine Zeile oder mit Komma getrennt.</div>
+
+          <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px;">Verbotene Wörter</label>
+          <textarea id="scam-words" rows="3" onchange="saveScamSettings()" placeholder="gutschein, voucher, icloud, gmail, paysafe, code an…" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:vertical;outline:none;font-family:inherit;margin-bottom:12px;"></textarea>
+
+          <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px;">Erlaubte Links (Domains)</label>
+          <input id="scam-domains" onchange="saveScamSettings()" placeholder="zf-crm.com, paypal.me, dropbox.com" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;outline:none;margin-bottom:12px;">
+
+          <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px;">Erlaubte E-Mail-Adressen</label>
+          <input id="scam-emails" onchange="saveScamSettings()" placeholder="marie.paypal@gmail.com (eure echten Zahlungs-Mails)" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:10px;outline:none;">
+          <div style="font-size:11px;color:var(--text3);margin-top:5px;">Nur diese Mails dürfen gesendet werden (PayPal-Adressen aus den Zahlungstexten sind automatisch erlaubt). Alles andere wird blockiert.</div>
+          <div id="scam-save-status" style="font-size:12px;color:#22c55e;display:none;margin-top:10px;">✅ Gespeichert</div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -3704,9 +3754,98 @@ window.genSourceLink = function() {
     + '<div style="font-size:11px;color:var(--text3);margin-top:6px;">Diesen Link in die markt.de-Anzeige bzw. in den angepinnten Gruppen-Beitrag setzen. Wer ihn klickt, sendet automatisch „' + code + '“ → wird der Quelle zugeordnet.</div>';
 };
 
+// ── Revenue breakdown (per model + per payment method) ──────────────────────
+window._breakdownPeriod = 'today';
+window.setBreakdownPeriod = function(p) {
+  window._breakdownPeriod = p;
+  document.querySelectorAll('#rbd-periods .period-btn').forEach(b => b.classList.toggle('active', b.dataset.p === p));
+  loadRevenueBreakdown();
+};
+window.loadRevenueBreakdown = async function() {
+  const cE = document.getElementById('rbd-creators'), mE = document.getElementById('rbd-methods');
+  if (!cE || !mE) return;
+  try {
+    const r = await fetch('/api/stats/breakdown?period=' + (window._breakdownPeriod || 'today'));
+    const d = await r.json();
+    const total = d.total || 0;
+    const bar = (label, val, color) => {
+      const pct = total > 0 ? Math.round(val / total * 100) : 0;
+      return `<div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
+          <span style="color:var(--text);">${label}</span>
+          <span style="color:var(--text2);font-weight:700;">€${Math.round(val)} · ${pct}%</span>
+        </div>
+        <div style="height:8px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:${color};border-radius:5px;transition:width .4s;"></div>
+        </div></div>`;
+    };
+    const emoji = { PayPal:'💜', Amazon:'📦', Bank:'🏦', Paysafe:'🔵', Crypto:'🪙', Unbekannt:'❔' };
+    cE.innerHTML = (d.by_creator && d.by_creator.length)
+      ? d.by_creator.map(c => bar(c.name || ('Creator ' + c.creator_id), c.revenue, 'linear-gradient(90deg,#00d4aa,#7c5cff)')).join('')
+      : '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
+    mE.innerHTML = (d.by_method && d.by_method.length)
+      ? d.by_method.map(m => bar((emoji[m.method] || '💳') + ' ' + m.method, m.revenue, 'linear-gradient(90deg,#f59e0b,#ef4444)')).join('')
+      : '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
+  } catch(e) {
+    cE.innerHTML = '<div style="color:#ff5c7a;font-size:12px;">Fehler beim Laden</div>';
+    mE.innerHTML = '';
+  }
+};
+
+// ── Image pool (all fan photos, for daily review) ───────────────────────────
+window._poolDate = '';
+window.openMediaPool = function() {
+  if (!document.getElementById('media-pool-modal')) {
+    const m = document.createElement('div');
+    m.id = 'media-pool-modal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.8);display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow:auto;';
+    m.innerHTML = `
+      <div style="background:var(--card,#141414);border:1px solid var(--border,#2a2a2a);border-radius:16px;max-width:1000px;width:100%;padding:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+          <div style="font-size:17px;font-weight:800;color:var(--text);">🖼 Bild-Pool <span style="font-size:12px;color:var(--text3);font-weight:500;">— alle Fan-Bilder</span></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input id="pool-date" type="date" onchange="window._poolDate=this.value;loadMediaPool();" style="background:var(--bg3,#1c1c1c);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-size:12px;">
+            <button onclick="window._poolDate='';document.getElementById('pool-date').value='';loadMediaPool();" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:7px 11px;font-size:12px;cursor:pointer;">Alle</button>
+            <button onclick="loadMediaPool()" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:7px 11px;font-size:13px;cursor:pointer;">↻</button>
+            <button onclick="document.getElementById('media-pool-modal').style.display='none'" style="background:rgba(255,92,122,.12);border:1px solid rgba(255,92,122,.3);border-radius:8px;color:#ff5c7a;padding:7px 12px;font-size:13px;cursor:pointer;">✕</button>
+          </div>
+        </div>
+        <div id="pool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;"></div>
+      </div>`;
+    document.body.appendChild(m);
+  }
+  document.getElementById('media-pool-modal').style.display = 'flex';
+  loadMediaPool();
+};
+window.loadMediaPool = async function() {
+  const grid = document.getElementById('pool-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div style="color:var(--text3);font-size:13px;grid-column:1/-1;">Lade…</div>';
+  try {
+    const q = window._poolDate ? ('?date=' + window._poolDate) : '';
+    const r = await fetch('/api/media-pool' + q);
+    const d = await r.json();
+    if (!d.items || !d.items.length) {
+      grid.innerHTML = '<div style="color:var(--text3);font-size:13px;grid-column:1/-1;padding:20px 0;">Keine Bilder' + (window._poolDate ? ' an diesem Tag' : '') + '.</div>';
+      return;
+    }
+    grid.innerHTML = d.items.map(it => {
+      const url = '/api/media-pool/' + encodeURIComponent(it.filename);
+      const t = (it.ts || '').replace('T', ' ').slice(0, 16);
+      return `<div style="background:var(--bg3,#1c1c1c);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+        <a href="${url}" target="_blank" style="display:block;"><img src="${url}" loading="lazy" style="width:100%;height:130px;object-fit:cover;display:block;"></a>
+        <div style="padding:6px 8px;font-size:10px;color:var(--text3);">${t}<br>Fan ${String(it.tg_id||'').replace(/^\d+:/,'')}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    grid.innerHTML = '<div style="color:#ff5c7a;font-size:13px;grid-column:1/-1;">Fehler: ' + e.message + '</div>';
+  }
+};
+
 function renderDashboard() {
   if (window.loadSourceStats) window.loadSourceStats();
   if (window.loadWinback) window.loadWinback();
+  if (window.loadRevenueBreakdown) window.loadRevenueBreakdown();
   const p = currentPeriod;
   const tod = today();
   const periodLabels = { heute: 'Today', gestern: 'Yesterday', woche: 'This Week', monat: 'This Month', range: 'Zeitraum' };
@@ -6601,11 +6740,47 @@ if (checkAuth()) {
       statusEl.style.color = '#22c55e';
       closeFakeCallModal();
       showActiveCallBar({ call_type: filename.match(/\.(mp4|mov|mkv)$/i) ? 'video' : 'audio', filename }, currentChatTgId);
+      // Fake-Check reminder: after 1 min, nudge the chatter to push the sale.
+      if ((folder || '') === 'fake_checks') scheduleFakeCheckReminder(currentChatTgId);
     } catch(e) {
       statusEl.textContent = '❌ ' + e.message;
       statusEl.style.color = '#ff5c7a';
     }
   };
+
+  // ── Fake-Check reminder popup (fires 60s after a fake-check call) ─────────
+  window._fakeCheckTimers = window._fakeCheckTimers || {};
+  window.scheduleFakeCheckReminder = function(tgId) {
+    if (!tgId) return;
+    if (window._fakeCheckTimers[tgId]) clearTimeout(window._fakeCheckTimers[tgId]);
+    window._fakeCheckTimers[tgId] = setTimeout(() => {
+      delete window._fakeCheckTimers[tgId];
+      showFakeCheckReminder(tgId);
+    }, 60000);
+  };
+  function showFakeCheckReminder(tgId) {
+    try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch(_) {}
+    document.getElementById('fake-check-reminder')?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'fake-check-reminder';
+    wrap.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;background:linear-gradient(135deg,#1a1030,#241640);border:1px solid rgba(180,120,255,.5);box-shadow:0 12px 40px rgba(0,0,0,.55);border-radius:16px;padding:18px 20px;max-width:380px;width:calc(100% - 32px);color:#fff;font-size:14px;animation:fcrDrop .35s ease;';
+    wrap.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <span style="font-size:22px;">⏰</span>
+        <strong style="font-size:15px;">Fake-Check läuft seit 1 Min</strong>
+      </div>
+      <div style="color:#cdb8f0;line-height:1.45;margin-bottom:14px;">Jetzt den Sale closen: Screenshot verlangen &amp; zum Kauf führen, solange der Fan heiß ist.</div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="document.getElementById('fake-check-reminder').remove()" style="flex:1;background:rgba(255,255,255,.1);border:none;border-radius:9px;color:#fff;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">OK</button>
+      </div>`;
+    document.body.appendChild(wrap);
+    if (!document.getElementById('fcr-style')) {
+      const st = document.createElement('style'); st.id = 'fcr-style';
+      st.textContent = '@keyframes fcrDrop{from{opacity:0;transform:translateX(-50%) translateY(-16px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+      document.head.appendChild(st);
+    }
+    setTimeout(() => document.getElementById('fake-check-reminder')?.remove(), 30000);
+  }
 
   // ── Direct call from Google Drive / URL (no download needed) ─────────────
   window.startFakeCallFromUrl = async function() {
@@ -7745,10 +7920,10 @@ window.showPage = function(page) {
 
     <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:6px;margin-top:4px;">Payment Method</label>
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:18px;" id="sale-payment-grid">
-      <button type="button" onclick="selectPaymentMethod(this,'YouSafe')" class="sale-pay-btn" style="padding:10px 6px;border-radius:9px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;">🏦 YouSafe</button>
-      <button type="button" onclick="selectPaymentMethod(this,'Paysafe')" class="sale-pay-btn" style="padding:10px 6px;border-radius:9px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;">🔵 Paysafe</button>
-      <button type="button" onclick="selectPaymentMethod(this,'Amazon Code')" class="sale-pay-btn" style="padding:10px 6px;border-radius:9px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;">📦 Amazon Code</button>
-      <button type="button" onclick="selectPaymentMethod(this,'Payment Link')" class="sale-pay-btn" style="padding:10px 6px;border-radius:9px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;">🔗 Payment Link</button>
+      <button type="button" onclick="selectPaymentMethod(this,'PayPal')" class="sale-pay-btn" style="padding:10px 6px;border-radius:9px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;">💜 PayPal</button>
+      <button type="button" onclick="selectPaymentMethod(this,'Amazon Code')" class="sale-pay-btn" style="padding:10px 6px;border-radius:9px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;">📦 Amazon</button>
+      <button type="button" onclick="selectPaymentMethod(this,'Banküberweisung')" class="sale-pay-btn" style="padding:10px 6px;border-radius:9px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;">🏦 Bank</button>
+      <button type="button" onclick="selectPaymentMethod(this,'Payment Link')" class="sale-pay-btn" style="padding:10px 6px;border-radius:9px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;">🔗 Link</button>
     </div>
     <input id="sale-payment-method" type="hidden" value="">
 
@@ -9753,6 +9928,33 @@ async function loadAutoOnline() {
   } catch(e) {}
 }
 
+// ── ANTI-SCAM SETTINGS ────────────────────────────────────────────────────────
+async function loadScamSettings() {
+  try {
+    const d = await fetch('/api/settings/crm').then(r => r.json());
+    const en = document.getElementById('scam-enabled');
+    const lbl = document.getElementById('scam-enabled-label');
+    if (en) { en.checked = (d.scam_guard_enabled ?? '1') !== '0'; if (lbl) lbl.textContent = en.checked ? 'An' : 'Aus'; }
+    const w = document.getElementById('scam-words');   if (w && d.blocked_words !== undefined) w.value = d.blocked_words || '';
+    const dom = document.getElementById('scam-domains'); if (dom && d.allowed_domains !== undefined) dom.value = d.allowed_domains || '';
+    const em = document.getElementById('scam-emails');  if (em && d.allowed_emails !== undefined) em.value = d.allowed_emails || '';
+  } catch(e) {}
+}
+async function saveScamSettings() {
+  const en = document.getElementById('scam-enabled');
+  const lbl = document.getElementById('scam-enabled-label');
+  if (lbl) lbl.textContent = en?.checked ? 'An' : 'Aus';
+  const body = {
+    scam_guard_enabled: en?.checked ? '1' : '0',
+    blocked_words: document.getElementById('scam-words')?.value || '',
+    allowed_domains: document.getElementById('scam-domains')?.value || '',
+    allowed_emails: document.getElementById('scam-emails')?.value || '',
+  };
+  await fetch('/api/settings/crm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const st = document.getElementById('scam-save-status');
+  if (st) { st.style.display = 'block'; setTimeout(() => st.style.display = 'none', 2000); }
+}
+
 async function saveAutoOnline() {
   const cb = document.getElementById('ao-enabled');
   const lbl = document.getElementById('ao-enabled-label');
@@ -9781,7 +9983,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (_sp) {
     window.showPage = function(name) {
       _sp(name);
-      if (name === 'broadcast') loadAutoOnline();
+      if (name === 'broadcast') { loadAutoOnline(); loadScamSettings(); }
       if (name === 'performance') loadPerformance('heute');
       if (name === 'mystats') loadMyStats('heute');
       if (name === 'notifications') {
