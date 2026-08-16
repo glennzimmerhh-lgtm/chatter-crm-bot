@@ -8428,13 +8428,14 @@ function renderNotifications() {
     const label = isRevolut ? 'Revolut' : (isPaypal ? 'PayPal' : (isSale ? 'Sale' : 'New Subscriber'));
     const d = parseTs(n.ts);
     const timeStr = isNaN(d.getTime()) ? '' : d.toLocaleString('de-DE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const modelBadge = n.creator_name ? ` <span style="background:rgba(124,92,255,.16);color:#a78bfa;font-size:10px;font-weight:700;border-radius:6px;padding:1px 6px;">👤 ${n.creator_name}</span>` : '';
     let detail;
     if (isPay) {
       detail = `<strong style="color:${color}">${n.text || 'Money received'}</strong>`;
     } else if (isSale) {
-      detail = `${n.name} · ${n.product || 'Produkt'} · <strong style="color:#ffd166">${parseFloat(n.amount||0).toFixed(0)}€</strong>${n.chatter ? ' · ' + n.chatter : ''}`;
+      detail = `${n.name} · ${n.product || 'Produkt'} · <strong style="color:#ffd166">${parseFloat(n.amount||0).toFixed(0)}€</strong>${n.chatter ? ' · ' + n.chatter : ''}${modelBadge}`;
     } else {
-      detail = `${n.name} hat subscribed${n.username ? ' <span style="color:var(--text3)">@' + n.username + '</span>' : ''}`;
+      detail = `${n.name} hat subscribed${n.username ? ' <span style="color:var(--text3)">@' + n.username + '</span>' : ''}${modelBadge}`;
     }
     const clickAttr = isPay ? '' : `onclick="openConv('${n.tg_id}','${(n.anon_id||'')}');showPage('chat')"`;
     return `<div ${clickAttr}
