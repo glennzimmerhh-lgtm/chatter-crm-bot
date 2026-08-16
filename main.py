@@ -490,9 +490,14 @@ def init_db():
                 anon_id    TEXT DEFAULT '',
                 filename   TEXT NOT NULL,
                 caption    TEXT DEFAULT '',
+                direction  TEXT DEFAULT 'in',
                 ts         TEXT NOT NULL,
                 reviewed   INTEGER DEFAULT 0
             )''')
+            try:
+                c.execute("ALTER TABLE media_pool ADD COLUMN IF NOT EXISTS direction TEXT DEFAULT 'in'")
+            except Exception:
+                pass
             c.execute("CREATE INDEX IF NOT EXISTS idx_media_pool_ts ON media_pool(ts DESC)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_scam_ts ON scam_incidents(ts DESC)")
             # Users table
@@ -1086,6 +1091,9 @@ async def start_userbot():
                 else:               text = '[Message]'
                 await loop.run_in_executor(None, lambda: save_msg(tg_id, text, 'out', 'Telegram', tg_msg_id=msg_tg_id))
                 print(f'📤 Telegram→CRM {tg_id}: {text[:80]}')
+                # Anti-scam: also pool every photo WE send out (vault sends + Telegram-app sends)
+                if event.photo:
+                    asyncio.create_task(_save_incoming_photo_to_pool(event, tg_id, 1, 'out'))
                 asyncio.create_task(ws_manager.broadcast({
                     'type': 'new_message',
                     'tg_id': tg_id,
@@ -1223,6 +1231,9 @@ async def _run_creator_userbot(cid: int, session_str: str):
                         asyncio.create_task(ws_manager.broadcast({'type': 'new_message', 'tg_id': key,
                             'text': event.raw_text, 'direction': 'out', 'timestamp': datetime.now().isoformat(),
                             'tg_msg_id': event.id, 'creator_id': _cid}))
+                    # Anti-scam: pool every outgoing photo from this creator too
+                    if event.photo:
+                        asyncio.create_task(_save_incoming_photo_to_pool(event, key, _cid, 'out'))
                 except Exception as _e:
                     print(f'creator {_cid} outgoing capture: {_e}')
 
@@ -3347,11 +3358,12 @@ def scam_incidents(limit: int = 100):
         return {'incidents': [dict(r) for r in c.fetchall()]}
 
 # ── IMAGE POOL (every fan photo, for daily review) ───────────────────────────
-async def _save_incoming_photo_to_pool(event, tg_id: str, creator_id: int = 1):
-    """Download a fan's photo into the pool + index it. Fire-and-forget."""
+async def _save_incoming_photo_to_pool(event, tg_id: str, creator_id: int = 1, direction: str = 'in'):
+    """Download a photo into the pool + index it. direction='in' = fan sent it,
+    'out' = the chatter/model sent it. Fire-and-forget."""
     try:
         ts = datetime.now()
-        safe = f"{creator_id}_{_real_tg_id(tg_id)}_{int(ts.timestamp())}_{getattr(event, 'id', 0)}.jpg"
+        safe = f"{direction}_{creator_id}_{_real_tg_id(tg_id)}_{int(ts.timestamp())}_{getattr(event, 'id', 0)}.jpg"
         fpath = os.path.join(MEDIA_POOL_DIR, safe)
         saved = await event.download_media(file=fpath)
         if not saved:
@@ -3364,14 +3376,15 @@ async def _save_incoming_photo_to_pool(event, tg_id: str, creator_id: int = 1):
             cap = ''
         with db() as conn, conn.cursor() as c:
             c.execute(
-                "INSERT INTO media_pool (tg_id,creator_id,anon_id,filename,caption,ts) VALUES (%s,%s,%s,%s,%s,%s)",
-                (tg_id, creator_id, '', real_name, cap, ts.isoformat()))
+                "INSERT INTO media_pool (tg_id,creator_id,anon_id,filename,caption,direction,ts) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (tg_id, creator_id, '', real_name, cap, direction, ts.isoformat()))
     except Exception as e:
         print(f'media pool save error: {e}')
 
 @app.get('/media-pool')
-def get_media_pool(date: str = '', creator_id: int = 0, limit: int = 300):
-    """List pooled fan photos. date='YYYY-MM-DD' filters to that day; creator_id=0 = all."""
+def get_media_pool(date: str = '', creator_id: int = 0, direction: str = '', limit: int = 300):
+    """List pooled photos. date='YYYY-MM-DD' filters to that day; creator_id=0 = all;
+    direction '' = all, 'in' = fan-sent, 'out' = chatter-sent."""
     q = "SELECT * FROM media_pool WHERE 1=1"
     params = []
     if date:
@@ -3380,6 +3393,9 @@ def get_media_pool(date: str = '', creator_id: int = 0, limit: int = 300):
     if creator_id:
         q += " AND creator_id = %s"
         params.append(creator_id)
+    if direction in ('in', 'out'):
+        q += " AND direction = %s"
+        params.append(direction)
     q += " ORDER BY id DESC LIMIT %s"
     params.append(min(limit, 1000))
     with db() as conn, conn.cursor() as c:

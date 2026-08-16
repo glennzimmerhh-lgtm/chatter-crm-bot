@@ -3819,8 +3819,14 @@ window.loadRevenueBreakdown = function() {
     : '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
 };
 
-// ── Image pool (all fan photos, for daily review) ───────────────────────────
+// ── Image pool (all photos — fan + chatter — for daily review) ──────────────
 window._poolDate = '';
+window._poolDir = '';   // '' = all, 'in' = fan, 'out' = chatter
+window.setPoolDir = function(dir) {
+  window._poolDir = dir;
+  document.querySelectorAll('#pool-dir-btns .pool-dir-btn').forEach(b => b.classList.toggle('active', b.dataset.d === dir));
+  loadMediaPool();
+};
 window.openMediaPool = function() {
   if (!document.getElementById('media-pool-modal')) {
     const m = document.createElement('div');
@@ -3828,18 +3834,28 @@ window.openMediaPool = function() {
     m.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.8);display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow:auto;';
     m.innerHTML = `
       <div style="background:var(--card,#141414);border:1px solid var(--border,#2a2a2a);border-radius:16px;max-width:1000px;width:100%;padding:20px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
-          <div style="font-size:17px;font-weight:800;color:var(--text);">🖼 Bild-Pool <span style="font-size:12px;color:var(--text3);font-weight:500;">— alle Fan-Bilder</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+          <div style="font-size:17px;font-weight:800;color:var(--text);">🖼 Bild-Pool <span style="font-size:12px;color:var(--text3);font-weight:500;">— alle gesendeten Bilder</span></div>
           <div style="display:flex;align-items:center;gap:8px;">
             <input id="pool-date" type="date" onchange="window._poolDate=this.value;loadMediaPool();" style="background:var(--bg3,#1c1c1c);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-size:12px;">
-            <button onclick="window._poolDate='';document.getElementById('pool-date').value='';loadMediaPool();" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:7px 11px;font-size:12px;cursor:pointer;">Alle</button>
+            <button onclick="window._poolDate='';document.getElementById('pool-date').value='';loadMediaPool();" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:7px 11px;font-size:12px;cursor:pointer;">Alle Tage</button>
             <button onclick="loadMediaPool()" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:7px 11px;font-size:13px;cursor:pointer;">↻</button>
             <button onclick="document.getElementById('media-pool-modal').style.display='none'" style="background:rgba(255,92,122,.12);border:1px solid rgba(255,92,122,.3);border-radius:8px;color:#ff5c7a;padding:7px 12px;font-size:13px;cursor:pointer;">✕</button>
           </div>
         </div>
+        <div id="pool-dir-btns" style="display:flex;gap:6px;margin-bottom:14px;">
+          <button class="pool-dir-btn active" data-d="" onclick="setPoolDir('')" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">Alle</button>
+          <button class="pool-dir-btn" data-d="in" onclick="setPoolDir('in')" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">📥 Von Fans</button>
+          <button class="pool-dir-btn" data-d="out" onclick="setPoolDir('out')" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">📤 Von Chattern</button>
+        </div>
         <div id="pool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;"></div>
       </div>`;
     document.body.appendChild(m);
+    if (!document.getElementById('pool-dir-style')) {
+      const st = document.createElement('style'); st.id = 'pool-dir-style';
+      st.textContent = '.pool-dir-btn.active{background:linear-gradient(135deg,rgba(0,212,170,.2),rgba(124,92,255,.15))!important;color:var(--teal,#00d4aa)!important;border-color:rgba(0,212,170,.4)!important;}';
+      document.head.appendChild(st);
+    }
   }
   document.getElementById('media-pool-modal').style.display = 'flex';
   loadMediaPool();
@@ -3849,8 +3865,10 @@ window.loadMediaPool = async function() {
   if (!grid) return;
   grid.innerHTML = '<div style="color:var(--text3);font-size:13px;grid-column:1/-1;">Lade…</div>';
   try {
-    const q = window._poolDate ? ('?date=' + window._poolDate) : '';
-    const r = await fetch('/api/media-pool' + q);
+    const params = [];
+    if (window._poolDate) params.push('date=' + window._poolDate);
+    if (window._poolDir) params.push('direction=' + window._poolDir);
+    const r = await fetch('/api/media-pool' + (params.length ? '?' + params.join('&') : ''));
     const d = await r.json();
     if (!d.items || !d.items.length) {
       grid.innerHTML = '<div style="color:var(--text3);font-size:13px;grid-column:1/-1;padding:20px 0;">Keine Bilder' + (window._poolDate ? ' an diesem Tag' : '') + '.</div>';
@@ -3859,8 +3877,12 @@ window.loadMediaPool = async function() {
     grid.innerHTML = d.items.map(it => {
       const url = '/api/media-pool/' + encodeURIComponent(it.filename);
       const t = (it.ts || '').replace('T', ' ').slice(0, 16);
-      return `<div style="background:var(--bg3,#1c1c1c);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-        <a href="${url}" target="_blank" style="display:block;"><img src="${url}" loading="lazy" style="width:100%;height:130px;object-fit:cover;display:block;"></a>
+      const isOut = it.direction === 'out';
+      const badge = isOut
+        ? '<span style="background:rgba(245,158,11,.18);color:#f59e0b;font-size:9px;font-weight:700;border-radius:5px;padding:1px 5px;">📤 Chatter</span>'
+        : '<span style="background:rgba(74,158,255,.18);color:#4a9eff;font-size:9px;font-weight:700;border-radius:5px;padding:1px 5px;">📥 Fan</span>';
+      return `<div style="background:var(--bg3,#1c1c1c);border:1px solid ${isOut ? 'rgba(245,158,11,.35)' : 'var(--border)'};border-radius:10px;overflow:hidden;">
+        <a href="${url}" target="_blank" style="display:block;position:relative;"><img src="${url}" loading="lazy" style="width:100%;height:130px;object-fit:cover;display:block;"><span style="position:absolute;top:5px;left:5px;">${badge}</span></a>
         <div style="padding:6px 8px;font-size:10px;color:var(--text3);">${t}<br>Fan ${String(it.tg_id||'').replace(/^\d+:/,'')}</div>
       </div>`;
     }).join('');
