@@ -2098,8 +2098,6 @@ async def _startup_call_video_sweep():
         print(f'startup call sweep error: {e}')
 
 
-# ── FASTAPI ───────────────────────────────────────────────────────────────────
-@asynccontextmanager
 async def _run_offline_watchdog():
     """Alert when the CRM goes offline (userbot disconnected >90s) and when it recovers.
     Delivers via bot token if configured (so it works even while the userbot is down)."""
@@ -2126,6 +2124,8 @@ async def _run_offline_watchdog():
             pass
         await asyncio.sleep(15)
 
+# ── FASTAPI ───────────────────────────────────────────────────────────────────
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     global MAIN_LOOP
     MAIN_LOOP = asyncio.get_running_loop()
