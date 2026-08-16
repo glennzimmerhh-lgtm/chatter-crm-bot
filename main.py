@@ -66,6 +66,7 @@ except Exception as _e:
     _PYTGCALLS_ERR = str(_e)
     print(f'⚠️  pytgcalls not available: {_e}')
 
+MAIN_LOOP: Optional[object] = None               # the app's main asyncio loop (set in lifespan) — for scheduling from worker threads
 calls_client: Optional[object] = None            # creator 1 (Marie) — backward compat
 _creator_calls_clients: dict = {}                # creator_id -> PyTgCalls (one call per creator)
 active_calls: dict = {}   # conv_key → {file, chatter, started_at}  (key encodes creator, e.g. "2:realid")
@@ -741,7 +742,9 @@ def _send_auto_online_msg(tg_id: str):
                         _ai_log(tg_id, 'online_outreach', text[:200], True)
                 except Exception:
                     pass
-            loop = asyncio.get_event_loop()
+            loop = MAIN_LOOP or tg_client.loop
+            if loop is None or not loop.is_running():
+                return  # main loop not ready — skip silently instead of flooding logs
             asyncio.run_coroutine_threadsafe(_send(), loop).result(timeout=40)
         except Exception as e:
             print(f'Auto-online-msg error: {e}')
@@ -2057,6 +2060,8 @@ async def _startup_call_video_sweep():
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
     try:
         init_db()
     except Exception as _ie:
