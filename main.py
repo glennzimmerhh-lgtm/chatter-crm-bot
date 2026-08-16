@@ -2100,6 +2100,32 @@ async def _startup_call_video_sweep():
 
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
+async def _run_offline_watchdog():
+    """Alert when the CRM goes offline (userbot disconnected >90s) and when it recovers.
+    Delivers via bot token if configured (so it works even while the userbot is down)."""
+    global _offline_alerted
+    await asyncio.sleep(45)   # grace period after boot
+    down_since = None
+    while True:
+        try:
+            if _userbot_running:
+                connected = bool(tg_client and tg_client.is_connected())
+                now = _time_mod.time()
+                if connected:
+                    if _offline_alerted:
+                        _offline_alerted = False
+                        send_admin_alert('✅ CRM wieder ONLINE — der Userbot ist wieder verbunden.', key='crm_up')
+                    down_since = None
+                else:
+                    if down_since is None:
+                        down_since = now
+                    elif (now - down_since) > 90 and not _offline_alerted:
+                        _offline_alerted = True
+                        send_admin_alert('⚠️ CRM OFFLINE — der Userbot ist seit über 90 Sekunden getrennt. Bitte Railway prüfen.', key='crm_down')
+        except Exception:
+            pass
+        await asyncio.sleep(15)
+
 async def lifespan(app: FastAPI):
     global MAIN_LOOP
     MAIN_LOOP = asyncio.get_running_loop()
@@ -2116,6 +2142,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_run_ai_followups())
     asyncio.create_task(_run_ai_hunter())
     asyncio.create_task(_startup_call_video_sweep())   # bake portrait orientation into existing call videos
+    asyncio.create_task(_run_offline_watchdog())       # alert if the CRM goes offline
     # PyTgCalls is now initialized inside start_userbot() on every connect cycle
     # via _reinit_calls() — no separate _init_calls task needed.
     yield
@@ -3104,24 +3131,25 @@ import time as _time_mod
 import builtins as _builtins
 
 ALERT_TG_ID_ENV = os.environ.get('ALERT_TG_ID', '').strip()
+ALERT_BOT_TOKEN = os.environ.get('ALERT_BOT_TOKEN', '').strip()   # optional: deliver even when userbot is offline
 _orig_print = _builtins.print
 _alert_last_sent: dict = {}      # dedup-key -> last-sent timestamp
 _alert_window: list = []         # recent send timestamps (global rate limit)
 _alert_startup_sent = False      # so the "online" ping fires once, not on every reconnect
+_offline_alerted = False         # true while a "CRM offline" alert is active (until recovery)
 _ALERT_DEDUP_S = 600             # same error suppressed for 10 minutes
 _ALERT_MAX_PER_MIN = 6           # hard cap so a flood can't spam you
 
-# Lines that mean "something really broke" → alert.
-_ALERT_TRIGGERS = (
-    '❌', 'Userbot getrennt', 'Userbot Fehler', 'make_calls_client failed',
-    'PyTgCalls reinit failed', 'reinit failed', 'No space left', 'Disk full',
-    'Disk voll', 'DB-Fehler', 'Datenbank', 'CRITICAL', 'Call fehlgeschlagen',
-)
-# Noisy but harmless / self-recovering lines → never alert.
+# You only want alerts for TWO things: (1) we got scammed, (2) the CRM is offline.
+# Scam alerts are sent directly (see _log_scam_incident). Offline is handled by the
+# watchdog (_run_offline_watchdog). So the generic print-hook stays SILENT: no triggers.
+_ALERT_TRIGGERS = ()
+# Everything printed with an error marker is ignored by the alert hook.
 _ALERT_IGNORE = (
     'Auto-online-msg error', 'Task was destroyed', 'coroutine ignored',
     'Could not find a matching Constructor', 'retry in', 'GeneratorExit',
-    '(alert send failed', 'AI online-outreach error',
+    '(alert send failed', 'AI online-outreach error', '/reply bg error',
+    'Could not find the input entity', 'PeerUser',
 )
 
 def _alert_target():
@@ -3140,8 +3168,29 @@ def _alert_target():
             return t
     return t  # @username
 
+def _send_via_bot(text: str) -> bool:
+    """Send via a Telegram bot token over HTTPS — works even if the Telethon userbot is
+    disconnected, as long as the web process is alive. Needs ALERT_BOT_TOKEN + numeric chat id."""
+    if not ALERT_BOT_TOKEN:
+        return False
+    tgt = _alert_target()
+    if not isinstance(tgt, int):
+        return False   # bot API needs a numeric chat_id (set ALERT_TG_ID to your numeric id)
+    try:
+        import json as _j, urllib.request as _u
+        data = _j.dumps({'chat_id': tgt, 'text': text, 'disable_web_page_preview': True}).encode()
+        req = _u.Request(f'https://api.telegram.org/bot{ALERT_BOT_TOKEN}/sendMessage',
+                         data=data, headers={'Content-Type': 'application/json'}, method='POST')
+        with _u.urlopen(req, timeout=15) as r:
+            r.read()
+        return True
+    except Exception as _e:
+        _orig_print(f'(alert bot send failed: {_e})')
+        return False
+
 def send_admin_alert(text: str, key: str = ''):
-    """Queue a Telegram alert to the admin. Thread-safe, deduped, rate-limited."""
+    """Queue a Telegram alert to the admin. Thread-safe, deduped, rate-limited.
+    Prefers a bot token (delivers even when the userbot is offline); falls back to the userbot."""
     try:
         try:
             if get_setting('alerts_enabled', '1') != '1':
@@ -3156,23 +3205,31 @@ def send_admin_alert(text: str, key: str = ''):
             _alert_window.pop(0)
         if len(_alert_window) >= _ALERT_MAX_PER_MIN:
             return
-        loop = MAIN_LOOP
-        if loop is None or not loop.is_running():
-            return  # app loop not ready — nothing we can do
         _alert_last_sent[dk] = now
         _alert_window.append(now)
+        stamp = datetime.now().strftime('%d.%m. %H:%M:%S')
+        full = f'🚨 ZF CRM Alert · {stamp}\n\n{str(text)[:1500]}'
 
-        async def _send():
+        def _deliver():
+            # 1) bot token (independent of userbot) — best for "CRM offline" alerts
+            if _send_via_bot(full):
+                return
+            # 2) fallback: send through the userbot (only works while it's connected)
+            loop = MAIN_LOOP
+            if loop is None or not loop.is_running():
+                return
+            async def _send():
+                try:
+                    if tg_client and tg_client.is_connected():
+                        await tg_client.send_message(_alert_target(), full)
+                except Exception as _e:
+                    _orig_print(f'(alert send failed: {_e})')
             try:
-                if not tg_client or not tg_client.is_connected():
-                    return
-                stamp = datetime.now().strftime('%d.%m. %H:%M:%S')
-                await tg_client.send_message(
-                    _alert_target(),
-                    f'🚨 ZF CRM Alert · {stamp}\n\n{str(text)[:1500]}')
-            except Exception as _e:
-                _orig_print(f'(alert send failed: {_e})')
-        asyncio.run_coroutine_threadsafe(_send(), loop)
+                asyncio.run_coroutine_threadsafe(_send(), loop)
+            except Exception:
+                pass
+        import threading as _th
+        _th.Thread(target=_deliver, daemon=True).start()
     except Exception:
         pass
 
@@ -3358,8 +3415,10 @@ def stats_breakdown(period: str = 'today'):
     else:
         since = '1970-01-01T00:00:00'
     with db() as conn, conn.cursor() as c:
+        # Count everything except explicitly rejected sales (matches the dashboard KPI total,
+        # which also includes pending sales).
         c.execute("SELECT tg_id, amount, payment_method FROM sales "
-                  "WHERE (status='approved' OR status IS NULL OR status='') AND timestamp >= %s", (since,))
+                  "WHERE COALESCE(status,'') <> 'rejected' AND timestamp >= %s", (since,))
         rows = [dict(r) for r in c.fetchall()]
         try:
             c.execute("SELECT id, name FROM creators")

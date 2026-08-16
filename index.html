@@ -1274,6 +1274,29 @@
       </div>
     </div>
 
+    <!-- REVENUE BREAKDOWN: per model + per payment method -->
+    <div id="revenue-breakdown-panel" class="panel" style="margin-bottom:20px;padding:16px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+        <span style="font-size:14px;font-weight:800;color:var(--text);">📊 Umsatz-Aufteilung</span>
+        <div style="display:flex;gap:6px;" id="rbd-periods">
+          <button class="period-btn active" data-p="today" onclick="setBreakdownPeriod('today')">Heute</button>
+          <button class="period-btn" data-p="7d" onclick="setBreakdownPeriod('7d')">7 Tage</button>
+          <button class="period-btn" data-p="30d" onclick="setBreakdownPeriod('30d')">30 Tage</button>
+          <button class="period-btn" data-p="all" onclick="setBreakdownPeriod('all')">Alle</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;">
+        <div>
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Pro Model</div>
+          <div id="rbd-creators"><div style="color:var(--text3);font-size:12px;">Lade…</div></div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Pro Zahlungsweg</div>
+          <div id="rbd-methods"><div style="color:var(--text3);font-size:12px;">Lade…</div></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ONLINE NOW WIDGET -->
     <div id="dash-online-widget" class="panel" style="margin-bottom:20px;padding:16px 20px;display:none;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
@@ -1303,29 +1326,6 @@
       </div>
       <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;">Fans, die sich länger nicht gemeldet haben — sortiert nach Umsatz. Hol sie mit einem KI-Opener zurück.</div>
       <div id="winback-list"><div style="color:var(--text3);font-size:12px;padding:8px 0;">Lade…</div></div>
-    </div>
-
-    <!-- REVENUE BREAKDOWN: per model + per payment method -->
-    <div id="revenue-breakdown-panel" class="panel" style="margin-bottom:20px;padding:16px 20px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-        <span style="font-size:14px;font-weight:800;color:var(--text);">📊 Umsatz-Aufteilung</span>
-        <div style="display:flex;gap:6px;" id="rbd-periods">
-          <button class="period-btn active" data-p="today" onclick="setBreakdownPeriod('today')">Heute</button>
-          <button class="period-btn" data-p="7d" onclick="setBreakdownPeriod('7d')">7 Tage</button>
-          <button class="period-btn" data-p="30d" onclick="setBreakdownPeriod('30d')">30 Tage</button>
-          <button class="period-btn" data-p="all" onclick="setBreakdownPeriod('all')">Alle</button>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;">
-        <div>
-          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Pro Model</div>
-          <div id="rbd-creators"><div style="color:var(--text3);font-size:12px;">Lade…</div></div>
-        </div>
-        <div>
-          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Pro Zahlungsweg</div>
-          <div id="rbd-methods"><div style="color:var(--text3);font-size:12px;">Lade…</div></div>
-        </div>
-      </div>
     </div>
 
     <!-- MULTI-CREATOR ADMIN OVERVIEW: total on top, per-creator below -->
