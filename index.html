@@ -3761,35 +3761,62 @@ window.setBreakdownPeriod = function(p) {
   document.querySelectorAll('#rbd-periods .period-btn').forEach(b => b.classList.toggle('active', b.dataset.p === p));
   loadRevenueBreakdown();
 };
-window.loadRevenueBreakdown = async function() {
+window._breakdownMethodLabel = function(m) {
+  const s = (m || '').toLowerCase();
+  if (!s) return 'Unbekannt';
+  if (s.includes('paypal')) return 'PayPal';
+  if (s.includes('amazon') || s.includes('gift') || s.includes('gutschein')) return 'Amazon';
+  if (s.includes('bank') || s.includes('sepa') || s.includes('überweis') || s.includes('iban')) return 'Bank';
+  if (s.includes('paysafe')) return 'Paysafe';
+  if (s.includes('yousafe')) return 'YouSafe';
+  if (s.includes('link')) return 'Payment Link';
+  return (m || '').trim();
+};
+window.loadRevenueBreakdown = function() {
   const cE = document.getElementById('rbd-creators'), mE = document.getElementById('rbd-methods');
   if (!cE || !mE) return;
-  try {
-    const r = await fetch('/api/stats/breakdown?period=' + (window._breakdownPeriod || 'today'));
-    const d = await r.json();
-    const total = d.total || 0;
-    const bar = (label, val, color) => {
-      const pct = total > 0 ? Math.round(val / total * 100) : 0;
-      return `<div style="margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
-          <span style="color:var(--text);">${label}</span>
-          <span style="color:var(--text2);font-weight:700;">€${Math.round(val)} · ${pct}%</span>
-        </div>
-        <div style="height:8px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden;">
-          <div style="height:100%;width:${pct}%;background:${color};border-radius:5px;transition:width .4s;"></div>
-        </div></div>`;
-    };
-    const emoji = { PayPal:'💜', Amazon:'📦', Bank:'🏦', Paysafe:'🔵', Crypto:'🪙', Unbekannt:'❔' };
-    cE.innerHTML = (d.by_creator && d.by_creator.length)
-      ? d.by_creator.map(c => bar(c.name || ('Creator ' + c.creator_id), c.revenue, 'linear-gradient(90deg,#00d4aa,#7c5cff)')).join('')
-      : '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
-    mE.innerHTML = (d.by_method && d.by_method.length)
-      ? d.by_method.map(m => bar((emoji[m.method] || '💳') + ' ' + m.method, m.revenue, 'linear-gradient(90deg,#f59e0b,#ef4444)')).join('')
-      : '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
-  } catch(e) {
-    cE.innerHTML = '<div style="color:#ff5c7a;font-size:12px;">Fehler beim Laden</div>';
-    mE.innerHTML = '';
-  }
+  // Compute from the SAME data as the "Revenue Today" KPI so totals always match.
+  const period = window._breakdownPeriod || 'today';
+  const all = (window._getCrmSalesData ? window._getCrmSalesData() : (window.crmSalesData || [])) || [];
+  const now = new Date();
+  let sinceMs = null;
+  if (period === 'today') sinceMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  else if (period === '7d') sinceMs = now.getTime() - 7 * 86400000;
+  else if (period === '30d') sinceMs = now.getTime() - 30 * 86400000;
+  const rows = all.filter(s => {
+    if ((s.status || '') === 'rejected') return false;
+    if (sinceMs === null) return true;
+    const d = parseTs(s.timestamp);
+    return !isNaN(d.getTime()) && d.getTime() >= sinceMs;
+  });
+  let total = 0; const byC = {}, byM = {};
+  rows.forEach(s => {
+    const a = parseFloat(s.amount) || 0; total += a;
+    const cn = s.creator_name || ('Creator ' + (s.creator_id || 1));
+    byC[cn] = (byC[cn] || 0) + a;
+    const ml = window._breakdownMethodLabel(s.payment_method);
+    byM[ml] = (byM[ml] || 0) + a;
+  });
+  const bar = (label, val, color) => {
+    const pct = total > 0 ? Math.round(val / total * 100) : 0;
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
+        <span style="color:var(--text);">${label}</span>
+        <span style="color:var(--text2);font-weight:700;">€${Math.round(val)} · ${pct}%</span>
+      </div>
+      <div style="height:8px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:5px;transition:width .4s;"></div>
+      </div></div>`;
+  };
+  const emoji = { PayPal:'💜', Amazon:'📦', Bank:'🏦', Paysafe:'🔵', 'Payment Link':'🔗', YouSafe:'🏦', Crypto:'🪙', Unbekannt:'❔' };
+  const cArr = Object.entries(byC).sort((a,b) => b[1]-a[1]);
+  const mArr = Object.entries(byM).sort((a,b) => b[1]-a[1]);
+  cE.innerHTML = cArr.length
+    ? cArr.map(([n,v]) => bar('👤 ' + n, v, 'linear-gradient(90deg,#00d4aa,#7c5cff)')).join('')
+    : '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
+  mE.innerHTML = mArr.length
+    ? mArr.map(([n,v]) => bar((emoji[n] || '💳') + ' ' + n, v, 'linear-gradient(90deg,#f59e0b,#ef4444)')).join('')
+    : '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
 };
 
 // ── Image pool (all fan photos, for daily review) ───────────────────────────
