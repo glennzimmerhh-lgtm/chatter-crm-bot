@@ -3496,27 +3496,45 @@ def stats_fakecheck(period: str = '30d'):
     else:
         since = '1970-01-01T00:00:00'
     total_fc = chats = converted = 0
+    by = {}
     try:
         with db() as conn, conn.cursor() as c:
+            # fake-checks grouped per chat (with count + first ts)
+            c.execute("SELECT tg_id, MIN(ts) AS first_fc, COUNT(*) AS n FROM fake_checks WHERE ts >= %s GROUP BY tg_id", (since,))
+            fc_rows = [dict(r) for r in c.fetchall()]
+            # which of those chats converted (sale after the first fake-check)
             c.execute("""
-                WITH fc AS (
-                    SELECT tg_id, MIN(ts) AS first_fc, COUNT(*) AS n
-                    FROM fake_checks WHERE ts >= %s GROUP BY tg_id
-                )
-                SELECT
-                    COALESCE((SELECT SUM(n) FROM fc), 0) AS total_fc,
-                    (SELECT COUNT(*) FROM fc) AS chats,
-                    (SELECT COUNT(*) FROM fc WHERE EXISTS (
-                        SELECT 1 FROM sales s
-                        WHERE s.tg_id = fc.tg_id
-                          AND COALESCE(s.status,'') <> 'rejected'
-                          AND s.timestamp >= fc.first_fc
-                    )) AS converted
+                SELECT f.tg_id FROM (SELECT tg_id, MIN(ts) AS first_fc FROM fake_checks WHERE ts >= %s GROUP BY tg_id) f
+                WHERE EXISTS (SELECT 1 FROM sales s WHERE s.tg_id=f.tg_id AND COALESCE(s.status,'')<>'rejected' AND s.timestamp >= f.first_fc)
             """, (since,))
-            row = c.fetchone() or {}
-            total_fc = int(row.get('total_fc') or 0)
-            chats = int(row.get('chats') or 0)
-            converted = int(row.get('converted') or 0)
+            conv_ids = set(r['tg_id'] for r in c.fetchall())
+            # new subs per creator in the period
+            c.execute("SELECT creator_id, COUNT(*) AS n FROM conversations WHERE first_time >= %s GROUP BY creator_id", (since,))
+            subs_by = {int(r['creator_id'] or 1): int(r['n'] or 0) for r in c.fetchall()}
+            try:
+                c.execute("SELECT id, name FROM creators")
+                names = {r['id']: r['name'] for r in c.fetchall()}
+            except Exception:
+                names = {}
+        def _bucket(cid):
+            return by.setdefault(cid, {'creator_id': cid, 'subs': 0, 'fc_chats': 0, 'fc_total': 0, 'converted': 0})
+        for r in fc_rows:
+            cid = _creator_id_for_tg(r['tg_id'])
+            b = _bucket(cid)
+            b['fc_chats'] += 1
+            b['fc_total'] += int(r['n'] or 0)
+            if r['tg_id'] in conv_ids:
+                b['converted'] += 1
+            total_fc += int(r['n'] or 0); chats += 1
+            if r['tg_id'] in conv_ids:
+                converted += 1
+        for cid, n in subs_by.items():
+            _bucket(cid)['subs'] = n
+        for cid, b in by.items():
+            b['name'] = names.get(cid, f'Creator {cid}')
+            b['buy_rate'] = round(b['converted'] / b['fc_chats'] * 100, 1) if b['fc_chats'] else 0.0
+            b['fc_per_conversion'] = round(b['fc_total'] / b['converted'], 1) if b['converted'] else None
+            b['fc_rate_of_subs'] = round(b['fc_chats'] / b['subs'] * 100, 1) if b['subs'] else None
     except Exception as e:
         print(f'fakecheck stats error: {e}')
     rate = round(converted / chats * 100, 1) if chats else 0.0
@@ -3528,6 +3546,7 @@ def stats_fakecheck(period: str = '30d'):
         'converted': converted,
         'conversion_rate': rate,
         'fake_checks_per_conversion': fc_per_conv,
+        'by_creator': sorted(by.values(), key=lambda x: (-x['fc_chats'], -x['subs'])),
     }
 
 @app.get('/settings/crm')

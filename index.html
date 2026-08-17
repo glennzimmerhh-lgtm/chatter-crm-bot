@@ -1345,6 +1345,8 @@
           <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:3px;">Fake-Checks gesamt</div>
         </div>
       </div>
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin:18px 0 10px;">Pro Model · Subs → Fake-Checks → Buy-Rate</div>
+      <div id="fc-conv-bycreator"></div>
     </div>
 
     <!-- MULTI-CREATOR ADMIN OVERVIEW: total on top, per-creator below -->
@@ -3873,6 +3875,35 @@ window.loadFcConversion = async function() {
     set('fc-conv-chats', d.chats_with_fakecheck || 0);
     set('fc-conv-sold', d.converted || 0);
     set('fc-conv-total', d.total_fake_checks || 0);
+    // Per-creator funnel: Subs → Fake-Checks → Buy-Rate
+    const box = document.getElementById('fc-conv-bycreator');
+    if (box) {
+      const rows = d.by_creator || [];
+      if (!rows.length) {
+        box.innerHTML = '<div style="color:var(--text3);font-size:12px;">Noch keine Daten im Zeitraum.</div>';
+      } else {
+        const step = (val, label, color) => `<div style="text-align:center;min-width:64px;">
+            <div style="font-size:18px;font-weight:800;color:${color};">${val}</div>
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;">${label}</div>
+          </div>`;
+        const arrow = '<div style="color:var(--text3);font-size:16px;opacity:.5;">→</div>';
+        box.innerHTML = rows.map(c => `
+          <div style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.04);border-radius:12px;padding:12px 16px;margin-bottom:8px;flex-wrap:wrap;">
+            <div style="min-width:90px;font-size:14px;font-weight:800;color:var(--text);">👤 ${(c.name||('Creator '+c.creator_id)).replace(/</g,'&lt;')}</div>
+            <div style="display:flex;align-items:center;gap:12px;flex:1;justify-content:flex-start;flex-wrap:wrap;">
+              ${step(c.subs||0, 'Subs', 'var(--text)')}
+              ${arrow}
+              ${step(c.fc_chats||0, 'Fake-Checks', '#00d4aa')}
+              ${arrow}
+              ${step(c.converted||0, 'Sales', '#22c55e')}
+            </div>
+            <div style="text-align:right;min-width:96px;">
+              <div style="font-size:20px;font-weight:800;color:#a78bfa;">${c.buy_rate != null ? c.buy_rate : 0}%</div>
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;">Buy-Rate</div>
+            </div>
+          </div>`).join('');
+      }
+    }
   } catch(e) {
     const rr = document.getElementById('fc-conv-rate'); if (rr) rr.textContent = '–';
   }
@@ -4224,7 +4255,7 @@ function _animateKpi(el, target, fmtFn){
   requestAnimationFrame(step);
 }
 
-// Draw a mini gradient sparkline into a canvas by id — animated draw-in (left→right)
+// Draw a mini gradient sparkline — draw-in, then a dot that travels the line forever (comet).
 window._sparkAnim = window._sparkAnim || {};
 function _dxDrawSpark(id, d, color){
   const cv = document.getElementById(id);
@@ -4234,27 +4265,50 @@ function _dxDrawSpark(id, d, color){
   const xs = i => pad + i*(w-2*pad)/((d.length-1)||1);
   const ys = v => h-pad-((v-mn)/rng)*(h-2*pad);
   const ctx = cv.getContext('2d');
-  function render(prog){
+  const pts = d.map((v,i) => [xs(i), ys(v)]);
+  const pointAt = frac => {
+    if (pts.length === 1) return pts[0];
+    const pos = Math.max(0, Math.min(1, frac)) * (pts.length-1);
+    const seg = Math.min(pts.length-2, Math.floor(pos)), f = pos-seg;
+    return [pts[seg][0] + (pts[seg+1][0]-pts[seg][0])*f, pts[seg][1] + (pts[seg+1][1]-pts[seg][1])*f];
+  };
+  function drawLine(prog){
     ctx.clearRect(0,0,w,h);
-    const totalSeg = (d.length-1)||1, drawn = totalSeg*prog, full = Math.floor(drawn), frac = drawn-full;
-    const pts = [];
-    for (let i=0; i<=Math.min(full, d.length-1); i++) pts.push([xs(i), ys(d[i])]);
-    if (full < d.length-1){ const x0=xs(full),y0=ys(d[full]),x1=xs(full+1),y1=ys(d[full+1]); pts.push([x0+(x1-x0)*frac, y0+(y1-y0)*frac]); }
-    if (!pts.length) return;
+    const totalSeg = (pts.length-1)||1, drawn = totalSeg*Math.max(0,Math.min(1,prog)), full = Math.floor(drawn), frac = drawn-full;
+    const dp = [];
+    for (let i=0; i<=Math.min(full, pts.length-1); i++) dp.push(pts[i]);
+    if (full < pts.length-1){ const a=pts[full], b=pts[full+1]; dp.push([a[0]+(b[0]-a[0])*frac, a[1]+(b[1]-a[1])*frac]); }
+    if (!dp.length) return dp;
     const g = ctx.createLinearGradient(0,0,0,h); g.addColorStop(0, color+'55'); g.addColorStop(1, color+'00');
-    ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); pts.forEach(p=>ctx.lineTo(p[0],p[1]));
-    ctx.lineTo(pts[pts.length-1][0], h); ctx.lineTo(pts[0][0], h); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
-    ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); pts.forEach(p=>ctx.lineTo(p[0],p[1]));
+    ctx.beginPath(); ctx.moveTo(dp[0][0],dp[0][1]); dp.forEach(p=>ctx.lineTo(p[0],p[1]));
+    ctx.lineTo(dp[dp.length-1][0], h); ctx.lineTo(dp[0][0], h); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(dp[0][0],dp[0][1]); dp.forEach(p=>ctx.lineTo(p[0],p[1]));
     ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
-    const last = pts[pts.length-1];
-    ctx.beginPath(); ctx.arc(last[0], last[1], 2.6, 0, 7); ctx.fillStyle = color; ctx.fill();
+    return dp;
+  }
+  function dot(pt, r, glow, alpha){
+    ctx.save(); ctx.globalAlpha = alpha == null ? 1 : alpha;
+    if (glow){ ctx.shadowColor = color; ctx.shadowBlur = 8; }
+    ctx.beginPath(); ctx.arc(pt[0], pt[1], r, 0, 7); ctx.fillStyle = color; ctx.fill(); ctx.restore();
   }
   if (window._sparkAnim[id]) cancelAnimationFrame(window._sparkAnim[id]);
-  const start = performance.now(), dur = 700;
+  const start = performance.now(), inDur = 700, period = 2600;
   function frame(now){
-    const p = Math.min(1, (now-start)/dur), e = 1 - Math.pow(1-p, 3);
-    render(e);
-    if (p < 1) window._sparkAnim[id] = requestAnimationFrame(frame); else window._sparkAnim[id] = null;
+    const t = now - start;
+    if (t < inDur){
+      const e = 1 - Math.pow(1 - t/inDur, 3);
+      const dp = drawLine(e);
+      if (dp.length) dot(dp[dp.length-1], 2.6, true);
+    } else {
+      drawLine(1);
+      dot(pts[pts.length-1], 2.2, false, 0.6);   // faint static end marker
+      const lt = ((t - inDur) % period) / period; // 0→1 sweep, looping
+      for (let k = 5; k >= 0; k--){               // comet trail
+        const tt = lt - k*0.022; if (tt < 0) continue;
+        dot(pointAt(tt), k === 0 ? 2.9 : (2.4 - k*0.35), k === 0, (1 - k/6) * 0.9);
+      }
+    }
+    window._sparkAnim[id] = requestAnimationFrame(frame);
   }
   window._sparkAnim[id] = requestAnimationFrame(frame);
 }
