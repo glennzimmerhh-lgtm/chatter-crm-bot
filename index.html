@@ -5317,7 +5317,7 @@ if (checkAuth()) {
     const conv = allConvs.find(c => c.tg_id === tgId);
     if (!conv) { statusEl.innerHTML = ''; return; }
     // Always show TG username if available (chatters need it for calls)
-    const usernameChip = conv.tg_username
+    const usernameChip = (conv.tg_username && (typeof isAdmin === 'function' && isAdmin()))
       ? `<span style="color:var(--teal);font-size:10px;margin-right:6px;cursor:pointer;" title="Telegram username" onclick="navigator.clipboard&&navigator.clipboard.writeText('@${conv.tg_username}')">@${conv.tg_username}</span>`
       : '';
     let statusTxt = '';
@@ -5667,7 +5667,7 @@ if (checkAuth()) {
         <div class="profile-big-avatar">${avatarImg(tgId, letter)}</div>
         <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px;">${p.internal_name || p.anon_id}</div>
         <div class="profile-anon">${p.anon_id}</div>
-        ${p.tg_username ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;cursor:pointer;" onclick="navigator.clipboard&&navigator.clipboard.writeText('@${p.tg_username}');this.textContent='✅ Copied!';setTimeout(()=>this.textContent='@${p.tg_username}',1500)" title="Click to copy">@${p.tg_username}</div>` : ''}
+        ${(p.tg_username && (typeof isAdmin==='function' && isAdmin())) ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;cursor:pointer;" onclick="navigator.clipboard&&navigator.clipboard.writeText('@${p.tg_username}');this.textContent='✅ Copied!';setTimeout(()=>this.textContent='@${p.tg_username}',1500)" title="Click to copy">@${p.tg_username}</div>` : ''}
         ${(!isChatter() && p.tg_phone) ? `<div style="font-size:11px;color:#55556a;margin-top:1px;">📞 +${p.tg_phone}</div>` : ''}
       </div>
 
@@ -5764,7 +5764,7 @@ if (checkAuth()) {
         <div class="profile-stat-row"><span>First message</span><span class="profile-stat-val">${firstDate}</span></div>
         <div class="profile-stat-row"><span>Last message</span><span class="profile-stat-val">${lastDate}</span></div>
         <div class="profile-stat-row"><span>Messages</span><span class="profile-stat-val">${p.msg_count||0}</span></div>
-        <div class="profile-stat-row"><span>Telegram</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ No username'}</span></div>
+        ${(typeof isAdmin==='function' && isAdmin()) ? `<div class="profile-stat-row"><span>Telegram</span><span class="profile-stat-val" style="color:var(--teal);font-size:11px;">${p.tg_username ? '@'+p.tg_username : p.tg_phone ? '+'+p.tg_phone : '⚠️ No username'}</span></div>` : ''}
 
       </div>
     `;
@@ -8664,7 +8664,7 @@ function renderNotifications() {
     } else if (isSale) {
       detail = `${n.name} · ${n.product || 'Produkt'} · <strong style="color:#ffd166">${parseFloat(n.amount||0).toFixed(0)}€</strong>${n.chatter ? ' · ' + n.chatter : ''}${modelBadge}`;
     } else {
-      detail = `${n.name} hat subscribed${n.username ? ' <span style="color:var(--text3)">@' + n.username + '</span>' : ''}${modelBadge}`;
+      detail = `${n.name} hat subscribed${(n.username && (typeof isAdmin==='function' && isAdmin())) ? ' <span style="color:var(--text3)">@' + n.username + '</span>' : ''}${modelBadge}`;
     }
     const clickAttr = isPay ? '' : `onclick="openConv('${n.tg_id}','${(n.anon_id||'')}');showPage('chat')"`;
     return `<div ${clickAttr}

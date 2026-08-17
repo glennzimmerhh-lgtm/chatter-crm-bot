@@ -2980,8 +2980,10 @@ def _current_shift_window():
         s, e, label = at(now_b, 9), at(now_b, 17), 'Tagschicht · 9–17'
     elif h >= 17:
         s, e, label = at(now_b, 17), at(now_b + timedelta(days=1), 1), 'Abendschicht · 17–1'
-    else:  # 0–9 Uhr: Abendschicht, die um 17:00 des Vortags begann (läuft bis 01:00)
+    elif h == 0:   # 00:00–00:59 → Abendschicht läuft noch (begann gestern 17:00)
         s, e, label = at(now_b - timedelta(days=1), 17), at(now_b, 1), 'Abendschicht · 17–1'
+    else:          # 01:00–09:00 → Pause; zeige die kommende Tagschicht (startet bei 0)
+        s, e, label = at(now_b, 9), at(now_b, 17), 'Tagschicht · 9–17'
     def _local(dt):
         try:
             return dt.astimezone().replace(tzinfo=None).isoformat()   # → server-local naive
