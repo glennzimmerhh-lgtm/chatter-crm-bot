@@ -3801,12 +3801,12 @@ window.setBreakdownPeriod = function(p) {
 window._breakdownMethodLabel = function(m) {
   const s = (m || '').toLowerCase();
   if (!s) return 'Unbekannt';
-  if (s.includes('paypal')) return 'PayPal';
+  // "Payment Link" zählt bei euch als PayPal → zusammengeführt.
+  if (s.includes('paypal') || s.includes('link')) return 'PayPal';
   if (s.includes('amazon') || s.includes('gift') || s.includes('gutschein')) return 'Amazon';
   if (s.includes('bank') || s.includes('sepa') || s.includes('überweis') || s.includes('iban')) return 'Bank';
   if (s.includes('paysafe')) return 'Paysafe';
   if (s.includes('yousafe')) return 'YouSafe';
-  if (s.includes('link')) return 'Payment Link';
   return (m || '').trim();
 };
 window.loadRevenueBreakdown = function() {
@@ -3828,7 +3828,7 @@ window.loadRevenueBreakdown = function() {
   });
   let total = 0; const byC = {};
   // Standard-Zahlungswege immer anzeigen (auch mit 0 €), damit PayPal etc. nie "fehlt".
-  const byM = { 'PayPal': 0, 'Amazon': 0, 'Bank': 0, 'Payment Link': 0 };
+  const byM = { 'PayPal': 0, 'Amazon': 0, 'Bank': 0 };
   rows.forEach(s => {
     const a = parseFloat(s.amount) || 0; total += a;
     const cn = s.creator_name || ('Creator ' + (s.creator_id || 1));
