@@ -1311,25 +1311,40 @@
       <div id="dash-online-list" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
     </div>
 
-    <!-- WINBACK: silent-fan reactivation -->
-    <div id="winback-panel" class="panel" style="margin-bottom:20px;padding:16px 20px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-        <div style="display:flex;align-items:center;gap:9px;">
-          <span style="font-size:14px;font-weight:800;color:var(--text);">💤 Winback — stille Fans</span>
-          <span id="winback-count" style="background:rgba(167,139,250,.14);color:var(--dx-purple);font-size:11px;font-weight:800;border-radius:999px;padding:2px 10px;border:1px solid rgba(167,139,250,.3);"></span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <select id="winback-days" onchange="loadWinback()" style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text2);border-radius:9px;font-size:12px;padding:6px 9px;cursor:pointer;outline:none;">
-            <option value="3">still ab 3 Tagen</option>
-            <option value="7">ab 7 Tagen</option>
-            <option value="14">ab 14 Tagen</option>
-            <option value="30">ab 30 Tagen</option>
-          </select>
-          <button onclick="loadWinback()" title="Neu laden" style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text2);border-radius:9px;font-size:13px;padding:6px 11px;cursor:pointer;">↻</button>
+    <!-- FAKE-CHECK → SALE CONVERSION -->
+    <div id="fakecheck-panel" class="panel" style="margin-bottom:20px;padding:16px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
+        <span style="font-size:14px;font-weight:800;color:var(--text);">🎬 Fake-Check → Sale</span>
+        <div style="display:flex;gap:6px;" id="fc-conv-periods">
+          <button class="period-btn" data-p="today" onclick="setFcConvPeriod('today')">Heute</button>
+          <button class="period-btn" data-p="7d" onclick="setFcConvPeriod('7d')">7 Tage</button>
+          <button class="period-btn active" data-p="30d" onclick="setFcConvPeriod('30d')">30 Tage</button>
+          <button class="period-btn" data-p="all" onclick="setFcConvPeriod('all')">Alle</button>
         </div>
       </div>
-      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;">Fans, die sich länger nicht gemeldet haben — sortiert nach Umsatz. Hol sie mit einem KI-Opener zurück.</div>
-      <div id="winback-list"><div style="color:var(--text3);font-size:12px;padding:8px 0;">Lade…</div></div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px;">Chats mit Fake-Check, davon mit Sale — und wie viele Fake-Checks im Schnitt für einen Sale nötig sind.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
+        <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:16px;text-align:center;">
+          <div id="fc-conv-rate" style="font-size:28px;font-weight:800;color:var(--teal,#00d4aa);">–</div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:3px;">Conversion-Rate</div>
+        </div>
+        <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:16px;text-align:center;">
+          <div id="fc-conv-perconv" style="font-size:28px;font-weight:800;color:#a78bfa;">–</div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:3px;">Ø Fake-Checks / Sale</div>
+        </div>
+        <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:16px;text-align:center;">
+          <div id="fc-conv-chats" style="font-size:28px;font-weight:800;color:var(--text);">–</div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:3px;">Chats mit Fake-Check</div>
+        </div>
+        <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:16px;text-align:center;">
+          <div id="fc-conv-sold" style="font-size:28px;font-weight:800;color:#22c55e;">–</div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:3px;">davon mit Sale</div>
+        </div>
+        <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:16px;text-align:center;">
+          <div id="fc-conv-total" style="font-size:28px;font-weight:800;color:var(--text2);">–</div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:3px;">Fake-Checks gesamt</div>
+        </div>
+      </div>
     </div>
 
     <!-- MULTI-CREATOR ADMIN OVERVIEW: total on top, per-creator below -->
@@ -3839,6 +3854,30 @@ window.loadRevenueBreakdown = function() {
     : '<div style="color:var(--text3);font-size:12px;">Keine Sales im Zeitraum</div>';
 };
 
+// ── Fake-Check → Sale conversion ────────────────────────────────────────────
+window._fcConvPeriod = '30d';
+window.setFcConvPeriod = function(p) {
+  window._fcConvPeriod = p;
+  document.querySelectorAll('#fc-conv-periods .period-btn').forEach(b => b.classList.toggle('active', b.dataset.p === p));
+  loadFcConversion();
+};
+window.loadFcConversion = async function() {
+  const rate = document.getElementById('fc-conv-rate');
+  if (!rate) return;
+  try {
+    const r = await fetch('/api/stats/fakecheck?period=' + (window._fcConvPeriod || '30d'));
+    const d = await r.json();
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('fc-conv-rate', (d.conversion_rate != null ? d.conversion_rate : 0) + '%');
+    set('fc-conv-perconv', d.fake_checks_per_conversion != null ? d.fake_checks_per_conversion : '–');
+    set('fc-conv-chats', d.chats_with_fakecheck || 0);
+    set('fc-conv-sold', d.converted || 0);
+    set('fc-conv-total', d.total_fake_checks || 0);
+  } catch(e) {
+    const rr = document.getElementById('fc-conv-rate'); if (rr) rr.textContent = '–';
+  }
+};
+
 // ── Image pool (all photos — fan + chatter — for daily review) ──────────────
 window._poolDate = '';
 window._poolDir = '';   // '' = all, 'in' = fan, 'out' = chatter
@@ -3913,8 +3952,8 @@ window.loadMediaPool = async function() {
 
 function renderDashboard() {
   if (window.loadSourceStats) window.loadSourceStats();
-  if (window.loadWinback) window.loadWinback();
   if (window.loadRevenueBreakdown) window.loadRevenueBreakdown();
+  if (window.loadFcConversion) window.loadFcConversion();
   const p = currentPeriod;
   const tod = today();
   const periodLabels = { heute: 'Today', gestern: 'Yesterday', woche: 'This Week', monat: 'This Month', range: 'Zeitraum' };
@@ -5129,6 +5168,7 @@ if (checkAuth()) {
       const mutedBadge = c.is_muted ? `<span class="tier-badge tier-muted" style="font-size:9px;padding:1px 5px;margin-left:3px;">🔇 Muted</span>` : '';
       const radar = (window._radarMap || {})[c.tg_id];
       const followupBadge = radar ? `<span class="tier-badge" style="font-size:9px;padding:1px 5px;margin-left:3px;background:rgba(255,92,122,.18);color:#ff5c7a;border:1px solid rgba(255,92,122,.4);">🔴 ${radar.kind==='waiting'?'wartet':'Follow-up'}</span>` : '';
+      const fcBadge = c.had_fakecheck ? `<span class="tier-badge" title="Fake-Check gemacht" style="font-size:9px;padding:1px 5px;margin-left:3px;background:rgba(0,212,170,.16);color:#00d4aa;border:1px solid rgba(0,212,170,.4);">🎬 FC</span>` : '';
       const onlineDot = c.is_online
         ? `<span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border:2px solid var(--bg2);border-radius:50%;"></span>`
         : '';
@@ -5151,7 +5191,7 @@ if (checkAuth()) {
           <div class="spend-pill ${pillCls}">${pillAmt}</div>
         </div>
         <div class="conv-info">
-          <div class="conv-name">${c.internal_name || c.anon_id}${mutedBadge}${twBadge}${followupBadge}</div>
+          <div class="conv-name">${c.internal_name || c.anon_id}${mutedBadge}${twBadge}${followupBadge}${fcBadge}</div>
           ${c.internal_name ? `<div class="conv-iname">${c.anon_id}</div>` : ''}
           <div class="conv-preview">${c.last_msg || '—'}</div>
         </div>

@@ -500,6 +500,17 @@ def init_db():
                 pass
             c.execute("CREATE INDEX IF NOT EXISTS idx_media_pool_ts ON media_pool(ts DESC)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_scam_ts ON scam_incidents(ts DESC)")
+            # Fake-check events — every time a fake-check call is started in a chat.
+            c.execute('''CREATE TABLE IF NOT EXISTS fake_checks (
+                id         SERIAL PRIMARY KEY,
+                tg_id      TEXT NOT NULL,
+                creator_id INTEGER DEFAULT 1,
+                chatter    TEXT DEFAULT '',
+                filename   TEXT DEFAULT '',
+                ts         TEXT NOT NULL
+            )''')
+            c.execute("CREATE INDEX IF NOT EXISTS idx_fakecheck_tg ON fake_checks(tg_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_fakecheck_ts ON fake_checks(ts DESC)")
             # Users table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
                 id            INTEGER PRIMARY KEY,
@@ -2450,7 +2461,9 @@ def get_conversations(creator_id: Optional[int] = None, slim: int = 0,
     else:
         cols = ('SELECT tg_id,anon_id,internal_name,notes,last_msg,last_time,first_time,unread,msg_count,'
                 'time_waster,is_muted,tg_username,tg_phone,followup_at,funnel_stage,call_followup_at,'
-                'call_followup_note,is_online,last_seen,creator_id FROM conversations')
+                'call_followup_note,is_online,last_seen,creator_id,'
+                'EXISTS(SELECT 1 FROM fake_checks f WHERE f.tg_id=conversations.tg_id) AS had_fakecheck '
+                'FROM conversations')
     where, params = [], []
     if creator_id is not None:
         where.append('creator_id=%s'); params.append(creator_id)
@@ -3467,6 +3480,54 @@ def stats_breakdown(period: str = 'today'):
         'total': round(total, 2),
         'by_creator': sorted(by_creator.values(), key=lambda x: -x['revenue']),
         'by_method': sorted(by_method.values(), key=lambda x: -x['revenue']),
+    }
+
+@app.get('/stats/fakecheck')
+def stats_fakecheck(period: str = '30d'):
+    """Fake-check → sale conversion. How many chats with a fake-check also got a sale,
+    and how many fake-checks per conversion on average."""
+    now = datetime.now()
+    if period == 'today':
+        since = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    elif period == '7d':
+        since = (now - timedelta(days=7)).isoformat()
+    elif period == '30d':
+        since = (now - timedelta(days=30)).isoformat()
+    else:
+        since = '1970-01-01T00:00:00'
+    total_fc = chats = converted = 0
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("""
+                WITH fc AS (
+                    SELECT tg_id, MIN(ts) AS first_fc, COUNT(*) AS n
+                    FROM fake_checks WHERE ts >= %s GROUP BY tg_id
+                )
+                SELECT
+                    COALESCE((SELECT SUM(n) FROM fc), 0) AS total_fc,
+                    (SELECT COUNT(*) FROM fc) AS chats,
+                    (SELECT COUNT(*) FROM fc WHERE EXISTS (
+                        SELECT 1 FROM sales s
+                        WHERE s.tg_id = fc.tg_id
+                          AND COALESCE(s.status,'') <> 'rejected'
+                          AND s.timestamp >= fc.first_fc
+                    )) AS converted
+            """, (since,))
+            row = c.fetchone() or {}
+            total_fc = int(row.get('total_fc') or 0)
+            chats = int(row.get('chats') or 0)
+            converted = int(row.get('converted') or 0)
+    except Exception as e:
+        print(f'fakecheck stats error: {e}')
+    rate = round(converted / chats * 100, 1) if chats else 0.0
+    fc_per_conv = round(total_fc / converted, 1) if converted else None
+    return {
+        'period': period,
+        'total_fake_checks': total_fc,
+        'chats_with_fakecheck': chats,
+        'converted': converted,
+        'conversion_rate': rate,
+        'fake_checks_per_conversion': fc_per_conv,
     }
 
 @app.get('/settings/crm')
@@ -6486,10 +6547,16 @@ async def _run_call_play(tg_id_str: str, peer: int, stream, media_src: str, cc=N
         if _last_err is not None:
             print(f'❌ Call failed after retries for {tg_id_str}: {_last_err}')
             active_calls.pop(tg_id_str, None)
+            _es = str(_last_err)
+            if 'Too many requests' in _es or 'FLOOD' in _es.upper():
+                _msg = ('⏳ Telegram blockiert gerade neue Anrufe von diesem Model (zu viele Calls kurz '
+                        'hintereinander). Kurze Anruf-Pause (~15-30 Min), dann geht es automatisch wieder.')
+            else:
+                _msg = _es
             await ws_manager.broadcast({
                 'type': 'call_ended', 'tg_id': tg_id_str,
                 'reason': 'error',
-                'msg': str(_last_err),
+                'msg': _msg,
             })
             return
 
@@ -6866,6 +6933,14 @@ async def start_fake_call(body: CallStartIn):
         'folder': body.folder or '',
     }
     save_msg(body.tg_id, f'[📞 Pre-recorded {"Video" if is_video else "Audio"} Call – {label}]', 'out', body.chatter)
+    # Track fake-checks for the conversion funnel (chats with a fake-check → sale).
+    if (body.folder or '') == 'fake_checks':
+        try:
+            with db() as _conn, _conn.cursor() as _c:
+                _c.execute("INSERT INTO fake_checks (tg_id,creator_id,chatter,filename,ts) VALUES (%s,%s,%s,%s,%s)",
+                           (body.tg_id, _cid, body.chatter, label, now_ts))
+        except Exception as _fce:
+            print(f'fake_check log error: {_fce}')
     asyncio.create_task(ws_manager.broadcast({
         'type': 'call_started',
         'tg_id': body.tg_id,
