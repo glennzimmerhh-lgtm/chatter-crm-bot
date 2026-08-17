@@ -4003,11 +4003,11 @@ function renderDashboard() {
     productMap[key] = (productMap[key] || 0) + (parseFloat(s.amount) || 0);
   });
 
-  document.getElementById('kpi-today-rev').textContent    = fmt(totalRevenue);
+  _animateKpi(document.getElementById('kpi-today-rev'), totalRevenue, fmt);
   document.getElementById('kpi-today-rev-sub').textContent = totalSalesCount + ' Transaktionen';
-  document.getElementById('kpi-today-sales').textContent  = totalSalesCount;
+  _animateKpi(document.getElementById('kpi-today-sales'), totalSalesCount, n => String(Math.round(n)));
   document.getElementById('kpi-today-sales-sub').textContent = `${filteredSales.length} Sheet · ${filteredCrmForKpi.length} CRM`;
-  document.getElementById('kpi-arppu').textContent = fmt(arppu);
+  _animateKpi(document.getElementById('kpi-arppu'), arppu, fmt);
   document.getElementById('kpi-conversion').textContent = convPct + '%';
   document.getElementById('kpi-conversion-sub').textContent = `${uniqueSpenders} / ${totalConvs} Subscriber`;
 
@@ -4048,7 +4048,7 @@ function renderDashboard() {
     return true;
   });
   const newSubs = newSubList.length;
-  document.getElementById('kpi-week-rev').textContent = newSubs;
+  _animateKpi(document.getElementById('kpi-week-rev'), newSubs, n => String(Math.round(n)));
   // Per-model breakdown right under the number (e.g. "Marie 80 · Leni 36")
   const _cnames = {}; (window._creators || []).forEach(c => { _cnames[c.id] = c.name; });
   const _byCreator = {};
@@ -4192,21 +4192,71 @@ function renderRevenueChart(period) {
   } catch(e) {}
 }
 
-// Draw a mini gradient sparkline into a canvas by id
+// ── Dashboard animations: count-up KPIs, sparkline draw-in, feed slide-in ─────
+(function(){
+  if (document.getElementById('dx-anim-style')) return;
+  const st = document.createElement('style'); st.id = 'dx-anim-style';
+  st.textContent =
+    '@keyframes dxFeedIn{from{opacity:0;transform:translateY(-9px)}to{opacity:1;transform:none}}' +
+    '.dx-feed-new{animation:dxFeedIn .45s cubic-bezier(.2,.7,.3,1) both}' +
+    '@keyframes kpiPulse{0%{}22%{color:#22c55e;text-shadow:0 0 22px rgba(34,197,94,.6)}100%{}}' +
+    '.kpi-pulse{animation:kpiPulse .9s ease}';
+  document.head.appendChild(st);
+})();
+
+// Count-up a KPI value; green-pulses the revenue KPI when it increases.
+function _animateKpi(el, target, fmtFn){
+  if (!el) return;
+  fmtFn = fmtFn || (n => String(Math.round(n)));
+  const tgt = Number(target) || 0;
+  const prev = parseFloat(el.dataset.val || 'NaN');
+  el.dataset.val = String(tgt);
+  if (el.id === 'kpi-today-rev' && !isNaN(prev) && tgt > prev){
+    el.classList.remove('kpi-pulse'); void el.offsetWidth; el.classList.add('kpi-pulse');
+  }
+  if (isNaN(prev) === false && prev === tgt){ el.textContent = fmtFn(tgt); return; }
+  const from = isNaN(prev) ? 0 : prev, start = performance.now(), dur = 650;
+  function step(now){
+    const t = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - t, 3);
+    el.textContent = fmtFn(from + (tgt - from) * e);
+    if (t < 1) requestAnimationFrame(step); else el.textContent = fmtFn(tgt);
+  }
+  requestAnimationFrame(step);
+}
+
+// Draw a mini gradient sparkline into a canvas by id — animated draw-in (left→right)
+window._sparkAnim = window._sparkAnim || {};
 function _dxDrawSpark(id, d, color){
   const cv = document.getElementById(id);
   if (!cv || !d || !d.length) return;
-  const w = cv.width = 150, h = cv.height = 54, ctx = cv.getContext('2d');
-  ctx.clearRect(0,0,w,h);
-  const mn = Math.min.apply(0,d), mx = Math.max.apply(0,d), rng = (mx-mn)||1, pad = 5;
+  const w = cv.width = 150, h = cv.height = 54, pad = 5;
+  const mn = Math.min.apply(0,d), mx = Math.max.apply(0,d), rng = (mx-mn)||1;
   const xs = i => pad + i*(w-2*pad)/((d.length-1)||1);
   const ys = v => h-pad-((v-mn)/rng)*(h-2*pad);
-  const g = ctx.createLinearGradient(0,0,0,h); g.addColorStop(0, color+'55'); g.addColorStop(1, color+'00');
-  ctx.beginPath(); ctx.moveTo(xs(0), ys(d[0])); d.forEach((v,i)=>ctx.lineTo(xs(i), ys(v)));
-  ctx.lineTo(xs(d.length-1), h); ctx.lineTo(xs(0), h); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
-  ctx.beginPath(); ctx.moveTo(xs(0), ys(d[0])); d.forEach((v,i)=>ctx.lineTo(xs(i), ys(v)));
-  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
-  ctx.beginPath(); ctx.arc(xs(d.length-1), ys(d[d.length-1]), 2.6, 0, 7); ctx.fillStyle = color; ctx.fill();
+  const ctx = cv.getContext('2d');
+  function render(prog){
+    ctx.clearRect(0,0,w,h);
+    const totalSeg = (d.length-1)||1, drawn = totalSeg*prog, full = Math.floor(drawn), frac = drawn-full;
+    const pts = [];
+    for (let i=0; i<=Math.min(full, d.length-1); i++) pts.push([xs(i), ys(d[i])]);
+    if (full < d.length-1){ const x0=xs(full),y0=ys(d[full]),x1=xs(full+1),y1=ys(d[full+1]); pts.push([x0+(x1-x0)*frac, y0+(y1-y0)*frac]); }
+    if (!pts.length) return;
+    const g = ctx.createLinearGradient(0,0,0,h); g.addColorStop(0, color+'55'); g.addColorStop(1, color+'00');
+    ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); pts.forEach(p=>ctx.lineTo(p[0],p[1]));
+    ctx.lineTo(pts[pts.length-1][0], h); ctx.lineTo(pts[0][0], h); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); pts.forEach(p=>ctx.lineTo(p[0],p[1]));
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+    const last = pts[pts.length-1];
+    ctx.beginPath(); ctx.arc(last[0], last[1], 2.6, 0, 7); ctx.fillStyle = color; ctx.fill();
+  }
+  if (window._sparkAnim[id]) cancelAnimationFrame(window._sparkAnim[id]);
+  const start = performance.now(), dur = 700;
+  function frame(now){
+    const p = Math.min(1, (now-start)/dur), e = 1 - Math.pow(1-p, 3);
+    render(e);
+    if (p < 1) window._sparkAnim[id] = requestAnimationFrame(frame); else window._sparkAnim[id] = null;
+  }
+  window._sparkAnim[id] = requestAnimationFrame(frame);
 }
 
 // Set an up/down/flat trend chip comparing current vs previous value
@@ -8663,7 +8713,9 @@ function renderDxActivityFeed(){
   if (!box) return;
   const items = (_allNotifs || []).slice(0, 8);
   if (!items.length) { box.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:10px 0;">Noch keine Aktivität heute.</div>'; return; }
-  box.innerHTML = items.map(n => {
+  window._dxSeenFeed = window._dxSeenFeed || new Set();
+  const firstRender = window._dxSeenFeed.size === 0;
+  box.innerHTML = items.map((n, idx) => {
     const isSale = n.type === 'sale', isPay = n.type === 'paypal' || n.type === 'revolut';
     let ic, bg, txt;
     if (isSale) { ic='💰'; bg='rgba(34,197,94,.14)'; txt='<b>' + parseFloat(n.amount||0).toFixed(0) + '€</b> Sale · ' + (n.product || 'Produkt'); }
@@ -8672,9 +8724,15 @@ function renderDxActivityFeed(){
     const modelBadge = n.creator_name ? '<span style="background:rgba(124,92,255,.16);color:#a78bfa;font-size:10px;font-weight:700;border-radius:6px;padding:1px 6px;margin-left:6px;">👤 ' + n.creator_name + '</span>' : '';
     const meta = _dxAgo(n.ts) + (n.chatter ? ' · ' + n.chatter : '') ;
     txt = txt + modelBadge;
-    return '<div class="dx-feed"><div class="dx-fic" style="background:' + bg + '">' + ic + '</div>'
+    const key = (n.type||'') + '|' + (n.ts||'') + '|' + (n.tg_id||'') + '|' + (n.amount||'');
+    const isNew = !window._dxSeenFeed.has(key);
+    window._dxSeenFeed.add(key);
+    const cls = isNew ? 'dx-feed dx-feed-new' : 'dx-feed';
+    const delay = (isNew && firstRender) ? ('animation-delay:' + Math.min(idx*55, 330) + 'ms;') : '';
+    return '<div class="' + cls + '" style="' + delay + '"><div class="dx-fic" style="background:' + bg + '">' + ic + '</div>'
       + '<div><div class="ft">' + txt + '</div><div class="fs">' + meta + '</div></div></div>';
   }).join('');
+  if (window._dxSeenFeed.size > 200){ window._dxSeenFeed = new Set(items.map(n => (n.type||'')+'|'+(n.ts||'')+'|'+(n.tg_id||'')+'|'+(n.amount||''))); }
 }
 
 // Load notifications immediately on startup (fills badge + pre-loads data)
