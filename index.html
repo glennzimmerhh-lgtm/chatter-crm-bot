@@ -982,6 +982,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       Dashboard
     </div>
+    <div class="nav-item admin-only" onclick="showPage('creators')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17.5" cy="9.5" r="2.4"/><path d="M15 20a4.5 4.5 0 0 1 6.5-4"/></svg>
+      Creators
+    </div>
     <div class="nav-item" onclick="showPage('sales')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
       Sales Log
@@ -2202,6 +2206,22 @@
     </div>
     <div id="pledges-page-list" style="display:flex;flex-direction:column;gap:10px;max-width:800px;">
       <div class="empty">Loading...</div>
+    </div>
+  </div>
+
+  <!-- CREATORS PAGE -->
+  <div id="page-creators" style="display:none;">
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <div>
+        <h1 class="page-title">🎭 Creators</h1>
+        <p style="color:var(--text2);font-size:13px;margin-top:4px;">Deine Models verwalten — Telegram verbinden, Umsatz & Subs im Blick.</p>
+      </div>
+      <button onclick="openNewCreator()" style="display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#00d4aa,#7c5cff);border:none;border-radius:12px;color:#fff;padding:12px 20px;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 8px 24px rgba(124,92,255,.35);">
+        <span style="font-size:18px;line-height:1;">＋</span> Neuer Creator
+      </button>
+    </div>
+    <div id="creators-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:18px;margin-top:8px;">
+      <div style="color:var(--text3);font-size:13px;">Lade Creators…</div>
     </div>
   </div>
 
@@ -4729,7 +4749,7 @@ function _fmtHours(sec) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -4750,6 +4770,7 @@ function showPage(name) {
   if (name === 'vault') { if (typeof loadVaultPage === 'function') loadVaultPage(); }
   if (name === 'notifications') { if (typeof loadNotifications === 'function') loadNotifications(); }
   if (name === 'members') { if (typeof loadMembers === 'function') loadMembers(); }
+  if (name === 'creators') { if (typeof loadCreatorsPage === 'function') loadCreatorsPage(); }
   if (name === 'hotkeys') { if (typeof renderHotkeysPage === 'function') renderHotkeysPage(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues
@@ -10223,6 +10244,168 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Creator angelegt ✓\n\nNächster Schritt (Stage 2): das Telegram-Konto dieses Creators verbinden, dann laufen Chats & Statistiken für ihn.');
     } catch(e){ alert('Fehler: ' + (e && e.message)); }
   };
+  // ── CREATORS PAGE: slick cards + New-Creator wizard with native QR login ──────
+  function _ensureQRCodeLib(){
+    return new Promise((res)=>{
+      if (window.QRCode) return res();
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+      s.onload = () => res(); s.onerror = () => res();
+      document.head.appendChild(s);
+    });
+  }
+  function _creatorModalEl(){
+    let m = document.getElementById('creator-wizard');
+    if (!m){
+      m = document.createElement('div');
+      m.id = 'creator-wizard';
+      m.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:20px;';
+      m.innerHTML = '<div id="creator-wizard-card" style="background:linear-gradient(160deg,#161326,#0f0f14);border:1px solid rgba(124,92,255,.35);border-radius:20px;max-width:440px;width:100%;padding:26px;box-shadow:0 24px 70px rgba(0,0,0,.6);"></div>';
+      m.addEventListener('click', (e)=>{ if (e.target === m) _closeCreatorWizard(); });
+      document.body.appendChild(m);
+    }
+    return m;
+  }
+  window._closeCreatorWizard = function(){
+    window._qrPollActive = false;
+    const m = document.getElementById('creator-wizard');
+    if (m) m.style.display = 'none';
+  };
+  window.openNewCreator = function(){
+    const m = _creatorModalEl(); m.style.display = 'flex';
+    m.querySelector('#creator-wizard-card').innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+        <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#00d4aa,#7c5cff);display:flex;align-items:center;justify-content:center;font-size:22px;">🎭</div>
+        <div><div style="font-size:18px;font-weight:800;color:#fff;">Neuer Creator</div>
+        <div style="font-size:12px;color:#9a93b5;">Schritt 1 von 2 · Profil</div></div>
+      </div>
+      <label style="display:block;font-size:11px;color:#9a93b5;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 6px;">Name des Models</label>
+      <input id="nc-name" type="text" placeholder="z.B. Mia" autofocus style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:11px;color:#fff;padding:13px 15px;font-size:16px;outline:none;">
+      <div id="nc-err" style="color:#ff5c7a;font-size:12px;margin-top:8px;display:none;"></div>
+      <div style="display:flex;gap:10px;margin-top:22px;">
+        <button onclick="_closeCreatorWizard()" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:11px;color:#cdc7e0;padding:12px;font-size:14px;font-weight:600;cursor:pointer;">Abbrechen</button>
+        <button onclick="_createCreatorNext()" style="flex:2;background:linear-gradient(135deg,#00d4aa,#7c5cff);border:none;border-radius:11px;color:#fff;padding:12px;font-size:14px;font-weight:800;cursor:pointer;">Weiter → Telegram verbinden</button>
+      </div>`;
+    setTimeout(()=>{ const i=document.getElementById('nc-name'); if(i) i.focus(); }, 60);
+  };
+  window._createCreatorNext = async function(){
+    const name = (document.getElementById('nc-name')||{}).value || '';
+    const err = document.getElementById('nc-err');
+    if (!name.trim()){ if(err){ err.textContent='Bitte einen Namen eingeben.'; err.style.display='block'; } return; }
+    try {
+      const r = await fetch('/api/creators', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: name.trim() }) });
+      const d = await r.json().catch(()=>({}));
+      if (!r.ok){ if(err){ err.textContent = d.detail || ('HTTP '+r.status); err.style.display='block'; } return; }
+      if (window.loadCreators) window.loadCreators();
+      window.openConnectCreator(d.id, name.trim());
+    } catch(e){ if(err){ err.textContent = e.message; err.style.display='block'; } }
+  };
+  window.openConnectCreator = async function(id, name){
+    const m = _creatorModalEl(); m.style.display = 'flex';
+    m.querySelector('#creator-wizard-card').innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
+        <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#00d4aa,#7c5cff);display:flex;align-items:center;justify-content:center;font-size:22px;">📱</div>
+        <div><div style="font-size:18px;font-weight:800;color:#fff;">Telegram verbinden</div>
+        <div style="font-size:12px;color:#9a93b5;">${(name||'Model').replace(/</g,'&lt;')} · QR scannen</div></div>
+      </div>
+      <p style="color:#b7b0cf;font-size:12.5px;line-height:1.5;margin:16px 0 14px;">Auf ${(name||'dem')} -Handy: Telegram → <b>Einstellungen</b> → <b>Geräte</b> → <b>Gerät verknüpfen</b> und diesen Code scannen. Kein SMS-Code nötig.</p>
+      <div id="nc-qrbox" style="background:#fff;padding:14px;border-radius:14px;width:236px;height:236px;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;color:#333;font-size:13px;">Code wird geladen…</div>
+      <div id="nc-qrstatus" style="text-align:center;color:#9a93b5;font-size:13px;min-height:18px;">Warte auf Scan…</div>
+      <div id="nc-2fa" style="display:none;margin-top:14px;">
+        <label style="display:block;font-size:11px;color:#9a93b5;text-transform:uppercase;margin-bottom:6px;">2FA-Passwort</label>
+        <div style="display:flex;gap:8px;">
+          <input id="nc-pw" type="password" placeholder="Telegram-Passwort" style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#fff;padding:11px 13px;font-size:14px;outline:none;">
+          <button onclick="_creatorQr2fa(${id})" style="background:linear-gradient(135deg,#00d4aa,#7c5cff);border:none;border-radius:10px;color:#fff;padding:0 16px;font-size:13px;font-weight:700;cursor:pointer;">OK</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button onclick="_closeCreatorWizard()" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:11px;color:#cdc7e0;padding:11px;font-size:13px;font-weight:600;cursor:pointer;">Später</button>
+        <button onclick="_finishCreatorWizard()" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:11px;color:#cdc7e0;padding:11px;font-size:13px;font-weight:600;cursor:pointer;">Fertig</button>
+      </div>`;
+    await _ensureQRCodeLib();
+    try { await fetch('/api/setup/creator/' + id + '/qr'); } catch(_) {}   // kick off the login loop
+    window._qrPollActive = true; window._qrLastUrl = '';
+    _pollCreatorQr(id);
+  };
+  async function _pollCreatorQr(id){
+    if (!window._qrPollActive) return;
+    try {
+      const r = await fetch('/api/setup/creator/' + id + '/qr-status');
+      const d = await r.json();
+      const box = document.getElementById('nc-qrbox'), st = document.getElementById('nc-qrstatus');
+      if (d.url && d.url !== window._qrLastUrl && box && window.QRCode){
+        window._qrLastUrl = d.url; box.innerHTML = ''; new window.QRCode(box, { text: d.url, width: 208, height: 208 });
+      }
+      if (d.status === 'done'){
+        if (box){ box.style.opacity = '.25'; } if (st){ st.innerHTML = '✅ Verbunden & gespeichert!'; st.style.color = '#22c55e'; }
+        window._qrPollActive = false;
+        if (window.loadCreators) window.loadCreators();
+        if (window.loadCreatorsPage) window.loadCreatorsPage();
+        setTimeout(_closeCreatorWizard, 1600);
+        return;
+      }
+      if (d.status === '2fa'){ const f=document.getElementById('nc-2fa'); if(f) f.style.display='block'; if(st){ st.innerHTML='🔐 2FA aktiv — Passwort eingeben.'; } }
+      if (d.status === 'error'){ if(st){ st.innerHTML='❌ ' + (d.error||'Fehler') + ' — „Neu verbinden" erneut versuchen.'; st.style.color='#ff5c7a'; } window._qrPollActive=false; return; }
+    } catch(_) {}
+    setTimeout(()=>_pollCreatorQr(id), 2000);
+  }
+  window._creatorQr2fa = async function(id){
+    const pw = (document.getElementById('nc-pw')||{}).value || '';
+    const st = document.getElementById('nc-qrstatus');
+    try {
+      const r = await fetch('/api/setup/creator/' + id + '/qr-2fa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pw }) });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok && d.ok){ if(st){ st.innerHTML='✅ Verbunden & gespeichert!'; st.style.color='#22c55e'; } window._qrPollActive=false; if(window.loadCreators) window.loadCreators(); if(window.loadCreatorsPage) window.loadCreatorsPage(); setTimeout(_closeCreatorWizard,1600); }
+      else if(st){ st.innerHTML='❌ ' + (d.detail||'Passwort falsch'); st.style.color='#ff5c7a'; }
+    } catch(e){ if(st){ st.innerHTML='❌ ' + e.message; } }
+  };
+  window._finishCreatorWizard = function(){ window._qrPollActive=false; if(window.loadCreatorsPage) window.loadCreatorsPage(); _closeCreatorWizard(); };
+
+  window.loadCreatorsPage = async function(){
+    const grid = document.getElementById('creators-grid');
+    if (!grid) return;
+    try {
+      const r = await fetch('/api/creators');
+      const list = r.ok ? await r.json() : [];
+      window._creators = list;
+      if (!list.length){ grid.innerHTML = '<div style="color:var(--text3);font-size:13px;">Noch keine Creators — leg oben rechts einen an.</div>'; return; }
+      grid.innerHTML = list.map(c => {
+        const letter = (c.name || '?').trim().charAt(0).toUpperCase();
+        const av = c.avatar_url
+          ? `<img src="${c.avatar_url}" style="width:64px;height:64px;border-radius:50%;object-fit:cover;">`
+          : `<div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#00d4aa,#7c5cff);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:#fff;">${letter}</div>`;
+        const statusColor = c.connected ? '#22c55e' : (c.has_session ? '#f59e0b' : '#8a8a99');
+        const statusText = c.connected ? 'Verbunden' : (c.has_session ? 'Session ok · verbindet…' : 'Nicht verbunden');
+        const nm = (c.name || ('Model ' + c.id)).replace(/</g,'&lt;');
+        const nmJs = (c.name || ('Model ' + c.id)).replace(/'/g,"\\'").replace(/</g,'&lt;');
+        return `<div style="background:var(--bg2,#141414);border:1px solid var(--border);border-radius:16px;padding:20px;">
+          <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+            <div style="position:relative;flex-shrink:0;">${av}<span style="position:absolute;bottom:2px;right:2px;width:14px;height:14px;border-radius:50%;background:${statusColor};border:2px solid var(--bg2,#141414);"></span></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:16px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nm}</div>
+              <div style="font-size:11px;color:${statusColor};font-weight:700;margin-top:3px;">● ${statusText}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-bottom:16px;">
+            <div style="flex:1;background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center;">
+              <div style="font-size:18px;font-weight:800;color:var(--text);">${c.subs||0}</div>
+              <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;">Subs</div>
+            </div>
+            <div style="flex:1;background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center;">
+              <div style="font-size:18px;font-weight:800;color:var(--teal,#00d4aa);">€${Math.round(c.revenue||0)}</div>
+              <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;">Umsatz</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="setActiveCreator(${c.id});showPage('chat')" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:9px;color:var(--text);padding:9px;font-size:12px;font-weight:700;cursor:pointer;">Öffnen</button>
+            <button onclick="openConnectCreator(${c.id},'${nmJs}')" style="flex:1;background:${c.connected?'rgba(255,255,255,.06)':'linear-gradient(135deg,#00d4aa,#7c5cff)'};border:1px solid ${c.connected?'var(--border)':'transparent'};border-radius:9px;color:#fff;padding:9px;font-size:12px;font-weight:700;cursor:pointer;">${c.connected?'Neu verbinden':'📱 Verbinden'}</button>
+            <button onclick="renameCreator(${c.id},'${nmJs}')" title="Umbenennen" style="background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:9px;color:var(--text2);padding:9px 11px;font-size:13px;cursor:pointer;">✏️</button>
+          </div>
+        </div>`;
+      }).join('');
+    } catch(e){ grid.innerHTML = '<div style="color:#ff5c7a;font-size:13px;">Fehler: ' + e.message + '</div>'; }
+  };
+
   setTimeout(window.loadCreators, 800);
   setInterval(window.loadCreators, 12000);   // real-time-ish refresh of open-chat counts
 })();
