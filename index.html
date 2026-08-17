@@ -10154,10 +10154,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const r = await fetch('/api/creators');
       _creators = r.ok ? await r.json() : [];
     } catch(_) { _creators = []; }
+    const _hadNames = !!(window._creatorNamesLoaded);
     window._creators = _creators;
+    window._creatorNamesLoaded = _creators.length > 0;
     // Load this model's payment texts (Marie = creator 1 keeps built-in defaults)
     if (window.loadCreatorPaytexts) window.loadCreatorPaytexts();
     renderCreatorRail();
+    // First time we get real creator names → re-render the dashboard so the NEW SUBS
+    // breakdown shows "Marie / Leni" instead of "Creator 1 / Creator 2".
+    if (!_hadNames && window._creatorNamesLoaded && typeof renderDashboard === 'function') {
+      const dash = document.getElementById('page-dashboard');
+      if (dash && dash.style.display !== 'none') { try { renderDashboard(); } catch(_){} }
+    }
     if (!_creators.length) { host.style.display='none'; return; }
     host.style.display = 'block';
     menu.innerHTML = _creators.map(c => {
