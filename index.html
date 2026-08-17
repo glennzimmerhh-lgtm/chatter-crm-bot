@@ -3826,7 +3826,9 @@ window.loadRevenueBreakdown = function() {
     const d = parseTs(s.timestamp);
     return !isNaN(d.getTime()) && d.getTime() >= sinceMs;
   });
-  let total = 0; const byC = {}, byM = {};
+  let total = 0; const byC = {};
+  // Standard-Zahlungswege immer anzeigen (auch mit 0 €), damit PayPal etc. nie "fehlt".
+  const byM = { 'PayPal': 0, 'Amazon': 0, 'Bank': 0, 'Payment Link': 0 };
   rows.forEach(s => {
     const a = parseFloat(s.amount) || 0; total += a;
     const cn = s.creator_name || ('Creator ' + (s.creator_id || 1));
