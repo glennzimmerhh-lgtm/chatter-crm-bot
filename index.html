@@ -3978,7 +3978,7 @@ function renderDashboard() {
   // New Subs: conversations with first_time in the selected period
   const now = new Date();
   const todayStr = localDateStr(now);
-  const newSubs = crmConvsData.filter(c => {
+  const newSubList = crmConvsData.filter(c => {
     if (!c.first_time) return false;
     const ft = parseTs(c.first_time);
     if (p === 'heute') return localDateStr(ft) === todayStr;
@@ -3987,9 +3987,20 @@ function renderDashboard() {
     if (p === 'monat') return ft.getMonth() === now.getMonth() && ft.getFullYear() === now.getFullYear();
     if (p === 'range' && customRangeFrom && customRangeTo) return ft >= customRangeFrom && ft <= customRangeTo;
     return true;
-  }).length;
+  });
+  const newSubs = newSubList.length;
   document.getElementById('kpi-week-rev').textContent = newSubs;
-  document.getElementById('kpi-week-sub').textContent  = newSubs === 1 ? 'new contact' : 'new contacts';
+  // Per-model breakdown right under the number (e.g. "Marie 80 · Leni 36")
+  const _cnames = {}; (window._creators || []).forEach(c => { _cnames[c.id] = c.name; });
+  const _byCreator = {};
+  newSubList.forEach(c => { const id = c.creator_id || 1; _byCreator[id] = (_byCreator[id] || 0) + 1; });
+  const _subParts = Object.entries(_byCreator).sort((a,b) => b[1]-a[1])
+    .map(([id, n]) => (_cnames[id] || ('Creator ' + id)) + ' ' + n);
+  const _subEl = document.getElementById('kpi-week-sub');
+  if (_subEl) {
+    _subEl.textContent = _subParts.length > 1 ? _subParts.join(' · ') : (newSubs === 1 ? 'new contact' : 'new contacts');
+    _subEl.title = _subParts.join(' · ');
+  }
   document.getElementById('sales-count-tag').textContent  = filteredSales.length + ' ' + label.toLowerCase();
 
   // Shifts "heute" panel always shows current day
