@@ -7373,17 +7373,19 @@ function editShiftGoal() {
 function updateShiftGoal() {
   const user = localStorage.getItem('crm_user') || '';
   const isAdm = localStorage.getItem('crm_role') === 'admin';
-  // Admin sees the team's daily revenue (whole shift); chatter sees their own daily revenue.
-  if (isAdm) {
-    fetch('/api/analytics/today-total')
+  // Both use the CURRENT SHIFT window (German time): admin = team, chatter = own.
+  const url = isAdm
+    ? '/api/analytics/today-total'
+    : (user ? '/api/analytics/today-total?chatter=' + encodeURIComponent(user) : '');
+  const _setShiftLabel = (lbl) => {
+    if (!lbl) return;
+    const t = document.getElementById('dx-shift-name'); if (t) t.textContent = lbl;
+  };
+  if (url) {
+    fetch(url)
       .then(r => r.json())
-      .then(d => _renderShiftGoal(parseFloat(d.revenue) || 0))
-      .catch(() => _renderShiftGoal(_localTodayRevenue('')));
-  } else if (user) {
-    fetch('/api/analytics/my-stats?chatter=' + encodeURIComponent(user) + '&period=heute')
-      .then(r => r.json())
-      .then(d => _renderShiftGoal(parseFloat(d.revenue) || 0))
-      .catch(() => _renderShiftGoal(_localTodayRevenue(user)));
+      .then(d => { _setShiftLabel(d.shift); _renderShiftGoal(parseFloat(d.revenue) || 0); })
+      .catch(() => _renderShiftGoal(_localTodayRevenue(isAdm ? '' : user)));
   } else {
     _renderShiftGoal(_localTodayRevenue(user));
   }

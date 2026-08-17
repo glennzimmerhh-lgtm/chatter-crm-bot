@@ -2964,15 +2964,45 @@ def analytics_sources():
             rows = c.fetchall()
     return [dict(r) for r in rows]
 
+def _current_shift_window():
+    """The active shift in GERMAN time — Tagschicht 09–17, Abendschicht 17–01 (next day).
+    Returns (start_iso, end_iso, label) as naive-LOCAL timestamps that match how sales are
+    stored (datetime.now()), so the comparison is correct regardless of the server timezone."""
+    try:
+        from zoneinfo import ZoneInfo
+        now_b = datetime.now(ZoneInfo('Europe/Berlin'))
+    except Exception:
+        now_b = datetime.now()   # fallback: assume server already runs in DE time
+    h = now_b.hour
+    def at(dt, hh):
+        return dt.replace(hour=hh, minute=0, second=0, microsecond=0)
+    if 9 <= h < 17:
+        s, e, label = at(now_b, 9), at(now_b, 17), 'Tagschicht · 9–17'
+    elif h >= 17:
+        s, e, label = at(now_b, 17), at(now_b + timedelta(days=1), 1), 'Abendschicht · 17–1'
+    else:  # 0–9 Uhr: Abendschicht, die um 17:00 des Vortags begann (läuft bis 01:00)
+        s, e, label = at(now_b - timedelta(days=1), 17), at(now_b, 1), 'Abendschicht · 17–1'
+    def _local(dt):
+        try:
+            return dt.astimezone().replace(tzinfo=None).isoformat()   # → server-local naive
+        except Exception:
+            return (dt.replace(tzinfo=None) if dt.tzinfo else dt).isoformat()
+    return _local(s), _local(e), label
+
 @app.get('/analytics/today-total')
-def analytics_today_total():
-    """Team-wide revenue + sale count for today (for the admin shift-goal view)."""
-    since = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    with db() as conn:
-        with conn.cursor() as c:
-            c.execute('SELECT COALESCE(SUM(amount),0) as revenue, COUNT(*) as sales FROM sales WHERE timestamp >= %s', (since,))
-            row = c.fetchone()
-    return {'revenue': float(row['revenue'] or 0), 'sales': row['sales'] or 0}
+def analytics_today_total(chatter: str = ''):
+    """Revenue + sale count for the CURRENT SHIFT (German time). Team-wide, or for one chatter."""
+    s_iso, e_iso, label = _current_shift_window()
+    q = ("SELECT COALESCE(SUM(amount),0) as revenue, COUNT(*) as sales FROM sales "
+         "WHERE timestamp >= %s AND timestamp < %s AND COALESCE(status,'') <> 'rejected'")
+    params = [s_iso, e_iso]
+    if chatter:
+        q += " AND chatter = %s"; params.append(chatter)
+    with db() as conn, conn.cursor() as c:
+        c.execute(q, tuple(params))
+        row = c.fetchone()
+    return {'revenue': float(row['revenue'] or 0), 'sales': row['sales'] or 0,
+            'shift': label, 'shift_start': s_iso, 'shift_end': e_iso}
 
 @app.post('/conversations/{tg_id}/unread')
 async def set_conv_unread(tg_id: str):
