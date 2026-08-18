@@ -3028,13 +3028,11 @@ class ReplyIn(BaseModel):
 async def post_reply(body: ReplyIn, background_tasks: BackgroundTasks):
     if not tg_client or not tg_client.is_connected():
         raise HTTPException(503, 'Userbot nicht verbunden')
-    # Anti-scam: block emails / foreign links / blocked words BEFORE anything is sent.
+    # Anti-scam: NICHT blocken — Nachricht geht raus, aber bei E-Mail / fremdem Link
+    # bekommt der Admin einen Telegram-Alert (+ wird protokolliert).
     _ok, _kind, _detail = _scan_outgoing(body.text)
     if not _ok:
         _log_scam_incident(body.tg_id, body.chatter, _kind, _detail, body.text)
-        raise HTTPException(400,
-            f'🛑 Nachricht blockiert · {_SCAM_LABELS.get(_kind, _kind)} „{_detail}" ist nicht erlaubt. '
-            f'Zahlungen laufen NUR über die offiziellen Kanäle. Der Vorfall wurde gemeldet.')
     # Look up access_hash from DB (no extra Telegram roundtrip needed)
     peer_int = int(_real_tg_id(body.tg_id))
     access_hash = 0
@@ -3366,10 +3364,7 @@ def _scan_outgoing(text: str):
             return (True, '', '')
     except Exception:
         return (True, '', '')
-    low = text.lower()
-    for w in _scam_word_list():
-        if w and w in low:
-            return (False, 'blocked_word', w)
+    # (Blocked-Words-Check auf Wunsch deaktiviert — nur E-Mail + fremde Links werden geblockt.)
     emails = _EMAIL_RE.findall(text)
     if emails:
         allow = _scam_allowed_emails()
