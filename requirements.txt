@@ -7,3 +7,5 @@ openai==1.30.0
 py-tgcalls==2.3.3
 requests>=2.31.0
 tzdata>=2024.1
+pillow>=10.2.0
+pillow-heif>=0.16.0

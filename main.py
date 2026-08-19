@@ -4468,14 +4468,59 @@ async def vault_upload(file: UploadFile = File(...), folder: str = '', creator_i
     relpath = f'{safe_folder}/{safe_name}' if safe_folder else safe_name
     return {'ok': True, 'name': relpath, 'url': f'/vault/file/{relpath}'}
 
+# ── HEIC/HEIF support: browsers can't render Apple's HEIC, so we convert to JPEG ──
+_HEIF_REGISTERED = None
+def _ensure_heif():
+    global _HEIF_REGISTERED
+    if _HEIF_REGISTERED is not None:
+        return _HEIF_REGISTERED
+    try:
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        _HEIF_REGISTERED = True
+    except Exception as e:
+        print(f'⚠️ pillow-heif nicht verfügbar (HEIC-Vorschau deaktiviert): {e}')
+        _HEIF_REGISTERED = False
+    return _HEIF_REGISTERED
+
+def _heic_to_jpeg(src: str, dst: str, max_px: int = 0) -> bool:
+    """Convert a HEIC/HEIF file to JPEG (optionally downscaled). Returns True on success."""
+    if not _ensure_heif():
+        return False
+    try:
+        from PIL import Image, ImageOps
+        im = Image.open(src)
+        im = ImageOps.exif_transpose(im).convert('RGB')   # respect orientation
+        if max_px:
+            im.thumbnail((max_px, max_px))
+        im.save(dst, 'JPEG', quality=88)
+        return os.path.isfile(dst) and os.path.getsize(dst) > 0
+    except Exception as e:
+        print(f'heic→jpeg error ({src}): {e}')
+        return False
+
 @app.get('/vault/file/{filepath:path}')
 def vault_serve(filepath: str, creator_id: int = 1):
-    """Serve a vault file (supports folder/filename paths)."""
+    """Serve a vault file (supports folder/filename paths).
+    HEIC/HEIF is converted to a cached JPEG so it displays in the browser."""
     if '..' in filepath:
         raise HTTPException(400, 'Invalid path')
-    fpath = os.path.join(_vault_dir(creator_id), filepath)
+    vdir = _vault_dir(creator_id)
+    fpath = os.path.join(vdir, filepath)
     if not os.path.isfile(fpath):
         raise HTTPException(404, 'Not found')
+    ext = filepath.rsplit('.', 1)[-1].lower() if '.' in filepath else ''
+    if ext in ('heic', 'heif'):
+        THUMBS_DIR = os.path.join(vdir, '_thumbs')
+        os.makedirs(THUMBS_DIR, exist_ok=True)
+        disp = os.path.join(THUMBS_DIR, filepath.replace('/', '__').replace('\\', '__') + '.disp.jpg')
+        try:
+            fresh = os.path.isfile(disp) and os.path.getmtime(disp) >= os.path.getmtime(fpath)
+        except Exception:
+            fresh = False
+        if fresh or _heic_to_jpeg(fpath, disp, max_px=1600):
+            return FileResponse(disp, media_type='image/jpeg')
+        # conversion failed → fall through to raw (browser may still not render, but no crash)
     return FileResponse(fpath)
 
 @app.get('/vault/thumb/{filepath:path}')
@@ -4498,6 +4543,10 @@ def vault_thumb(filepath: str, creator_id: int = 1):
             return FileResponse(thumb_path, media_type='image/jpeg')
     except Exception:
         pass
+    # HEIC/HEIF: ffmpeg on Railway usually can't decode it → use Pillow + pillow-heif.
+    if ext in ('heic', 'heif'):
+        if _heic_to_jpeg(src, thumb_path, max_px=360):
+            return FileResponse(thumb_path, media_type='image/jpeg')
     # Generate a small JPEG via ffmpeg for BOTH images and videos (no Pillow dependency).
     # On any failure return 404 — NEVER the full original (that would blow up browser memory).
     video_exts = ('mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
@@ -4671,7 +4720,13 @@ async def voice_send(body: VoiceSendIn):
     try:
         await _send_voice_note_bg(body.tg_id, txt)
     except Exception as e:
-        raise HTTPException(502, str(e)[:400])
+        _es = str(e)
+        if 'Too many requests' in _es or 'FLOOD' in _es.upper() or 'FloodWait' in _es:
+            raise HTTPException(429,
+                '⏳ Telegram bremst gerade den Medien-Versand für dieses Model (zu viele Aktionen kurz '
+                'hintereinander). Kurze Pause (~15–30 Min), dann geht die Voice wieder. '
+                'ElevenLabs selbst funktioniert — die Stimme wurde erzeugt, nur der Telegram-Versand ist limitiert.')
+        raise HTTPException(502, _es[:400])
     return {'ok': True}
 
 VIDEO_EXTS = ('mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v')
