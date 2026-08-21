@@ -4,7 +4,7 @@ uvicorn[standard]==0.30.0
 python-multipart==0.0.9
 psycopg2-binary==2.9.9
 openai==1.30.0
-py-tgcalls==2.3.3
+py-tgcalls==3.0.0.dev5
 requests>=2.31.0
 tzdata>=2024.1
 pillow>=10.2.0
