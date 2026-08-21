@@ -2098,7 +2098,7 @@
         <button class="period-btn" onclick="window.loadNotifications()" title="Refresh">↻</button>
       </div>
     </div>
-    <div id="notif-diag" style="display:block;margin-bottom:10px;padding:10px 14px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);border-radius:10px;font-size:12px;color:var(--text2);font-family:monospace;white-space:pre-wrap;">⏳ Initialisiert...</div>
+    <div id="notif-diag" style="display:none;margin-bottom:10px;padding:10px 14px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);border-radius:10px;font-size:12px;color:var(--text2);font-family:monospace;white-space:pre-wrap;">⏳ Initialisiert...</div>
     <div id="notif-feed" style="display:flex;flex-direction:column;gap:8px;max-width:800px;"></div>
   </div>
 
@@ -8503,10 +8503,9 @@ let _notifFilter = 'all';
 let _lastNotifTs = '';
 
 function _notifDiag(msg) {
+  // Diagnostics kept silent in production — log to console only, no visible banner.
   const el = document.getElementById('notif-diag');
-  if (!el) return;
-  el.style.display = 'block';
-  el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
+  if (el) el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
 
 let _ppLogoN = 0;
@@ -8693,14 +8692,14 @@ function renderNotifications() {
     }
     const clickAttr = isPay ? '' : `onclick="openConv('${n.tg_id}','${(n.anon_id||'')}');showPage('chat')"`;
     return `<div ${clickAttr}
-      style="display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:12px;${isPay?'':'cursor:pointer;'}transition:background .15s;"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
-      <div style="flex-shrink:0;display:flex;align-items:center;">${iconHtml}</div>
+      style="display:flex;align-items:center;gap:14px;padding:13px 16px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015));border:1px solid rgba(255,255,255,.07);border-left:3px solid ${color};border-radius:14px;${isPay?'':'cursor:pointer;'}transition:transform .14s,box-shadow .14s;"
+      onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 10px 26px rgba(0,0,0,.34)'" onmouseout="this.style.transform='none';this.style.boxShadow='none'">
+      <div style="width:44px;height:44px;border-radius:13px;background:${color}22;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${iconHtml}</div>
       <div style="flex:1;min-width:0;">
-        <div style="font-size:11px;color:${color};font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;">${label}</div>
-        <div style="font-size:13px;color:var(--text);">${detail}</div>
+        <div style="font-size:10px;color:${color};font-weight:800;text-transform:uppercase;letter-spacing:.7px;margin-bottom:3px;">${label}</div>
+        <div style="font-size:13.5px;color:var(--text);font-weight:500;line-height:1.35;">${detail}</div>
       </div>
-      <div style="font-size:11px;color:var(--text3);flex-shrink:0;text-align:right;">${timeStr}</div>
+      <div style="font-size:11px;color:var(--text3);flex-shrink:0;text-align:right;white-space:nowrap;">${timeStr}</div>
     </div>`;
   }).join('');
   try { renderDxActivityFeed(); } catch(e) {}
