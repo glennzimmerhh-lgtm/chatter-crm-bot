@@ -516,66 +516,70 @@
 
   /* ── PROFILE PANEL ── */
   .profile-panel {
-    background: #0d0d18;
+    background: linear-gradient(180deg,#12111c 0%,#0c0b12 100%);
     border-left: 1px solid rgba(255,255,255,.06);
     overflow-y: auto; display: flex; flex-direction: column;
   }
-  .profile-panel::-webkit-scrollbar { width: 4px; }
-  .profile-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 4px; }
+  .profile-panel::-webkit-scrollbar { width: 5px; }
+  .profile-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 4px; }
 
   .profile-header {
-    padding: 24px 16px 18px;
+    padding: 26px 18px 20px;
     border-bottom: 1px solid rgba(255,255,255,.05);
     text-align: center; flex-shrink: 0;
-    background: linear-gradient(180deg, rgba(0,212,170,.04) 0%, transparent 100%);
+    background: radial-gradient(120% 80% at 50% 0%, rgba(124,92,255,.16) 0%, rgba(0,212,170,.05) 42%, transparent 72%);
   }
   .profile-big-avatar {
-    width: 64px; height: 64px; border-radius: 50%;
+    width: 72px; height: 72px; border-radius: 50%;
     background: transparent;
-    border: 2px solid rgba(255,255,255,.15);
+    border: 2px solid rgba(124,92,255,.5);
+    box-shadow: 0 0 0 4px rgba(124,92,255,.12), 0 10px 26px rgba(0,0,0,.45);
     display: flex; align-items: center; justify-content: center;
-    font-size: 22px; font-weight: 700; color: #fff;
-    margin: 0 auto 12px;
+    font-size: 24px; font-weight: 800; color: #fff;
+    margin: 0 auto 13px;
     overflow: hidden;
   }
-  .profile-anon { font-size: 11px; color: #44445a; margin-top: 2px; }
-  .profile-section { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.04); flex-shrink: 0; }
-  .profile-label { font-size: 10px; color: #44445a; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 7px; font-weight: 600; }
+  .profile-anon { font-size: 11px; color: var(--text3); margin-top: 3px; }
+  .profile-section { padding: 15px 18px; border-bottom: 1px solid rgba(255,255,255,.045); flex-shrink: 0; }
+  .profile-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 9px; font-weight: 700; }
   .profile-input {
     width: 100%;
     background: rgba(255,255,255,.05);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 9px; padding: 9px 11px;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px; padding: 10px 12px;
     color: var(--text); font-size: 13px; outline: none;
-    box-sizing: border-box; transition: border-color .2s, background .2s;
+    box-sizing: border-box; transition: border-color .2s, background .2s, box-shadow .2s;
   }
-  .profile-input:focus { border-color: rgba(0,212,170,.4); background: rgba(0,212,170,.04); }
+  .profile-input:focus { border-color: rgba(0,212,170,.5); background: rgba(0,212,170,.05); box-shadow: 0 0 0 3px rgba(0,212,170,.1); }
   .profile-textarea {
     width: 100%;
     background: rgba(255,255,255,.05);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 9px; padding: 9px 11px;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px; padding: 10px 12px;
     color: var(--text); font-size: 12px; outline: none;
     box-sizing: border-box; resize: none; height: 100px; line-height: 1.55;
-    transition: border-color .2s, background .2s;
+    transition: border-color .2s, background .2s, box-shadow .2s;
   }
-  .profile-textarea:focus { border-color: rgba(0,212,170,.4); background: rgba(0,212,170,.04); }
+  .profile-textarea:focus { border-color: rgba(0,212,170,.5); background: rgba(0,212,170,.05); box-shadow: 0 0 0 3px rgba(0,212,170,.1); }
   .profile-save-btn {
     margin-top: 9px; width: 100%;
-    background: linear-gradient(135deg, rgba(0,212,170,.15), rgba(0,212,170,.08));
-    border: 1px solid rgba(0,212,170,.3); color: var(--teal);
-    border-radius: 9px; padding: 8px; font-size: 12px; font-weight: 600;
+    background: linear-gradient(135deg,#00d4aa,#12b3d6);
+    border: none; color: #04231d;
+    border-radius: 10px; padding: 10px; font-size: 12px; font-weight: 800;
     cursor: pointer; transition: all .15s;
   }
-  .profile-save-btn:hover { background: rgba(0,212,170,.2); box-shadow: 0 0 14px rgba(0,212,170,.2); }
+  .profile-save-btn:hover { filter: brightness(1.08); box-shadow: 0 6px 18px rgba(0,212,170,.28); transform: translateY(-1px); }
   .sale-btn {
     width: 100%;
-    background: linear-gradient(135deg, rgba(255,209,102,.15), rgba(255,209,102,.08));
-    border: 1px solid rgba(255,209,102,.35); color: var(--yellow);
-    border-radius: 9px; padding: 10px; font-size: 13px; font-weight: 700;
+    background: linear-gradient(135deg,#ffd166,#f5a623);
+    border: none; color: #2a1e00;
+    border-radius: 10px; padding: 11px; font-size: 13px; font-weight: 800;
     cursor: pointer; transition: all .15s; letter-spacing: .02em;
   }
-  .sale-btn:hover { background: rgba(255,209,102,.22); box-shadow: 0 0 16px rgba(255,209,102,.2); transform: translateY(-1px); }
+  .sale-btn:hover { filter: brightness(1.06); box-shadow: 0 7px 20px rgba(255,209,102,.3); transform: translateY(-1px); }
+  /* Pricelist + action buttons inside the profile panel: consistent rounding + lively hover */
+  .profile-section button { border-radius: 10px !important; transition: transform .12s ease, filter .12s ease, box-shadow .12s ease; }
+  .profile-section button:hover { transform: translateY(-1px); filter: brightness(1.14); }
   .profile-stat-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 12px; color: #55556a; }
   .profile-stat-val { font-weight: 600; color: var(--text); }
   .profile-saved-tag { font-size: 10px; color: var(--teal); margin-left: 6px; opacity: 0; transition: opacity .3s; }
@@ -5700,10 +5704,6 @@ if (checkAuth()) {
 
       <div class="profile-section">
         <div class="profile-label">
-      </div>
-
-      <div class="profile-section">
-        <div class="profile-label">
           Notes
           <span class="profile-saved-tag" id="notes-saved">✓ Saved</span>
         </div>
@@ -6749,14 +6749,17 @@ if (checkAuth()) {
     bar.dataset.promoted = '1';
     const wasVisible = bar.style.display === 'block';
     document.body.appendChild(bar);
-    bar.style.cssText = 'display:' + (wasVisible ? 'block' : 'none') + ';position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2000;background:rgba(16,24,20,0.97);border:1px solid #22c55e;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.5);padding:8px 12px;max-width:92vw;';
+    bar.style.cssText = 'display:' + (wasVisible ? 'block' : 'none') + ';position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2000;background:linear-gradient(135deg,rgba(20,34,27,.96),rgba(13,20,17,.96));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(34,197,94,.45);border-radius:15px;box-shadow:0 12px 36px rgba(0,0,0,.5),0 0 24px rgba(34,197,94,.16);padding:9px 13px;max-width:92vw;';
     bar.innerHTML =
         '<div style="display:flex;align-items:center;gap:12px;">'
-      +   '<span style="font-size:16px;animation:pulse 1.2s infinite;">' + String.fromCodePoint(0x1F4DE) + '</span>'
-      +   '<span id="active-call-text" style="font-weight:700;color:#22c55e;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px;">Call active...</span>'
-      +   '<span id="active-call-timer" style="font-size:12px;color:#22c55e;opacity:.7;">00:00</span>'
-      +   '<button onclick="goToActiveCall()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.5);border-radius:8px;color:#22c55e;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">' + String.fromCodePoint(0x21AA) + ' Open chat</button>'
-      +   '<button onclick="hangUpCall()" style="background:rgba(255,92,122,.18);border:1px solid #ff5c7a;border-radius:8px;color:#ff5c7a;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">' + String.fromCodePoint(0x1F4F5) + ' Hang up</button>'
+      +   '<span style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#0e9f6e);display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 4px 14px rgba(34,197,94,.4);animation:pulse 1.3s infinite;flex-shrink:0;">' + String.fromCodePoint(0x1F4DE) + '</span>'
+      +   '<div style="display:flex;flex-direction:column;gap:1px;min-width:0;">'
+      +     '<span id="active-call-text" style="font-weight:800;color:#eafff4;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px;">Call active…</span>'
+      +     '<span style="font-size:9px;color:#22c55e;letter-spacing:.6px;text-transform:uppercase;font-weight:800;">● Live</span>'
+      +   '</div>'
+      +   '<span id="active-call-timer" style="font-size:12px;color:#22c55e;font-weight:800;font-variant-numeric:tabular-nums;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:4px 9px;">00:00</span>'
+      +   '<button onclick="goToActiveCall()" style="background:linear-gradient(135deg,#22c55e,#16a34a);border:none;border-radius:10px;color:#fff;padding:7px 13px;cursor:pointer;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 3px 12px rgba(34,197,94,.3);">' + String.fromCodePoint(0x21AA) + ' Open chat</button>'
+      +   '<button onclick="hangUpCall()" style="background:linear-gradient(135deg,#ff5c7a,#e11d48);border:none;border-radius:10px;color:#fff;padding:7px 13px;cursor:pointer;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 3px 12px rgba(255,92,122,.3);">' + String.fromCodePoint(0x1F4F5) + ' Hang up</button>'
       + '</div>';
   }
   try { if (document.getElementById('active-call-bar')) _promoteCallBar(); else document.addEventListener('DOMContentLoaded', _promoteCallBar); } catch(e){}
@@ -6796,9 +6799,9 @@ if (checkAuth()) {
     document.getElementById('fc-files-list').innerHTML = '<p style="color:var(--dim);font-size:13px;">Loading...</p>';
     document.getElementById('fc-status').textContent = '';
     document.getElementById('fc-upload-status').textContent = '';
-    // Reset to "Alle" tab (switchCallFolder calls loadCallFiles internally)
-    _currentCallFolder = '';
-    switchCallFolder('');
+    // Default to Fake Checks (switchCallFolder calls loadCallFiles internally)
+    _currentCallFolder = 'fake_checks';
+    switchCallFolder('fake_checks');
     // Check pytgcalls status
     try {
       const st = await chatApiGet('/call/status');
@@ -6826,12 +6829,12 @@ if (checkAuth()) {
     if (overlay) overlay.style.display = 'none';
   };
 
-  let _currentCallFolder = ''; // '' = Alle, 'fake_checks', 'paid_calls'
+  let _currentCallFolder = 'fake_checks'; // 'fake_checks' | 'paid_calls'
 
   window.switchCallFolder = function(folder) {
     _currentCallFolder = folder;
     // Update tab styles
-    ['all', 'fake_checks', 'paid_calls'].forEach(key => {
+    ['fake_checks', 'paid_calls'].forEach(key => {
       const btn = document.getElementById('fc-tab-' + key);
       if (!btn) return;
       const active = (key === 'all' && folder === '') || key === folder;
@@ -8091,8 +8094,7 @@ window.showPage = function(page) {
     <!-- Folder tabs — segmented pills -->
     <div style="padding:14px 22px 6px;flex-shrink:0;">
       <div style="display:flex;gap:4px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:4px;">
-        <button id="fc-tab-all" onclick="switchCallFolder('')" style="flex:1;border:none;border-radius:9px;padding:8px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s;background:linear-gradient(135deg,#00d4aa,#7c5cff);color:#fff;">Alle</button>
-        <button id="fc-tab-fake_checks" onclick="switchCallFolder('fake_checks')" style="flex:1;border:none;border-radius:9px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;background:transparent;color:var(--dim);">✅ Fake Checks</button>
+        <button id="fc-tab-fake_checks" onclick="switchCallFolder('fake_checks')" style="flex:1;border:none;border-radius:9px;padding:8px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s;background:linear-gradient(135deg,#00d4aa,#7c5cff);color:#fff;">✅ Fake Checks</button>
         <button id="fc-tab-paid_calls" onclick="switchCallFolder('paid_calls')" style="flex:1;border:none;border-radius:9px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;background:transparent;color:var(--dim);">💰 Paid Calls</button>
       </div>
     </div>
