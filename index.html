@@ -580,6 +580,19 @@
   /* Pricelist + action buttons inside the profile panel: consistent rounding + lively hover */
   .profile-section button { border-radius: 10px !important; transition: transform .12s ease, filter .12s ease, box-shadow .12s ease; }
   .profile-section button:hover { transform: translateY(-1px); filter: brightness(1.14); }
+  /* Unified premium pricelist button — dark card + coloured accent bar, no more rainbow */
+  .pl-btn {
+    width: 100%; display: flex; align-items: center; gap: 9px;
+    padding: 10px 12px; margin-bottom: 7px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(255,255,255,.07);
+    border-left: 3px solid var(--acc, #00d4aa);
+    border-radius: 10px !important; color: var(--text);
+    font-size: 12.5px; font-weight: 700; cursor: pointer;
+    text-align: left; transition: background .14s, transform .14s, box-shadow .14s;
+  }
+  .pl-btn:hover { background: rgba(255,255,255,.08); transform: translateX(2px); box-shadow: 0 6px 16px rgba(0,0,0,.32); filter: none; }
+  .pl-btn .pl-ic { width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; background: color-mix(in srgb, var(--acc) 22%, transparent); flex-shrink: 0; }
   .profile-stat-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 12px; color: #55556a; }
   .profile-stat-val { font-weight: 600; color: var(--text); }
   .profile-saved-tag { font-size: 10px; color: var(--teal); margin-left: 6px; opacity: 0; transition: opacity .3s; }
@@ -5685,16 +5698,16 @@ if (checkAuth()) {
 
       <div class="profile-section">
         <div class="profile-label">📋 Pricelist</div>
-        <button onclick="insertPricelistCalls()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,209,102,.35);background:rgba(255,209,102,.08);color:#ffd166;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">📞 Pricelist Calls</button>
-        <button onclick="insertPricelistSexchat()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,92,122,.35);background:rgba(255,92,122,.08);color:#ff5c7a;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💬 Pricelist Sexchat</button>
-        <button onclick="insertPricelistContent()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:10px;">🎬 Pricelist Content</button>
-        <button onclick="openHandSigns()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">✋ Fake Check Hand Signs</button>
-        <button onclick="openVoiceNote()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(236,72,153,.4);background:rgba(236,72,153,.1);color:#ec5c9c;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🎤 Voice Note (Maries Stimme)</button>
-        <button onclick="insertPayPal()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(74,158,255,.35);background:rgba(74,158,255,.1);color:#4a9eff;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💙 Insert PayPal</button>
-        <button onclick="insertBankTransfer()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(120,200,140,.35);background:rgba(120,200,140,.1);color:#7ec88c;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🏦 Bank Transfer</button>
-        <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
-        <button onclick="openPaytextEditor()" style="width:100%;padding:7px;border-radius:8px;border:1px dashed rgba(255,255,255,.18);background:none;color:var(--dim);font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-bottom:6px;">✏️ Zahlungstexte dieses Models bearbeiten</button>
-        <button onclick="insertPaysafecard()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);color:#ffa500;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🎫 Paysafecard</button>
+        <button onclick="insertPricelistCalls()" class="pl-btn" style="--acc:#ffd166;"><span class="pl-ic">📞</span> Pricelist Calls</button>
+        <button onclick="insertPricelistSexchat()" class="pl-btn" style="--acc:#ff5c7a;"><span class="pl-ic">💬</span> Pricelist Sexchat</button>
+        <button onclick="insertPricelistContent()" class="pl-btn" style="--acc:#00d4aa;margin-bottom:12px;"><span class="pl-ic">🎬</span> Pricelist Content</button>
+        <button onclick="openHandSigns()" class="pl-btn" style="--acc:#2dd4bf;"><span class="pl-ic">✋</span> Fake Check Hand Signs</button>
+        <button onclick="openVoiceNote()" class="pl-btn" style="--acc:#ec5c9c;"><span class="pl-ic">🎤</span> Voice Note (Maries Stimme)</button>
+        <button onclick="insertPayPal()" class="pl-btn" style="--acc:#4a9eff;"><span class="pl-ic">💙</span> Insert PayPal</button>
+        <button onclick="insertBankTransfer()" class="pl-btn" style="--acc:#7ec88c;"><span class="pl-ic">🏦</span> Bank Transfer</button>
+        <button onclick="insertPaymentLink()" class="pl-btn" style="--acc:#a78bfa;"><span class="pl-ic">🔗</span> Payment Link · Card / Apple Pay / Revolut</button>
+        <button onclick="insertPaysafecard()" class="pl-btn" style="--acc:#ffa500;margin-bottom:10px;"><span class="pl-ic">🎫</span> Paysafecard</button>
+        <button onclick="openPaytextEditor()" style="width:100%;padding:8px 12px;border-radius:10px !important;border:1px dashed rgba(255,255,255,.16);background:none;color:var(--dim);font-size:11px;font-weight:600;cursor:pointer;text-align:left;">✏️ Zahlungstexte dieses Models bearbeiten</button>
       </div>
 
       <div class="profile-section">
