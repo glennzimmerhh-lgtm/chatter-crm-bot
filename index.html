@@ -5684,11 +5684,6 @@ if (checkAuth()) {
       </div>
 
       <div class="profile-section">
-        <div class="profile-label">Internal Name</div>
-        <input class="profile-input" id="prof-iname" type="text" placeholder="e.g. John – likes sports" value="${(p.internal_name||'').replace(/"/g,'&quot;')}">
-      </div>
-
-      <div class="profile-section">
         <div class="profile-label">📋 Pricelist</div>
         <button onclick="insertPricelistCalls()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,209,102,.35);background:rgba(255,209,102,.08);color:#ffd166;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">📞 Pricelist Calls</button>
         <button onclick="insertPricelistSexchat()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,92,122,.35);background:rgba(255,92,122,.08);color:#ff5c7a;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">💬 Pricelist Sexchat</button>
@@ -5700,6 +5695,11 @@ if (checkAuth()) {
         <button onclick="insertPaymentLink()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.1);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;text-align:left;margin-bottom:6px;">🔗 Payment Link (Card, Apple Pay, Revolut)</button>
         <button onclick="openPaytextEditor()" style="width:100%;padding:7px;border-radius:8px;border:1px dashed rgba(255,255,255,.18);background:none;color:var(--dim);font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-bottom:6px;">✏️ Zahlungstexte dieses Models bearbeiten</button>
         <button onclick="insertPaysafecard()" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);color:#ffa500;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">🎫 Paysafecard</button>
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-label">Internal Name</div>
+        <input class="profile-input" id="prof-iname" type="text" placeholder="e.g. John – likes sports" value="${(p.internal_name||'').replace(/"/g,'&quot;')}">
       </div>
 
       <div class="profile-section">
@@ -6370,7 +6370,7 @@ if (checkAuth()) {
               ondragstart="chatImgDragStart(event,'${currentChatTgId}',${m.tg_msg_id})"
               ondragend="event.target.style.opacity='1'"
               style="max-width:200px;max-height:200px;border-radius:8px;display:block;margin-bottom:4px;cursor:grab;"
-              onerror="this.onerror=null;this.style.display='none';if(this.nextSibling)this.nextSibling.style.display='inline'"
+              onerror="this.onerror=null;this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='inline'"
               title="Drag into sale proof area">`
           : `<div style="padding:8px;background:rgba(0,0,0,.2);border-radius:8px;font-size:11px;color:var(--text3);margin-bottom:4px;">🎬 Video — <button onclick="attachMsgAsProof('${currentChatTgId}',${m.tg_msg_id})" style="background:none;border:none;color:#ffd166;cursor:pointer;font-size:11px;font-weight:700;">📎 Attach as proof</button></div>`;
       } else if (isDoc && dir === 'in') {
@@ -7242,7 +7242,7 @@ if (checkAuth()) {
 
           if (item.type === 'photo' || item.type === 'video') {
             return `<div onclick="openLightbox(${idx})" style="position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;background:rgba(255,255,255,.06);cursor:zoom-in;border:1px solid rgba(255,255,255,.08);">
-              <img data-src="${mediaUrl}" class="mg-lazy" style="width:100%;height:100%;object-fit:cover;transition:opacity .2s;" onerror="this.onerror=null;this.style.display='none';if(this.nextSibling)this.nextSibling.style.display='flex'">
+              <img data-src="${mediaUrl}" class="mg-lazy" style="width:100%;height:100%;object-fit:cover;transition:opacity .2s;" onerror="this.onerror=null;this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='flex'">
               <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:28px;">${item.type === 'video' ? '🎬' : '📷'}</div>
               <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.6));padding:4px 5px;font-size:9px;color:rgba(255,255,255,.8);display:flex;justify-content:space-between;">
                 <span>${dirIcon}</span><span>${dateStr}</span>
