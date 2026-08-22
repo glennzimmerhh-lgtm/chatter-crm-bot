@@ -2391,15 +2391,15 @@
       </div>
       <div style="display:flex;align-items:center;gap:16px;">
         <!-- Shift Goal Widget -->
-        <div id="shift-goal-widget" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:7px 14px;min-width:160px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-            <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;" onclick="editShiftGoal()" title="Click to change">Shift Goal ✏️</span>
-            <span style="font-size:12px;font-weight:700;" id="shift-goal-text">0€ / 300€</span>
+        <div id="shift-goal-widget" style="background:linear-gradient(135deg,rgba(124,92,255,.10),rgba(0,212,170,.06));border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:9px 15px;min-width:180px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;">
+            <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;font-weight:700;cursor:pointer;" onclick="editShiftGoal()" title="Click to change">🎯 Shift Goal</span>
+            <span style="font-size:12.5px;font-weight:800;" id="shift-goal-text">0€ / 300€</span>
           </div>
-          <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
-            <div id="shift-goal-bar" style="height:100%;width:0%;border-radius:4px;background:#ff5c7a;transition:width .5s ease,background .5s ease;"></div>
+          <div style="height:7px;background:rgba(255,255,255,0.09);border-radius:5px;overflow:hidden;">
+            <div id="shift-goal-bar" style="height:100%;width:0%;border-radius:5px;background:linear-gradient(90deg,#00d4aa,#7c5cff);transition:width .5s ease;"></div>
           </div>
-          <div style="font-size:9px;color:var(--text3);margin-top:3px;text-align:right;" id="shift-goal-pct">0%</div>
+          <div style="font-size:9px;color:var(--text3);margin-top:4px;text-align:right;font-weight:700;" id="shift-goal-pct">0%</div>
         </div>
         <div class="chat-status">
           <div class="chat-status-dot" id="chat-status-dot"></div>
@@ -2413,10 +2413,12 @@
       <div class="creator-rail" id="creator-rail"></div>
       <!-- Conversation list -->
       <div class="conv-list">
-        <!-- Online Now Panel -->
-        <div id="online-panel" style="display:none;padding:8px 12px;background:rgba(34,197,94,0.08);border-bottom:1px solid rgba(34,197,94,0.2);">
-          <div style="font-size:10px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">🟢 Jetzt online</div>
-          <div id="online-list" style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto;"></div>
+        <!-- Online Now Panel — nur Gesamtzahl -->
+        <div id="online-panel" style="display:none;padding:11px 14px;border-bottom:1px solid rgba(34,197,94,0.16);">
+          <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:800;color:#22c55e;">
+            <span style="width:9px;height:9px;background:#22c55e;border-radius:50%;box-shadow:0 0 10px rgba(34,197,94,.8);animation:pulse 1.5s infinite;flex-shrink:0;"></span>
+            <span id="online-count-label">0 Fans online</span>
+          </div>
         </div>
         <!-- KI fragt dich -->
         <div id="aiq-panel" style="display:none;padding:8px 12px;background:rgba(99,102,241,0.12);border-bottom:1px solid rgba(99,102,241,0.3);">
@@ -2426,14 +2428,8 @@
           </div>
           <div id="aiq-list" style="display:none;flex-direction:column;gap:8px;margin-top:8px;max-height:300px;overflow-y:auto;"></div>
         </div>
-        <!-- Follow-up Radar -->
-        <div id="radar-panel" style="display:none;padding:8px 12px;background:rgba(255,92,122,0.10);border-bottom:1px solid rgba(255,92,122,0.25);">
-          <div onclick="toggleRadarList()" style="font-size:11px;font-weight:800;color:#ff5c7a;display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
-            <span>🔴 <span id="radar-count">0</span> Chats brauchen dich</span>
-            <span id="radar-toggle" style="font-size:10px;color:var(--text3);font-weight:600;">anzeigen ▾</span>
-          </div>
-          <div id="radar-list" style="display:none;flex-direction:column;gap:3px;margin-top:6px;max-height:180px;overflow-y:auto;"></div>
-        </div>
+        <!-- Follow-up Radar entfernt (Badges bleiben in der Chat-Liste) -->
+        <div id="radar-panel" style="display:none;"></div>
         <div class="conv-search" style="display:flex;align-items:center;gap:6px;">
           <input type="text" placeholder="Suchen..." id="conv-search-input" oninput="filterConvs(this.value)" style="flex:1;">
           <button onclick="openListsModal()" title="Listen verwalten" style="background:none;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;color:#666;cursor:pointer;font-size:13px;flex-shrink:0;" >📋</button>
@@ -3049,6 +3045,10 @@ async function submitSale() {
     document.getElementById('sale-modal-overlay').style.display = 'none';
     if (btn) { btn.disabled = false; btn.textContent = '✅ Submit'; }
 
+    // 🎉 Glückwunsch an den Chatter + Ka-ching
+    try { _showSaleCongrats(user, amount, product); } catch(_) {}
+    try { if (window.playSaleSound) window.playSaleSound(); } catch(_) {}
+
     // Show status message via notification
     const statusMsg = _isAdm ? '✅ Sale saved!' : '⏳ Sale submitted — waiting for admin approval';
     if (fb) { fb.textContent = statusMsg; fb.style.display = 'block'; }
@@ -3065,6 +3065,24 @@ async function submitSale() {
     if (fb) { fb.textContent = '❌ ' + e.message; fb.style.display = 'block'; }
     if (btn) { btn.disabled = false; btn.textContent = '✅ Submit'; }
   }
+}
+
+function _showSaleCongrats(chatter, amount, product) {
+  try { if (navigator.vibrate) navigator.vibrate([60,40,60,40,120]); } catch(_){}
+  document.getElementById('sale-congrats')?.remove();
+  const el = document.createElement('div');
+  el.id = 'sale-congrats';
+  el.style.cssText = 'position:fixed;top:22px;left:50%;transform:translateX(-50%);z-index:100000;background:linear-gradient(135deg,#00d4aa,#7c5cff);color:#fff;border-radius:16px;padding:15px 24px;box-shadow:0 18px 48px rgba(124,92,255,.45);text-align:center;min-width:300px;max-width:90vw;animation:scDrop .4s cubic-bezier(.2,.8,.3,1);';
+  el.innerHTML = '<div style="font-size:24px;line-height:1;margin-bottom:4px;">🎉🥳</div>'
+    + '<div style="font-size:16px;font-weight:900;letter-spacing:-.2px;">Glückwunsch, ' + String(chatter||'Chatter').replace(/</g,'&lt;') + '!</div>'
+    + '<div style="font-size:13px;opacity:.93;margin-top:3px;">Sale über <b>' + Math.round(amount) + '€</b>' + (product ? ' · ' + String(product).replace(/</g,'&lt;') : '') + ' eingetragen 💸</div>';
+  document.body.appendChild(el);
+  if (!document.getElementById('sc-style')) {
+    const s = document.createElement('style'); s.id = 'sc-style';
+    s.textContent = '@keyframes scDrop{from{opacity:0;transform:translateX(-50%) translateY(-18px) scale(.96)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}';
+    document.head.appendChild(s);
+  }
+  setTimeout(() => { const n = document.getElementById('sale-congrats'); if (n) { n.style.transition = 'opacity .4s'; n.style.opacity = '0'; setTimeout(() => n.remove(), 400); } }, 4200);
 }
 
 function toggleTheme() {
@@ -7434,11 +7452,12 @@ function _renderShiftGoal(earned) {
   const bar = document.getElementById('shift-goal-bar');
   const pctEl = document.getElementById('shift-goal-pct');
   if (!txt || !bar || !pctEl) return;
-  const color = pct >= 100 ? '#00d4aa' : pct >= 66 ? '#ffd166' : pct >= 33 ? '#ff9f43' : '#ff5c7a';
+  const color = pct >= 100 ? '#22c55e' : pct >= 66 ? '#00d4aa' : pct >= 33 ? '#7c5cff' : '#ff9f43';
+  const grad = pct >= 100 ? 'linear-gradient(90deg,#00d4aa,#22c55e)' : 'linear-gradient(90deg,#00d4aa,#7c5cff)';
   txt.textContent = `${earned.toFixed(0)}€ / ${SHIFT_GOAL}€`;
-  txt.style.color = pct >= 100 ? '#00d4aa' : 'var(--text)';
+  txt.style.color = pct >= 100 ? '#22c55e' : 'var(--text)';
   bar.style.width = pct + '%';
-  bar.style.background = color;
+  bar.style.background = grad;
   pctEl.textContent = pct + '%';
   pctEl.style.color = color;
   try { _dxDrawGoalRing(earned, SHIFT_GOAL); } catch(e) {}
@@ -7565,22 +7584,14 @@ async function refreshOnlinePanel() {
   try {
     const online = await fetch('/api/online?creator_id=' + (window.activeCreatorId || 1)).then(r => r.json());
 
-    // Chat sidebar panel
+    // Chat sidebar panel — nur die Gesamtzahl der Online-Fans
     const panel = document.getElementById('online-panel');
-    const list = document.getElementById('online-list');
-    if (panel && list) {
+    const lbl = document.getElementById('online-count-label');
+    if (panel) {
       if (!online.length) { panel.style.display = 'none'; }
       else {
         panel.style.display = 'block';
-        list.innerHTML = online.map(u => {
-          const name = u.internal_name || u.anon_id;
-          const spent = u.total_spent > 0 ? ` · ${u.total_spent.toFixed(0)}€` : '';
-          return `<div onclick="openConv('${u.tg_id}','${u.anon_id}');showPage('chat')" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;background:rgba(34,197,94,0.08);">
-            <span style="width:7px;height:7px;background:#22c55e;border-radius:50%;flex-shrink:0;"></span>
-            <span style="font-size:12px;color:var(--text);font-weight:600;">${name}</span>
-            <span style="font-size:11px;color:#22c55e;">${spent}</span>
-          </div>`;
-        }).join('');
+        if (lbl) lbl.textContent = online.length + (online.length === 1 ? ' Fan online' : ' Fans online');
       }
     }
 
@@ -8156,10 +8167,15 @@ window.showPage = function(page) {
 </div>
 
 <!-- SALE MODAL -->
-<div id="sale-modal-overlay" onclick="closeSaleModal(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:center;justify-content:center;">
-  <div onclick="event.stopPropagation()" style="background:var(--bg2);border:1px solid rgba(0,212,170,.25);border-radius:16px;padding:28px;width:420px;max-width:94vw;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.5);">
-    <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px;">💰 Report Sale</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:20px;" id="sale-modal-subtitle">—</div>
+<div id="sale-modal-overlay" onclick="closeSaleModal(event)" style="display:none;position:fixed;inset:0;background:rgba(6,6,12,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div onclick="event.stopPropagation()" style="background:linear-gradient(165deg,#17141f 0%,#0e0d12 100%);border:1px solid rgba(124,92,255,.28);border-radius:20px;padding:26px;width:440px;max-width:94vw;max-height:90vh;overflow-y:auto;box-shadow:0 30px 90px rgba(0,0,0,.6);">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+      <div style="width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#ffd166,#f5a623);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 6px 18px rgba(255,209,102,.32);flex-shrink:0;">💰</div>
+      <div style="min-width:0;">
+        <div style="font-size:17px;font-weight:800;color:var(--text);letter-spacing:-.2px;">Report Sale</div>
+        <div style="font-size:12px;color:var(--text3);" id="sale-modal-subtitle">—</div>
+      </div>
+    </div>
 
     <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:6px;">Amount (€)</label>
     <input id="sale-amount" type="number" min="0" step="0.01" placeholder="e.g. 15" oninput="_checkSaleSubmitReady()" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:10px 13px;color:var(--text);font-size:15px;outline:none;box-sizing:border-box;margin-bottom:16px;">
