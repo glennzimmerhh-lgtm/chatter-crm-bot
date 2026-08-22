@@ -1211,6 +1211,42 @@
       /* Recolor legacy dark-blue / indigo accents to brand purple */
       #page-dashboard #creators-overview-panel [style*="99,102,241"]{ background:rgba(167,139,250,.07) !important; border-color:rgba(167,139,250,.28) !important; }
       #page-dashboard #creators-ov-total-subs{ color:var(--dx-purple) !important; }
+
+      /* ── Dashboard refresh v2 — richer surfaces + accents ───────────── */
+      #page-dashboard{ position:relative; }
+      #page-dashboard::before{
+        content:''; position:absolute; top:-30px; left:-40px; right:-40px; height:300px;
+        background:radial-gradient(620px 220px at 16% -10%, rgba(0,212,170,.11), transparent 68%),
+                   radial-gradient(600px 220px at 84% -10%, rgba(124,92,255,.11), transparent 68%);
+        pointer-events:none; z-index:0;
+      }
+      #page-dashboard > *{ position:relative; z-index:1; }
+      /* KPI cards: per-card accent bar + colour-matched hover glow */
+      #page-dashboard .kpi-card::before{
+        content:''; position:absolute; left:0; top:0; right:0; height:3px;
+        background:linear-gradient(90deg, var(--acc,#00d4aa), transparent 82%); opacity:.95;
+      }
+      #page-dashboard .cards-grid .kpi-card:nth-child(1){ --acc:#00d4aa; }
+      #page-dashboard .cards-grid .kpi-card:nth-child(2){ --acc:#4a9eff; }
+      #page-dashboard .cards-grid .kpi-card:nth-child(3){ --acc:#a78bfa; }
+      #page-dashboard .cards-grid .kpi-card:nth-child(4){ --acc:#22c55e; }
+      #page-dashboard .cards-grid .kpi-card:nth-child(5){ --acc:#ffd166; }
+      #page-dashboard .kpi-card:hover{ box-shadow:0 16px 36px -22px rgba(0,0,0,.85), 0 0 0 1px color-mix(in srgb, var(--acc,#ffffff) 32%, transparent); }
+      /* Topbar title → gradient wordmark */
+      #page-dashboard .topbar-title{ font-size:22px; font-weight:850; letter-spacing:-.02em;
+        background:linear-gradient(120deg,#ffffff, #bfeee3 42%, #cabcff); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+      /* Header controls → premium */
+      #page-dashboard .refresh-btn{ background:linear-gradient(135deg,#00d4aa,#0bbf9c); color:#04231d !important; border:none; font-weight:800; box-shadow:0 6px 16px -8px rgba(0,212,170,.8); }
+      #page-dashboard .config-btn{ background:rgba(255,255,255,.04); border:1px solid var(--border); color:var(--text2); border-radius:11px; }
+      #page-dashboard .config-btn:hover{ border-color:rgba(255,255,255,.18); color:var(--text); }
+      #page-dashboard .date-badge{ background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:11px; color:var(--text2); }
+      /* Panels — slightly richer header + pill tags */
+      #page-dashboard .panel-title{ font-size:14px; font-weight:800; letter-spacing:-.01em; }
+      #page-dashboard .panel-tag{ background:rgba(255,255,255,.05); border:1px solid var(--border); color:var(--text3); font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:999px; }
+      #page-dashboard .dx-fic{ box-shadow:inset 0 0 0 1px rgba(255,255,255,.07); }
+      /* Umsatz-Aufteilung rows + online spender chips — hover polish */
+      #page-dashboard .rbd-row:hover{ transform:translateX(2px); border-color:rgba(255,255,255,.14); background:rgba(255,255,255,.045); }
+      #page-dashboard .dx-spender:hover{ transform:translateY(-1px); border-color:rgba(34,197,94,.45); box-shadow:0 8px 18px -10px rgba(34,197,94,.6); }
     </style>
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -3949,13 +3985,13 @@ window.loadRevenueBreakdown = function() {
   });
   const bar = (label, val, color) => {
     const pct = total > 0 ? Math.round(val / total * 100) : 0;
-    return `<div style="margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
-        <span style="color:var(--text);">${label}</span>
-        <span style="color:var(--text2);font-weight:700;">€${Math.round(val)} · ${pct}%</span>
+    return `<div class="rbd-row" style="margin-bottom:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);transition:transform .12s,border-color .12s,background .12s;">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;margin-bottom:7px;">
+        <span style="color:var(--text);font-weight:600;">${label}</span>
+        <span style="color:var(--text2);font-weight:800;">€${Math.round(val)} · <span style="color:var(--dx-teal,#00d4aa);">${pct}%</span></span>
       </div>
-      <div style="height:8px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden;">
-        <div style="height:100%;width:${pct}%;background:${color};border-radius:5px;transition:width .4s;"></div>
+      <div style="height:9px;background:rgba(255,255,255,.055);border-radius:6px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:6px;transition:width .5s cubic-bezier(.2,.8,.2,1);box-shadow:0 1px 6px rgba(0,0,0,.3);"></div>
       </div></div>`;
   };
   const emoji = { PayPal:'💜', Amazon:'📦', Bank:'🏦', Paysafe:'🔵', 'Payment Link':'🔗', YouSafe:'🏦', Crypto:'🪙', Unbekannt:'❔' };
@@ -7774,11 +7810,14 @@ async function refreshOnlinePanel() {
               const name = u.internal_name || u.anon_id;
               const spent = `${(u.total_spent || 0).toFixed(0)}€`;
               const medal = ['🥇','🥈','🥉','4.','5.'][i] || '';
-              return `<div onclick="openConv('${u.tg_id}','${u.anon_id}');showPage('chat')" style="cursor:pointer;display:flex;align-items:center;gap:6px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:6px 10px;">
-                <span style="font-size:12px;">${medal}</span>
-                <span style="width:8px;height:8px;background:#22c55e;border-radius:50%;flex-shrink:0;animation:pulse 1.5s infinite;"></span>
-                <span style="font-size:13px;font-weight:600;color:var(--text);">${name}</span>
-                <span style="font-size:12px;font-weight:700;color:#22c55e;margin-left:4px;">${spent}</span>
+              const lead = i === 0;
+              const tileBg = lead ? 'linear-gradient(135deg,#ffd76a,#ffb020)' : 'rgba(255,255,255,.07)';
+              const tileCol = lead ? '#3a2600' : 'var(--text2)';
+              return `<div class="dx-spender" onclick="openConv('${u.tg_id}','${u.anon_id}');showPage('chat')" style="cursor:pointer;display:flex;align-items:center;gap:8px;background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.22);border-radius:12px;padding:7px 12px 7px 8px;transition:transform .12s,border-color .12s,box-shadow .12s;">
+                <span style="width:22px;height:22px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;background:${tileBg};color:${tileCol};flex-shrink:0;">${medal}</span>
+                <span style="width:7px;height:7px;background:#22c55e;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 3px rgba(34,197,94,.16);animation:pulse 1.5s infinite;"></span>
+                <span style="font-size:13px;font-weight:650;color:var(--text);">${name}</span>
+                <span style="font-size:12.5px;font-weight:800;color:#22c55e;margin-left:2px;">${spent}</span>
               </div>`;
             }).join('');
         }
