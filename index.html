@@ -1247,6 +1247,64 @@
       /* Umsatz-Aufteilung rows + online spender chips — hover polish */
       #page-dashboard .rbd-row:hover{ transform:translateX(2px); border-color:rgba(255,255,255,.14); background:rgba(255,255,255,.045); }
       #page-dashboard .dx-spender:hover{ transform:translateY(-1px); border-color:rgba(34,197,94,.45); box-shadow:0 8px 18px -10px rgba(34,197,94,.6); }
+
+      /* ══ Dashboard v3 · FRESH MODE — glass + aurora + motion ════════ */
+      @keyframes dxAurora{
+        0%{ transform:translate3d(0,0,0) scale(1); opacity:.9; }
+        50%{ transform:translate3d(-3%,1.5%,0) scale(1.09); opacity:1; }
+        100%{ transform:translate3d(0,0,0) scale(1); opacity:.9; }
+      }
+      @keyframes dxShimmer{ 0%{ background-position:-120% 0; } 100%{ background-position:240% 0; } }
+      /* Moving aurora backdrop */
+      #page-dashboard::before{
+        top:-90px; height:460px; filter:blur(6px); animation:dxAurora 16s ease-in-out infinite;
+        background:
+          radial-gradient(420px 300px at 12% 0%, rgba(0,212,170,.17), transparent 60%),
+          radial-gradient(460px 320px at 50% -12%, rgba(46,166,201,.12), transparent 62%),
+          radial-gradient(440px 300px at 88% 0%, rgba(124,92,255,.19), transparent 60%);
+      }
+      /* Glass KPI cards */
+      #page-dashboard .kpi-card{
+        background:linear-gradient(160deg, rgba(255,255,255,.06), rgba(255,255,255,.014));
+        border:1px solid rgba(255,255,255,.10);
+        backdrop-filter:blur(11px) saturate(1.15); -webkit-backdrop-filter:blur(11px) saturate(1.15);
+        box-shadow:0 12px 32px -20px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.07);
+        transition:transform .16s cubic-bezier(.2,.8,.2,1), border-color .16s, box-shadow .16s;
+      }
+      #page-dashboard .kpi-card::after{ content:''; position:absolute; inset:3px 0 auto 0; height:38%; background:linear-gradient(180deg, rgba(255,255,255,.05), transparent); pointer-events:none; }
+      #page-dashboard .kpi-card:hover{ transform:translateY(-3px) scale(1.012); }
+      /* Gradient value numbers with soft glow */
+      #page-dashboard .kpi-val{
+        background:linear-gradient(120deg,#ffffff 8%, var(--acc,#00d4aa)) !important;
+        -webkit-background-clip:text !important; background-clip:text !important; -webkit-text-fill-color:transparent !important;
+        filter:drop-shadow(0 2px 12px color-mix(in srgb, var(--acc,#00d4aa) 32%, transparent));
+      }
+      /* Icon tile per card */
+      #page-dashboard .kpi-ic{
+        position:absolute; top:12px; right:12px; width:32px; height:32px; border-radius:10px;
+        display:grid; place-items:center; font-size:15px; z-index:2; line-height:1;
+        background:color-mix(in srgb, var(--acc,#00d4aa) 18%, rgba(255,255,255,.04));
+        box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--acc,#00d4aa) 38%, transparent), 0 6px 16px -9px color-mix(in srgb, var(--acc,#00d4aa) 70%, transparent);
+      }
+      /* Hero shimmer sweep */
+      #page-dashboard .kpi-hero::before{
+        content:''; position:absolute; inset:0; border-radius:16px; pointer-events:none; z-index:1;
+        background:linear-gradient(105deg, transparent 42%, rgba(255,255,255,.12) 50%, transparent 58%);
+        background-size:220% 100%; animation:dxShimmer 5.5s ease-in-out infinite;
+      }
+      #page-dashboard .kpi-hero > *{ position:relative; z-index:2; }
+      /* Glass panels */
+      #page-dashboard .panel{
+        background:linear-gradient(160deg, rgba(255,255,255,.045), rgba(255,255,255,.01));
+        border:1px solid rgba(255,255,255,.09);
+        backdrop-filter:blur(11px); -webkit-backdrop-filter:blur(11px);
+        box-shadow:0 12px 32px -22px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.05);
+      }
+      /* Live-feed rows glassify a touch */
+      #page-dashboard .dx-feed .ft b, #page-dashboard .dx-feed b{ color:var(--dx-teal); }
+      @media (prefers-reduced-motion: reduce){
+        #page-dashboard::before, #page-dashboard .kpi-hero::before{ animation:none; }
+      }
     </style>
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -1301,29 +1359,34 @@
     <!-- KPI CARDS (redesigned hero row) -->
     <div class="cards-grid" style="grid-template-columns:repeat(5,1fr);">
       <div class="kpi-card kpi-hero">
+        <div class="kpi-ic">💰</div>
         <div class="kpi-label" id="kpi-rev-label">Umsatz heute</div>
         <div class="kpi-val" id="kpi-today-rev" style="color:var(--dx-teal);">€0</div>
         <div class="dx-foot"><span class="dx-chip flat" id="kpi-rev-chip">neu</span><span class="dx-cap" id="kpi-today-rev-sub">0 Transaktionen</span></div>
         <canvas class="dx-spark" id="spark-rev"></canvas>
       </div>
       <div class="kpi-card">
+        <div class="kpi-ic">🛍️</div>
         <div class="kpi-label" id="kpi-sales-label">Sales heute</div>
         <div class="kpi-val" id="kpi-today-sales" style="color:var(--dx-blue);">0</div>
         <div class="dx-foot"><span class="dx-chip flat" id="kpi-sales-chip">neu</span><span class="dx-cap" id="kpi-today-sales-sub">Ø €0</span></div>
         <canvas class="dx-spark" id="spark-sales"></canvas>
       </div>
       <div class="kpi-card">
+        <div class="kpi-ic">👥</div>
         <div class="kpi-label" id="kpi-avg-label">New Subs</div>
         <div class="kpi-val" id="kpi-week-rev" style="color:var(--dx-purple);">0</div>
         <div class="dx-foot"><span class="dx-cap" id="kpi-week-sub">neue Kontakte</span></div>
         <canvas class="dx-spark" id="spark-subs"></canvas>
       </div>
       <div class="kpi-card">
+        <div class="kpi-ic">📈</div>
         <div class="kpi-label">ARPPU</div>
         <div class="kpi-val" id="kpi-arppu" style="color:var(--dx-green);">€0</div>
         <div class="dx-foot"><span class="dx-cap">Ø pro Käufer</span></div>
       </div>
       <div class="kpi-card">
+        <div class="kpi-ic">🎯</div>
         <div class="kpi-label">Conversion</div>
         <div class="kpi-val" id="kpi-conversion" style="color:var(--dx-yellow);">0%</div>
         <div class="dx-foot"><span class="dx-cap" id="kpi-conversion-sub">Käufer / gesamt</span></div>
