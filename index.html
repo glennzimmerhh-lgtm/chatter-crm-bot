@@ -594,6 +594,26 @@
   }
   .pl-btn:hover { background: rgba(255,255,255,.08); transform: translateX(2px); box-shadow: 0 6px 16px rgba(0,0,0,.32); filter: none; }
   .pl-btn .pl-ic { width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; background: color-mix(in srgb, var(--acc) 22%, transparent); flex-shrink: 0; }
+  /* Report-Sale tiles — premium, with hover + clear selected state */
+  #sale-modal-overlay .sale-cat-btn, #sale-modal-overlay .sale-pay-btn {
+    background: rgba(255,255,255,.035) !important;
+    border: 1px solid rgba(255,255,255,.09) !important;
+    border-radius: 12px !important; padding: 13px !important;
+    color: var(--text) !important; font-weight: 700 !important;
+    transition: transform .13s ease, border-color .13s, background .13s, box-shadow .13s !important;
+  }
+  #sale-modal-overlay .sale-cat-btn:hover, #sale-modal-overlay .sale-pay-btn:hover {
+    transform: translateY(-2px); border-color: rgba(124,92,255,.45) !important;
+    background: rgba(255,255,255,.06) !important; box-shadow: 0 8px 20px rgba(0,0,0,.28);
+  }
+  #sale-modal-overlay .sale-cat-btn.selected {
+    border-color: rgba(0,212,170,.7) !important; background: rgba(0,212,170,.14) !important;
+    color: #00d4aa !important; box-shadow: inset 0 0 0 1px rgba(0,212,170,.35), 0 6px 18px rgba(0,212,170,.2);
+  }
+  #sale-modal-overlay .sale-pay-btn.selected {
+    border-color: rgba(124,92,255,.7) !important; background: rgba(124,92,255,.14) !important;
+    color: #a78bfa !important; box-shadow: inset 0 0 0 1px rgba(124,92,255,.35), 0 6px 18px rgba(124,92,255,.2);
+  }
   .profile-stat-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 12px; color: #55556a; }
   .profile-stat-val { font-weight: 600; color: var(--text); }
   .profile-saved-tag { font-size: 10px; color: var(--teal); margin-left: 6px; opacity: 0; transition: opacity .3s; }
@@ -1045,6 +1065,10 @@
     <div class="nav-item admin-only" onclick="showPage('performance')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       Performance
+    </div>
+    <div class="nav-item admin-only" onclick="showPage('tracking')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/></svg>
+      Chatter Tracking
     </div>
     <div class="nav-item admin-only" onclick="showPage('vault')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -2331,6 +2355,51 @@
     </div>
   </div>
 
+  <div id="page-tracking" style="display:none;">
+    <style>
+      #page-tracking .trk-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:22px; }
+      #page-tracking .trk-kpi{ background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.015)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:16px 18px; position:relative; overflow:hidden; }
+      #page-tracking .trk-kpi::after{ content:''; position:absolute; inset:0 0 auto 0; height:3px; background:linear-gradient(90deg,#00d4aa,#7c5cff); opacity:.9; }
+      #page-tracking .trk-kpi .k-lbl{ font-size:11px; letter-spacing:.5px; text-transform:uppercase; color:var(--text3); font-weight:700; }
+      #page-tracking .trk-kpi .k-val{ font-size:26px; font-weight:800; margin-top:6px; background:linear-gradient(135deg,#fff,#c9c6ff); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+      #page-tracking .trk-table{ width:100%; border-collapse:separate; border-spacing:0; }
+      #page-tracking .trk-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--text3); font-weight:700; padding:12px 14px; border-bottom:1px solid var(--border); }
+      #page-tracking .trk-table td{ padding:14px; border-bottom:1px solid rgba(255,255,255,.05); font-size:13.5px; }
+      #page-tracking .trk-table tbody tr{ transition:background .12s; }
+      #page-tracking .trk-table tbody tr:hover{ background:rgba(255,255,255,.03); }
+      #page-tracking .trk-rank{ width:30px; height:30px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:13px; background:rgba(255,255,255,.06); }
+      #page-tracking .trk-rank.r1{ background:linear-gradient(135deg,#ffd76a,#ffb020); color:#3a2600; }
+      #page-tracking .trk-rank.r2{ background:linear-gradient(135deg,#e2e8f0,#a9b4c4); color:#20262f; }
+      #page-tracking .trk-rank.r3{ background:linear-gradient(135deg,#e6a86b,#c07d38); color:#3a1e00; }
+      #page-tracking .trk-name{ font-weight:700; }
+      #page-tracking .trk-bar{ height:6px; border-radius:4px; background:rgba(255,255,255,.07); overflow:hidden; margin-top:5px; }
+      #page-tracking .trk-bar > i{ display:block; height:100%; border-radius:4px; background:linear-gradient(90deg,#00d4aa,#7c5cff); }
+      #page-tracking .trk-live{ display:inline-flex; align-items:center; gap:6px; font-size:11px; color:#00d4aa; font-weight:700; }
+      #page-tracking .trk-live::before{ content:''; width:7px; height:7px; border-radius:50%; background:#00d4aa; box-shadow:0 0 0 0 rgba(0,212,170,.6); animation:trkpulse 1.8s infinite; }
+      @keyframes trkpulse{ 0%{box-shadow:0 0 0 0 rgba(0,212,170,.5)} 70%{box-shadow:0 0 0 7px rgba(0,212,170,0)} 100%{box-shadow:0 0 0 0 rgba(0,212,170,0)} }
+    </style>
+    <div class="page-header">
+      <h1 class="page-title">⌨️ Chatter Tracking</h1>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap;">
+        <button class="period-btn active" id="trk-btn-today" onclick="loadChatterTracking('today')">Today</button>
+        <button class="period-btn" id="trk-btn-7d" onclick="loadChatterTracking('7d')">7 Days</button>
+        <button class="period-btn" id="trk-btn-30d" onclick="loadChatterTracking('30d')">30 Days</button>
+        <button class="period-btn" id="trk-btn-all" onclick="loadChatterTracking('all')">Total</button>
+        <span class="trk-live" style="margin-left:auto;">Live tracking</span>
+      </div>
+    </div>
+    <div class="trk-kpis" id="trk-kpis"></div>
+    <div class="panel">
+      <div class="panel-hd"><div class="panel-title">Leaderboard</div></div>
+      <div style="overflow-x:auto;">
+        <table class="trk-table"><thead><tr>
+          <th>#</th><th>Chatter</th><th>Active Time</th><th>Keystrokes</th><th>Messages</th><th>Sales</th><th>Revenue</th><th>Fake-Checks</th>
+        </tr></thead>
+        <tbody id="trk-tbody"><tr><td colspan="8"><div class="empty">Loading…</div></td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+
   <div id="page-chat" style="display:none;">
     <style>
       /* ── Chat redesign (scoped, branding-aligned) ─────────────────── */
@@ -2343,6 +2412,18 @@
       #page-chat .conv-preview{ color:var(--text3); }
       /* Chat header — glassy */
       #page-chat .msg-topbar{ background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+      /* Top action buttons — unified premium pills */
+      #page-chat .mt-btn{ display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 13px; border-radius:11px; font-size:12.5px; font-weight:700; cursor:pointer; white-space:nowrap; border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.04); color:var(--text2); transition:transform .12s, border-color .12s, background .12s, box-shadow .12s; }
+      #page-chat .mt-btn:hover{ transform:translateY(-1px); background:rgba(255,255,255,.07); box-shadow:0 6px 16px rgba(0,0,0,.28); }
+      #page-chat .mt-btn.mt-icon{ width:34px; padding:0; justify-content:center; font-size:14px; }
+      #page-chat .mt-btn.mt-blue{ color:#4a9eff; border-color:rgba(74,158,255,.35); background:rgba(74,158,255,.12); }
+      #page-chat .mt-btn.mt-blue:hover{ background:rgba(74,158,255,.2); }
+      #page-chat .mt-btn.mt-pink{ color:#ff5c7a; border-color:rgba(255,92,122,.35); background:rgba(255,92,122,.12); }
+      #page-chat .mt-btn.mt-pink:hover{ background:rgba(255,92,122,.2); }
+      #page-chat .mt-btn.mt-call{ background:linear-gradient(135deg,#00d4aa,#12b981); color:#04231d; border:none; font-weight:800; box-shadow:0 6px 18px -7px rgba(0,212,170,.75); }
+      #page-chat .mt-btn.mt-call:hover{ box-shadow:0 9px 22px -7px rgba(0,212,170,.9); }
+      #page-chat .mt-btn.mt-coach{ color:#a78bfa; border-color:rgba(167,139,250,.4); background:rgba(167,139,250,.12); }
+      #page-chat .mt-btn.mt-coach:hover{ background:rgba(167,139,250,.2); }
       /* Message bubbles — rounder + richer */
       #page-chat .msg-bubble{ max-width:70%; padding:11px 15px; border-radius:18px; font-size:13.5px; line-height:1.55; box-shadow:0 2px 10px rgba(0,0,0,.18); }
       #page-chat .msg-in{ background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.08); border-bottom-left-radius:6px; box-shadow:0 2px 10px rgba(0,0,0,.22); }
@@ -2464,23 +2545,17 @@
             <span id="msg-conv-status" style="font-size:11px;color:var(--text3);"></span>
           </div>
           <!-- Media Gallery Button -->
-          <button id="media-gallery-btn" onclick="openMediaGallery()" style="display:none;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.35);border-radius:8px;color:#4a9eff;padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;" title="Subscriber-Medien anzeigen">
-            📷
-          </button>
+          <button id="media-gallery-btn" class="mt-btn mt-icon mt-blue" onclick="openMediaGallery()" style="display:none;" title="Subscriber-Medien anzeigen">📷</button>
           <!-- Mark Unread Button -->
-          <button id="mark-unread-btn" onclick="markConvUnread()" style="display:none;background:rgba(255,92,122,.12);border:1px solid rgba(255,92,122,.35);border-radius:8px;color:#ff5c7a;padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;" title="Als ungelesen markieren (für den Chatter)">📩</button>
+          <button id="mark-unread-btn" class="mt-btn mt-icon mt-pink" onclick="markConvUnread()" style="display:none;" title="Als ungelesen markieren (für den Chatter)">📩</button>
           <!-- Mute Button -->
-          <button id="mute-sub-btn" onclick="toggleMuteSub()" style="display:none;background:rgba(120,120,120,.12);border:1px solid rgba(150,150,150,.3);border-radius:8px;color:#888;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" title="Subscriber muten / entmuten">
-            🔇
-          </button>
+          <button id="mute-sub-btn" class="mt-btn mt-icon" onclick="toggleMuteSub()" style="display:none;" title="Subscriber muten / entmuten">🔇</button>
           <!-- Fake Call Button — shown when conversation is open -->
-          <button id="fake-call-btn" onclick="openFakeCallModal()" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:8px;color:#22c55e;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;gap:5px;align-items:center;white-space:nowrap;" title="Start pre-recorded call">
-            📞 Start Call
-          </button>
+          <button id="fake-call-btn" class="mt-btn mt-call" onclick="openFakeCallModal()" style="display:none;" title="Start pre-recorded call">📞 Start Call</button>
           <!-- KI-Coach Button (admin only) — feedback on this chat -->
-          <button id="ai-coach-btn" class="admin-only" onclick="openCoach()" style="background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.4);border-radius:8px;color:#a78bfa;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" title="KI-Feedback zu diesem Chat">🔍 KI-Coach</button>
+          <button id="ai-coach-btn" class="mt-btn mt-coach admin-only" onclick="openCoach()" title="KI-Feedback zu diesem Chat">🔍 KI-Coach</button>
           <!-- KI-für-diesen-Fan Schalter (admin only, Test-Modus) -->
-          <button id="ai-fan-btn" class="admin-only" onclick="toggleAiFan()" data-on="0" style="background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" title="KI für diesen Fan an/aus (greift im Test-Modus)">🤖 KI: aus</button>
+          <button id="ai-fan-btn" class="mt-btn admin-only" onclick="toggleAiFan()" data-on="0" title="KI für diesen Fan an/aus (greift im Test-Modus)">🤖 KI: aus</button>
         </div>
         <!-- Active Call Banner -->
         <div id="active-call-bar" style="display:none;padding:10px 16px;background:rgba(34,197,94,0.12);border-bottom:2px solid #22c55e;">
@@ -2850,14 +2925,8 @@ window.attachMsgAsProof = async function(tgId, msgId) {
 let _amazonCodes = [];
 
 function selectPaymentMethod(btn, method) {
-  document.querySelectorAll('.sale-pay-btn').forEach(b => {
-    b.style.borderColor = 'var(--border)';
-    b.style.background = 'var(--bg3)';
-    b.style.color = 'var(--text)';
-  });
-  btn.style.borderColor = 'rgba(74,158,255,.6)';
-  btn.style.background = 'rgba(74,158,255,.12)';
-  btn.style.color = '#4a9eff';
+  document.querySelectorAll('.sale-pay-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
   document.getElementById('sale-payment-method').value = method;
 
   const codeSection = document.getElementById('sale-code-section');
@@ -4816,6 +4885,93 @@ function renderShiftsPage() {
   }).join('');
 }
 
+// ── CHATTER TRACKING (Leaderboard) ──────────────────────────────────────────
+let _trkPeriod = 'today';
+function _trkEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _fmtDuration(sec){
+  sec = Math.max(0, Math.round(sec||0));
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60);
+  if (h>0) return h+'h '+(m<10?'0':'')+m+'m';
+  if (m>0) return m+'m';
+  return sec+'s';
+}
+async function loadChatterTracking(period){
+  _trkPeriod = period || _trkPeriod || 'today';
+  ['today','7d','30d','all'].forEach(p=>{
+    const b = document.getElementById('trk-btn-'+p);
+    if (b) b.classList.toggle('active', p===_trkPeriod);
+  });
+  const tbody = document.getElementById('trk-tbody');
+  const kpis  = document.getElementById('trk-kpis');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8"><div class="empty">Loading…</div></td></tr>';
+  try {
+    const d = await fetch('/api/analytics/chatter-tracking?period=' + encodeURIComponent(_trkPeriod)).then(r=>r.json());
+    const rows = (d && d.chatters) ? d.chatters : [];
+    const tActive = rows.reduce((s,r)=>s+(r.active_seconds||0),0);
+    const tKeys   = rows.reduce((s,r)=>s+(r.keystrokes||0),0);
+    const tSales  = rows.reduce((s,r)=>s+(r.sales||0),0);
+    const tFc     = rows.reduce((s,r)=>s+(r.fakechecks||0),0);
+    if (kpis) kpis.innerHTML = [
+      ['Active Chatters', rows.length],
+      ['Active Time', _fmtDuration(tActive)],
+      ['Keystrokes', tKeys.toLocaleString('de-DE')],
+      ['Sales', tSales],
+      ['Fake-Checks', tFc],
+    ].map(k=>`<div class="trk-kpi"><div class="k-lbl">${k[0]}</div><div class="k-val">${k[1]}</div></div>`).join('');
+    if (!rows.length){ if(tbody) tbody.innerHTML='<tr><td colspan="8"><div class="empty">No data im gewählten Zeitraum</div></td></tr>'; return; }
+    const maxActive = Math.max.apply(null, rows.map(r=>r.active_seconds||0).concat([1]));
+    tbody.innerHTML = rows.map((r,i)=>{
+      const rank = i+1, rc = rank<=3 ? ' r'+rank : '';
+      const pct = Math.round(((r.active_seconds||0)/maxActive)*100);
+      return `<tr>
+        <td><span class="trk-rank${rc}">${rank}</span></td>
+        <td><div class="trk-name">${_trkEsc(r.chatter||'—')}</div></td>
+        <td>${_fmtDuration(r.active_seconds)}<div class="trk-bar"><i style="width:${pct}%"></i></div></td>
+        <td>${(r.keystrokes||0).toLocaleString('de-DE')}</td>
+        <td>${r.messages||0}</td>
+        <td style="font-weight:700">${r.sales||0}</td>
+        <td style="color:#00d4aa;font-weight:700">${fmt(r.revenue||0)}</td>
+        <td>${r.fakechecks||0}</td>
+      </tr>`;
+    }).join('');
+  } catch(e){
+    if (tbody) tbody.innerHTML='<tr><td colspan="8"><div class="empty">Fehler: '+_trkEsc(e.message||e)+'</div></td></tr>';
+  }
+}
+
+// ── ACTIVITY HEARTBEAT (keystrokes + active time per logged-in chatter) ──────
+(function(){
+  let _ks = 0, _activeSec = 0, _lastTick = Date.now(), _lastActivity = Date.now();
+  document.addEventListener('keydown', function(){ _ks++; _lastActivity = Date.now(); }, true);
+  ['mousemove','mousedown','wheel','touchstart'].forEach(function(ev){
+    document.addEventListener(ev, function(){ _lastActivity = Date.now(); }, true);
+  });
+  setInterval(function(){
+    const now = Date.now();
+    const dt = (now - _lastTick)/1000; _lastTick = now;
+    if (!document.hidden && (now - _lastActivity) < 60000) _activeSec += dt;
+  }, 1000);
+  function _currentChatter(){ try { return localStorage.getItem('crm_user') || ''; } catch(e){ return ''; } }
+  function flush(useBeacon){
+    const chatter = _currentChatter();
+    if (!chatter) return;
+    const sec = Math.round(_activeSec), ks = _ks;
+    if (sec<=0 && ks<=0) return;
+    _activeSec = 0; _ks = 0;
+    const body = JSON.stringify({ chatter: chatter, active_seconds: sec, keystrokes: ks });
+    try {
+      if (useBeacon && navigator.sendBeacon) {
+        navigator.sendBeacon('/api/activity/heartbeat', new Blob([body], {type:'application/json'}));
+      } else {
+        fetch('/api/activity/heartbeat', { method:'POST', headers:{'Content-Type':'application/json'}, body: body, keepalive:true }).catch(function(){});
+      }
+    } catch(e){}
+  }
+  setInterval(function(){ flush(false); }, 30000);
+  window.addEventListener('beforeunload', function(){ flush(true); });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) flush(true); });
+})();
+
 function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
   document.getElementById('sidebar-overlay').classList.add('open');
@@ -4938,7 +5094,7 @@ function _fmtHours(sec) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -4960,6 +5116,7 @@ function showPage(name) {
   if (name === 'notifications') { if (typeof loadNotifications === 'function') loadNotifications(); }
   if (name === 'members') { if (typeof loadMembers === 'function') loadMembers(); }
   if (name === 'creators') { if (typeof loadCreatorsPage === 'function') loadCreatorsPage(); }
+  if (name === 'tracking') { if (typeof loadChatterTracking === 'function') loadChatterTracking(); }
   if (name === 'hotkeys') { if (typeof renderHotkeysPage === 'function') renderHotkeysPage(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues

@@ -511,6 +511,14 @@ def init_db():
             )''')
             c.execute("CREATE INDEX IF NOT EXISTS idx_fakecheck_tg ON fake_checks(tg_id)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_fakecheck_ts ON fake_checks(ts DESC)")
+            # Chatter activity tracking — active time + keystrokes per chatter per day.
+            c.execute('''CREATE TABLE IF NOT EXISTS chatter_activity (
+                chatter        TEXT NOT NULL,
+                day            TEXT NOT NULL,
+                active_seconds INTEGER DEFAULT 0,
+                keystrokes     INTEGER DEFAULT 0,
+                PRIMARY KEY (chatter, day)
+            )''')
             # Users table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
                 id            INTEGER PRIMARY KEY,
@@ -3575,6 +3583,97 @@ def stats_fakecheck(period: str = '30d'):
         'fake_checks_per_conversion': fc_per_conv,
         'by_creator': sorted(by.values(), key=lambda x: (-x['fc_chats'], -x['subs'])),
     }
+
+def _berlin_today():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo('Europe/Berlin')).strftime('%Y-%m-%d')
+    except Exception:
+        return datetime.now().strftime('%Y-%m-%d')
+
+class HeartbeatIn(BaseModel):
+    chatter: str
+    active_seconds: int = 0
+    keystrokes: int = 0
+
+@app.post('/activity/heartbeat')
+def activity_heartbeat(body: HeartbeatIn):
+    """Chatter client pings this every ~30s with active-time + keystroke deltas."""
+    ch = (body.chatter or '').strip()
+    if not ch:
+        return {'ok': False}
+    sec = max(0, min(int(body.active_seconds or 0), 3600))     # sanity caps
+    ks = max(0, min(int(body.keystrokes or 0), 100000))
+    if sec == 0 and ks == 0:
+        return {'ok': True}
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("""INSERT INTO chatter_activity (chatter, day, active_seconds, keystrokes)
+                         VALUES (%s,%s,%s,%s)
+                         ON CONFLICT (chatter, day) DO UPDATE SET
+                           active_seconds = chatter_activity.active_seconds + EXCLUDED.active_seconds,
+                           keystrokes     = chatter_activity.keystrokes + EXCLUDED.keystrokes""",
+                      (ch, _berlin_today(), sec, ks))
+    except Exception as e:
+        print(f'heartbeat error: {e}')
+        return {'ok': False}
+    return {'ok': True}
+
+@app.get('/analytics/chatter-tracking')
+def chatter_tracking(period: str = 'today'):
+    """Per-chatter leaderboard: active time, keystrokes, messages, sales, revenue, fake-checks."""
+    try:
+        from zoneinfo import ZoneInfo
+        now_b = datetime.now(ZoneInfo('Europe/Berlin'))
+    except Exception:
+        now_b = datetime.now()
+    if period == 'today':
+        start_b = now_b.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == '7d':
+        start_b = now_b - timedelta(days=7)
+    elif period == '30d':
+        start_b = now_b - timedelta(days=30)
+    else:
+        start_b = None
+    def _local(dt):
+        try:
+            return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception:
+            return (dt.replace(tzinfo=None) if getattr(dt, 'tzinfo', None) else dt).isoformat()
+    since_ts = _local(start_b) if start_b else None
+    since_day = start_b.strftime('%Y-%m-%d') if start_b else None
+    _IGNORE = {'', 'KI', 'Auto', 'Telegram', 'Broadcast', 'System', 'Chatter'}
+    sales, fcs, act, msgs = {}, {}, {}, {}
+    try:
+        with db() as conn, conn.cursor() as c:
+            q = "SELECT chatter, COUNT(*) n, COALESCE(SUM(amount),0) rev FROM sales WHERE chatter<>'' AND COALESCE(status,'')<>'rejected'"
+            p = []
+            if since_ts: q += " AND timestamp>=%s"; p.append(since_ts)
+            c.execute(q + " GROUP BY chatter", tuple(p))
+            sales = {r['chatter']: {'sales': r['n'], 'revenue': float(r['rev'] or 0)} for r in c.fetchall()}
+            q = "SELECT chatter, COUNT(*) n FROM fake_checks WHERE chatter<>''"; p = []
+            if since_ts: q += " AND ts>=%s"; p.append(since_ts)
+            c.execute(q + " GROUP BY chatter", tuple(p))
+            fcs = {r['chatter']: r['n'] for r in c.fetchall()}
+            q = "SELECT chatter, COALESCE(SUM(active_seconds),0) sec, COALESCE(SUM(keystrokes),0) ks FROM chatter_activity WHERE chatter<>''"; p = []
+            if since_day: q += " AND day>=%s"; p.append(since_day)
+            c.execute(q + " GROUP BY chatter", tuple(p))
+            act = {r['chatter']: {'sec': int(r['sec'] or 0), 'ks': int(r['ks'] or 0)} for r in c.fetchall()}
+            q = "SELECT chatter, COUNT(*) n FROM messages WHERE direction='out' AND chatter<>''"; p = []
+            if since_ts: q += " AND timestamp>=%s"; p.append(since_ts)
+            c.execute(q + " GROUP BY chatter", tuple(p))
+            msgs = {r['chatter']: r['n'] for r in c.fetchall()}
+    except Exception as e:
+        print(f'chatter-tracking error: {e}')
+    names = (set(sales) | set(fcs) | set(act) | set(msgs)) - _IGNORE
+    out = []
+    for n in names:
+        a = act.get(n, {}); s = sales.get(n, {})
+        out.append({'chatter': n, 'active_seconds': a.get('sec', 0), 'keystrokes': a.get('ks', 0),
+                    'messages': msgs.get(n, 0), 'sales': s.get('sales', 0),
+                    'revenue': round(s.get('revenue', 0), 2), 'fakechecks': fcs.get(n, 0)})
+    out.sort(key=lambda x: (-x['revenue'], -x['active_seconds']))
+    return {'period': period, 'chatters': out}
 
 @app.get('/settings/crm')
 def get_crm_settings():
