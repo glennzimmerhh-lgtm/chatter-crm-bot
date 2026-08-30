@@ -1078,6 +1078,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
       Payments
     </div>
+    <div class="nav-item admin-only" onclick="showPage('accounting')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17V7m4 10V11m4 6V4M4 21h16"/></svg>
+      Buchhaltung
+    </div>
     <div class="nav-item admin-only" onclick="openMediaPool()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
       Bild-Pool <span id="nav-pool-badge" style="display:none;background:#7c5cff;color:#fff;border-radius:8px;padding:0 5px;font-size:10px;font-weight:700;margin-left:4px;"></span>
@@ -2432,6 +2436,80 @@
           <th>#</th><th>Chatter</th><th>Active Time</th><th>Keystrokes</th><th>Messages</th><th>Sales</th><th>Revenue</th><th>Fake-Checks</th>
         </tr></thead>
         <tbody id="trk-tbody"><tr><td colspan="8"><div class="empty">Loading…</div></td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-accounting" style="display:none;">
+    <style>
+      #page-accounting .acc-toolbar{ display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:18px; }
+      #page-accounting .acc-fld{ display:flex; flex-direction:column; gap:5px; }
+      #page-accounting .acc-fld label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text3); font-weight:700; }
+      #page-accounting .acc-fld select, #page-accounting .acc-fld input{ background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; color:var(--text); padding:9px 11px; font-size:13px; min-width:120px; }
+      #page-accounting .acc-fld input.num{ width:90px; min-width:0; }
+      #page-accounting .acc-btn{ background:linear-gradient(135deg,#00d4aa,#0bbf9c); border:none; color:#04231d; font-weight:800; font-size:13px; padding:10px 16px; border-radius:11px; cursor:pointer; box-shadow:0 6px 16px -8px rgba(0,212,170,.8); }
+      #page-accounting .acc-btn.ghost{ background:rgba(255,255,255,.05); color:var(--text2); border:1px solid var(--border); box-shadow:none; }
+      #page-accounting .acc-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px; }
+      #page-accounting .acc-kpi{ background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.012)); border:1px solid var(--border); border-radius:14px; padding:14px 16px; position:relative; overflow:hidden; }
+      #page-accounting .acc-kpi::after{ content:''; position:absolute; left:0; top:0; right:0; height:3px; background:linear-gradient(90deg,var(--c,#00d4aa),transparent 82%); }
+      #page-accounting .acc-kpi .l{ font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text3); font-weight:700; }
+      #page-accounting .acc-kpi .v{ font-size:22px; font-weight:800; margin-top:5px; }
+      #page-accounting table.acc-tbl{ width:100%; border-collapse:collapse; }
+      #page-accounting .acc-tbl th{ text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); font-weight:700; padding:10px 12px; border-bottom:1px solid var(--border); }
+      #page-accounting .acc-tbl td{ padding:11px 12px; border-bottom:1px solid rgba(255,255,255,.05); font-size:13px; }
+      #page-accounting .acc-tbl tfoot td{ font-weight:800; border-top:2px solid var(--border); border-bottom:none; font-size:13.5px; }
+      #page-accounting .r{ text-align:right; }
+      #page-accounting .acc-recon-cols{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin-top:14px; }
+      #page-accounting .acc-recon-card{ background:rgba(255,255,255,.025); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+      #page-accounting .acc-recon-card h4{ margin:0 0 8px; font-size:12px; font-weight:800; display:flex; align-items:center; gap:7px; }
+      #page-accounting .acc-recon-card .cnt{ margin-left:auto; font-size:11px; background:rgba(255,255,255,.08); padding:1px 8px; border-radius:999px; }
+      #page-accounting .acc-recon-row{ font-size:12px; padding:6px 0; border-bottom:1px dashed rgba(255,255,255,.07); display:flex; justify-content:space-between; gap:8px; }
+      #page-accounting .acc-recon-row:last-child{ border-bottom:none; }
+      #page-accounting .acc-dropzone{ border:1.5px dashed rgba(255,255,255,.18); border-radius:12px; padding:16px; text-align:center; color:var(--text3); font-size:12.5px; cursor:pointer; transition:.15s; }
+      #page-accounting .acc-dropzone:hover{ border-color:rgba(0,212,170,.5); color:var(--text2); background:rgba(0,212,170,.04); }
+      #page-accounting .acc-note{ font-size:11px; color:var(--text3); margin-top:6px; line-height:1.5; }
+      #page-accounting .acc-tbl.novat th.vatcol, #page-accounting .acc-tbl.novat td.vatcol{ display:none; }
+    </style>
+    <div class="page-header">
+      <h1 class="page-title">📒 Buchhaltung</h1>
+      <div style="font-size:12.5px;color:var(--text3);margin-top:4px;">Monatsabschluss pro Model · Brutto / Gebühr / Netto · PayPal-Abgleich. Kein Steuerberater-Ersatz — Werte vom Buchhalter prüfen lassen.</div>
+    </div>
+
+    <div class="acc-toolbar">
+      <div class="acc-fld"><label>Model</label><select id="acc-model" onchange="renderAccounting()"></select></div>
+      <div class="acc-fld"><label>Jahr</label><select id="acc-year" onchange="renderAccounting()"></select></div>
+      <div class="acc-fld"><label>Monat</label><select id="acc-month" onchange="renderAccounting()"></select></div>
+      <div class="acc-fld"><label>PayPal-Gebühr %</label><input class="num" id="acc-feepct" type="number" step="0.01" onchange="saveAccSettings();renderAccounting()"></div>
+      <div class="acc-fld"><label>+ fix €</label><input class="num" id="acc-feefix" type="number" step="0.01" onchange="saveAccSettings();renderAccounting()"></div>
+      <div class="acc-fld"><label>USt %</label><input class="num" id="acc-vat" type="number" step="0.1" onchange="saveAccSettings();renderAccounting()"></div>
+      <button class="acc-btn" onclick="printAccountingBeleg()">🖨️ PDF-Beleg</button>
+    </div>
+
+    <div class="acc-kpis" id="acc-kpis"></div>
+
+    <div class="panel" style="margin-bottom:20px;">
+      <div class="panel-hd"><div class="panel-title" id="acc-tbl-title">Transaktionen</div><span class="panel-tag" id="acc-tbl-tag"></span></div>
+      <div style="overflow-x:auto;">
+        <table class="acc-tbl" id="acc-table"><thead><tr>
+          <th>Datum</th><th>Fan</th><th>Produkt</th><th>Zahlungsweg</th><th>Chatter</th>
+          <th class="r">Brutto</th><th class="r">Gebühr</th><th class="r vatcol" id="acc-th-vat">USt</th><th class="r">Netto</th>
+        </tr></thead>
+        <tbody id="acc-tbody"><tr><td colspan="9"><div class="empty">Model & Monat wählen…</div></td></tr></tbody>
+        <tfoot id="acc-tfoot"></tfoot></table>
+      </div>
+      <div class="acc-note" id="acc-fee-note"></div>
+    </div>
+
+    <div class="panel" style="margin-bottom:20px;">
+      <div class="panel-hd"><div class="panel-title">🔎 PayPal-Abgleich (Reconciliation)</div><span class="panel-tag">lokal · nichts wird hochgeladen</span></div>
+      <div style="padding:4px 2px;">
+        <div class="acc-dropzone" id="acc-drop" onclick="document.getElementById('acc-csv').click()">
+          <div style="font-size:22px;margin-bottom:4px;">📂</div>
+          PayPal-Kontoauszug (CSV) hier klicken zum Auswählen<br>
+          <span style="font-size:11px;">PayPal → Aktivitäten → Herunterladen → CSV. Wird nur im Browser verarbeitet.</span>
+        </div>
+        <input type="file" id="acc-csv" accept=".csv,text/csv" style="display:none;" onchange="handlePaypalCsv(this)">
+        <div id="acc-recon-out"></div>
       </div>
     </div>
   </div>
@@ -5008,6 +5086,292 @@ async function loadChatterTracking(period){
   document.addEventListener('visibilitychange', function(){ if (document.hidden) flush(true); });
 })();
 
+// ── BUCHHALTUNG / ACCOUNTING ────────────────────────────────────────────────
+const _ACC_MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+let _accCreators = null;
+function _accEur(v){ return (Math.round((v||0)*100)/100).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €'; }
+function _accEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _accBerlinYMD(){ try{ return new Date().toLocaleDateString('en-CA',{timeZone:'Europe/Berlin'}); }catch(e){ return new Date().toISOString().slice(0,10); } }
+function _accSettings(){
+  let s = {}; try { s = JSON.parse(localStorage.getItem('acc_settings')||'{}'); } catch(e){}
+  return { feePct: (s.feePct!=null?+s.feePct:2.99), feeFix: (s.feeFix!=null?+s.feeFix:0.39), vat: (s.vat!=null?+s.vat:0) };
+}
+function saveAccSettings(){
+  const s = { feePct: parseFloat(document.getElementById('acc-feepct').value)||0,
+              feeFix: parseFloat(document.getElementById('acc-feefix').value)||0,
+              vat: parseFloat(document.getElementById('acc-vat').value)||0 };
+  try { localStorage.setItem('acc_settings', JSON.stringify(s)); } catch(e){}
+}
+async function loadAccounting(){
+  // Ensure sales data present
+  let data = (window._getCrmSalesData ? window._getCrmSalesData() : (window.crmSalesData||[])) || [];
+  if (!data.length) {
+    try { const d = await fetch('/api/sales').then(r=>r.json()); if (window._setCrmSalesData) window._setCrmSalesData(d); } catch(e){}
+  }
+  // Creators
+  if (!_accCreators) {
+    try { _accCreators = await fetch('/api/creators').then(r=>r.json()); } catch(e){ _accCreators = []; }
+  }
+  const mSel = document.getElementById('acc-model');
+  if (mSel && !mSel.dataset.filled) {
+    mSel.innerHTML = '<option value="">Alle Models</option>' +
+      (_accCreators||[]).map(c=>`<option value="${c.id}">${_accEsc(c.name)}</option>`).join('');
+    if ((_accCreators||[]).length) mSel.value = String(_accCreators[0].id);
+    mSel.dataset.filled = '1';
+  }
+  const ySel = document.getElementById('acc-year'), moSel = document.getElementById('acc-month');
+  const nowY = +(_accBerlinYMD().slice(0,4)), nowM = +(_accBerlinYMD().slice(5,7));
+  if (ySel && !ySel.dataset.filled) {
+    let opts=''; for (let y=nowY; y>=nowY-3; y--) opts += `<option value="${y}">${y}</option>`;
+    ySel.innerHTML = opts; ySel.value = String(nowY); ySel.dataset.filled='1';
+  }
+  if (moSel && !moSel.dataset.filled) {
+    moSel.innerHTML = _ACC_MONTHS.map((n,i)=>`<option value="${i+1}">${n}</option>`).join('');
+    moSel.value = String(nowM); moSel.dataset.filled='1';
+  }
+  const st = _accSettings();
+  const fp=document.getElementById('acc-feepct'), ff=document.getElementById('acc-feefix'), vt=document.getElementById('acc-vat');
+  if (fp && fp.value==='') fp.value = st.feePct;
+  if (ff && ff.value==='') ff.value = st.feeFix;
+  if (vt && vt.value==='') vt.value = st.vat;
+  renderAccounting();
+}
+function _accSelection(){
+  const cid = document.getElementById('acc-model').value;
+  const y = +document.getElementById('acc-year').value;
+  const m = +document.getElementById('acc-month').value;
+  const model = cid ? ((_accCreators||[]).find(c=>String(c.id)===String(cid))||{}).name || ('Creator '+cid) : 'Alle Models';
+  return { cid, y, m, model, ym: `${y}-${String(m).padStart(2,'0')}` };
+}
+function _accRows(){
+  const sel = _accSelection();
+  const st = _accSettings();
+  const all = (window._getCrmSalesData ? window._getCrmSalesData() : (window.crmSalesData||[])) || [];
+  const rows = [];
+  all.forEach(s => {
+    if ((s.status||'') === 'rejected') return;
+    if (sel.cid && String(s.creator_id||'') !== String(sel.cid)) return;
+    const d = parseTs(s.timestamp); if (isNaN(d.getTime())) return;
+    if (localDateStr(d).slice(0,7) !== sel.ym) return;
+    const gross = parseFloat(s.amount)||0;
+    const method = (window._breakdownMethodLabel ? window._breakdownMethodLabel(s.payment_method) : (s.payment_method||'—'));
+    const fee = (method === 'PayPal') ? (gross * (st.feePct/100) + st.feeFix) : 0;
+    const vat = st.vat>0 ? (gross - gross/(1+st.vat/100)) : 0;
+    const net = gross - fee;
+    rows.push({ d, dateStr: localDateStr(d), fan: s.internal_name||s.anon_id||s.tg_id||'—', product: s.product||'—',
+                method, chatter: s.chatter||'—', gross, fee, vat, net });
+  });
+  rows.sort((a,b)=> a.d - b.d);
+  return { sel, st, rows };
+}
+function renderAccounting(){
+  const { sel, st, rows } = _accRows();
+  const tbody = document.getElementById('acc-tbody'), tfoot = document.getElementById('acc-tfoot');
+  const table = document.getElementById('acc-table');
+  if (table) table.classList.toggle('novat', !(st.vat>0));
+  document.getElementById('acc-tbl-title').textContent = `Transaktionen — ${sel.model}`;
+  document.getElementById('acc-tbl-tag').textContent = `${_ACC_MONTHS[sel.m-1]} ${sel.y}`;
+  const T = rows.reduce((a,r)=>({gross:a.gross+r.gross, fee:a.fee+r.fee, vat:a.vat+r.vat, net:a.net+r.net}), {gross:0,fee:0,vat:0,net:0});
+  // KPIs
+  const kpi = (l,v,c)=>`<div class="acc-kpi" style="--c:${c}"><div class="l">${l}</div><div class="v">${_accEur(v)}</div></div>`;
+  const kpis = document.getElementById('acc-kpis');
+  kpis.innerHTML = [
+    kpi('Brutto', T.gross, '#00d4aa'),
+    kpi('PayPal-Gebühren', T.fee, '#ff5c7a'),
+    (st.vat>0 ? kpi('USt ('+st.vat+'%)', T.vat, '#ffd166') : ''),
+    kpi('Netto (Auszahlung)', T.net, '#a78bfa'),
+    `<div class="acc-kpi" style="--c:#4a9eff"><div class="l">Transaktionen</div><div class="v">${rows.length}</div></div>`,
+  ].join('');
+  if (!rows.length){
+    tbody.innerHTML = '<tr><td colspan="9"><div class="empty">Keine Transaktionen im Zeitraum</div></td></tr>';
+    tfoot.innerHTML = '';
+  } else {
+    tbody.innerHTML = rows.map(r=>`<tr>
+      <td>${r.dateStr}</td><td>${_accEsc(r.fan)}</td><td>${_accEsc(r.product)}</td>
+      <td>${_accEsc(r.method)}</td><td>${_accEsc(r.chatter)}</td>
+      <td class="r">${_accEur(r.gross)}</td>
+      <td class="r" style="color:#ff5c7a">${r.fee?('−'+_accEur(r.fee)):'–'}</td>
+      <td class="r vatcol">${st.vat>0?_accEur(r.vat):'–'}</td>
+      <td class="r" style="font-weight:700">${_accEur(r.net)}</td></tr>`).join('');
+    tfoot.innerHTML = `<tr>
+      <td colspan="5">Summe · ${rows.length} Transaktionen</td>
+      <td class="r">${_accEur(T.gross)}</td>
+      <td class="r" style="color:#ff5c7a">−${_accEur(T.fee)}</td>
+      <td class="r vatcol">${st.vat>0?_accEur(T.vat):'–'}</td>
+      <td class="r">${_accEur(T.net)}</td></tr>`;
+  }
+  document.getElementById('acc-fee-note').innerHTML =
+    `Gebühr = ${st.feePct}% + ${_accEur(st.feeFix)} pro PayPal-Transaktion (Schätzung, in der Leiste anpassbar). ` +
+    (st.vat>0 ? `USt mit ${st.vat}% aus Brutto herausgerechnet.` : `USt aus (Kleinunternehmer/§19 oder nicht ausgewiesen).`) +
+    ` Andere Zahlungswege ohne Gebühr gerechnet.`;
+}
+
+// ── PDF-Beleg (druckoptimiert via iframe) ───────────────────────────────────
+function printAccountingBeleg(){
+  const { sel, st, rows } = _accRows();
+  const T = rows.reduce((a,r)=>({gross:a.gross+r.gross, fee:a.fee+r.fee, vat:a.vat+r.vat, net:a.net+r.net}), {gross:0,fee:0,vat:0,net:0});
+  const showVat = st.vat>0;
+  const body = rows.map(r=>`<tr>
+    <td>${r.dateStr}</td><td>${_accEsc(r.fan)}</td><td>${_accEsc(r.product)}</td><td>${_accEsc(r.method)}</td>
+    <td class="r">${_accEur(r.gross)}</td><td class="r">${r.fee?('-'+_accEur(r.fee)):'-'}</td>
+    ${showVat?`<td class="r">${_accEur(r.vat)}</td>`:''}<td class="r">${_accEur(r.net)}</td></tr>`).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Beleg ${sel.model} ${_ACC_MONTHS[sel.m-1]} ${sel.y}</title>
+  <style>
+    *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:32px;font-size:12px;}
+    h1{font-size:20px;margin:0 0 2px} .sub{color:#666;font-size:12px;margin-bottom:18px}
+    .meta{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px;font-size:12px}
+    .box{border:1px solid #ddd;border-radius:8px;padding:10px 12px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{padding:7px 8px;border-bottom:1px solid #eee;text-align:left;font-size:11.5px}
+    th{background:#f5f5f5;text-transform:uppercase;font-size:10px;letter-spacing:.4px;color:#555}
+    .r{text-align:right} tfoot td{font-weight:800;border-top:2px solid #333;font-size:12px}
+    .totals{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}
+    .tot{border:1px solid #ddd;border-radius:8px;padding:8px 12px;min-width:130px}
+    .tot .l{font-size:10px;color:#666;text-transform:uppercase} .tot .v{font-size:16px;font-weight:800}
+    .foot{margin-top:22px;color:#888;font-size:10px;line-height:1.5;border-top:1px solid #eee;padding-top:10px}
+  </style></head><body>
+    <h1>Umsatz-Beleg</h1>
+    <div class="sub">${_accEsc(sel.model)} · ${_ACC_MONTHS[sel.m-1]} ${sel.y}</div>
+    <div class="meta">
+      <div class="box"><b>Model:</b> ${_accEsc(sel.model)}<br><b>Zeitraum:</b> 01.–${new Date(sel.y,sel.m,0).getDate()}.${String(sel.m).padStart(2,'0')}.${sel.y}</div>
+      <div class="box"><b>Erstellt:</b> ${new Date().toLocaleString('de-DE')}<br><b>Transaktionen:</b> ${rows.length}</div>
+    </div>
+    <table><thead><tr>
+      <th>Datum</th><th>Fan</th><th>Produkt</th><th>Zahlungsweg</th>
+      <th class="r">Brutto</th><th class="r">Gebühr</th>${showVat?'<th class="r">USt</th>':''}<th class="r">Netto</th>
+    </tr></thead><tbody>${body || `<tr><td colspan="${showVat?8:7}">Keine Transaktionen</td></tr>`}</tbody>
+    <tfoot><tr><td colspan="4">Summe</td><td class="r">${_accEur(T.gross)}</td><td class="r">-${_accEur(T.fee)}</td>${showVat?`<td class="r">${_accEur(T.vat)}</td>`:''}<td class="r">${_accEur(T.net)}</td></tr></tfoot>
+    </table>
+    <div class="totals">
+      <div class="tot"><div class="l">Brutto</div><div class="v">${_accEur(T.gross)}</div></div>
+      <div class="tot"><div class="l">PayPal-Gebühren</div><div class="v">-${_accEur(T.fee)}</div></div>
+      ${showVat?`<div class="tot"><div class="l">USt (${st.vat}%)</div><div class="v">${_accEur(T.vat)}</div></div>`:''}
+      <div class="tot"><div class="l">Netto-Auszahlung</div><div class="v">${_accEur(T.net)}</div></div>
+    </div>
+    <div class="foot">Automatisch erstellt aus ZF CRM. Gebühren als Schätzung (${st.feePct}% + ${_accEur(st.feeFix)} pro PayPal-Transaktion). Kein Ersatz für die Buchhaltung des Steuerberaters — Werte bitte prüfen lassen.</div>
+  </body></html>`;
+  let ifr = document.getElementById('acc-print-iframe');
+  if (!ifr){ ifr = document.createElement('iframe'); ifr.id='acc-print-iframe'; ifr.style.position='fixed'; ifr.style.right='0'; ifr.style.bottom='0'; ifr.style.width='0'; ifr.style.height='0'; ifr.style.border='0'; document.body.appendChild(ifr); }
+  const doc = ifr.contentWindow.document; doc.open(); doc.write(html); doc.close();
+  setTimeout(()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ alert('Druck konnte nicht gestartet werden: '+e.message); } }, 250);
+}
+
+// ── PayPal-Abgleich (Reconciliation) — komplett client-side ──────────────────
+function _accCsvDelimiter(line){ const c=(line.match(/,/g)||[]).length, s=(line.match(/;/g)||[]).length; return s>c ? ';' : ','; }
+function _accParseCsv(text){
+  if (text.charCodeAt(0)===0xFEFF) text = text.slice(1);
+  const firstLine = text.slice(0, (text.indexOf('\n')+1)||text.length);
+  const delim = _accCsvDelimiter(firstLine);
+  const rows=[]; let i=0, field='', row=[], inQ=false;
+  while(i<text.length){
+    const ch=text[i];
+    if(inQ){
+      if(ch==='"'){ if(text[i+1]==='"'){ field+='"'; i+=2; continue; } inQ=false; i++; continue; }
+      field+=ch; i++; continue;
+    }
+    if(ch==='"'){ inQ=true; i++; continue; }
+    if(ch===delim){ row.push(field); field=''; i++; continue; }
+    if(ch==='\r'){ i++; continue; }
+    if(ch==='\n'){ row.push(field); rows.push(row); row=[]; field=''; i++; continue; }
+    field+=ch; i++;
+  }
+  if(field.length||row.length){ row.push(field); rows.push(row); }
+  return rows.filter(r=> r.length>1 || (r.length===1 && r[0].trim()!==''));
+}
+function _accNum(s){
+  if(s==null) return NaN;
+  s=String(s).trim().replace(/[^0-9,.\-]/g,'');
+  if(s==='') return NaN;
+  const lc=s.lastIndexOf(','), ld=s.lastIndexOf('.');
+  if(lc>-1 && ld>-1){ if(lc>ld) s=s.replace(/\./g,'').replace(',','.'); else s=s.replace(/,/g,''); }
+  else if(lc>-1){ if(/,\d{1,2}$/.test(s)) s=s.replace(',','.'); else s=s.replace(/,/g,''); }
+  const n=parseFloat(s); return isNaN(n)?NaN:n;
+}
+function _accCsvDate(s){
+  if(!s) return null; s=String(s).trim(); let m;
+  if((m=s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/))){
+    let d=+m[1], mo=+m[2], y=+m[3]; if(y<100) y+=2000;
+    if(mo>12 && d<=12){ const t=d; d=mo; mo=t; }
+    return new Date(y, mo-1, d);
+  }
+  const dt=new Date(s); return isNaN(dt.getTime())?null:dt;
+}
+function handlePaypalCsv(input){
+  const file = input.files && input.files[0]; if(!file) return;
+  const out = document.getElementById('acc-recon-out');
+  out.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:10px 0;">Lese '+_accEsc(file.name)+' …</div>';
+  const reader = new FileReader();
+  reader.onload = e => { try { _accReconcile(e.target.result, file.name); } catch(err){ out.innerHTML = '<div style="color:#ff5c7a;font-size:12px;">Fehler beim Lesen: '+_accEsc(err.message)+'</div>'; } };
+  reader.onerror = () => { out.innerHTML = '<div style="color:#ff5c7a;font-size:12px;">Datei konnte nicht gelesen werden.</div>'; };
+  reader.readAsText(file);
+}
+function _accReconcile(text, fname){
+  const out = document.getElementById('acc-recon-out');
+  const table = _accParseCsv(text);
+  if (table.length < 2){ out.innerHTML = '<div style="color:#ff5c7a;font-size:12px;">Keine Daten in der CSV erkannt.</div>'; return; }
+  const hdr = table[0].map(h=>String(h).trim().toLowerCase());
+  const find = (...pats)=>{ for(let i=0;i<hdr.length;i++){ if(pats.some(p=>p.test(hdr[i]))) return i; } return -1; };
+  const iGross = find(/^brutto$/,/^gross$/,/brutto/,/gross/,/betrag/,/amount/);
+  const iDate  = find(/^datum$/,/^date$/,/datum/,/date/);
+  const iType  = find(/^typ$/,/^type$/,/typ/,/type/,/beschreib/,/description/);
+  const iStat  = find(/^status$/,/status/);
+  const iName  = find(/^name$/,/name/);
+  if (iGross < 0){ out.innerHTML = '<div style="color:#ff5c7a;font-size:12px;">Konnte keine Betrags-/Brutto-Spalte finden. Ist das ein PayPal-CSV-Export?</div>'; return; }
+  const REFUND = /refund|reversal|rückerst|ruckerst|storno|chargeback|zurückbuch|zuruckbuch/i;
+  const WITHDRAW = /withdraw|auszahlung|transfer|bank|abbuchung|überweisung an/i;
+  const incoming = [], refunds = [];
+  for (let r=1; r<table.length; r++){
+    const row = table[r]; if(!row || row.length<=iGross) continue;
+    const gross = _accNum(row[iGross]); if(isNaN(gross)) continue;
+    const type = iType>-1 ? String(row[iType]||'') : '';
+    const stat = iStat>-1 ? String(row[iStat]||'') : '';
+    const date = iDate>-1 ? _accCsvDate(row[iDate]) : null;
+    const name = iName>-1 ? String(row[iName]||'') : '';
+    if (gross < 0 || REFUND.test(type)){ refunds.push({gross, type, date, name}); continue; }
+    if (WITHDRAW.test(type)) continue;                       // eigene Auszahlungen ignorieren
+    if (stat && !/complete|abgeschlossen|erfolg/i.test(stat)) continue;
+    incoming.push({gross, type, date, name, used:false});
+  }
+  // Sales (PayPal only) im gewählten Zeitraum
+  const { rows } = _accRows();
+  const sales = rows.filter(r=> r.method==='PayPal').map(r=>({ gross:r.gross, date:r.d, fan:r.fan, used:false }));
+  // Match auf Betrag (±0.02). Datum nur als weicher Tie-Breaker, weil PayPal-CSV
+  // je nach Sprache TT/MM oder MM/TT nutzt — sonst gäbe es falsche "ohne Eingang".
+  const DAY = 86400000;
+  const tryMatch = (maxDays)=>{
+    sales.forEach(s=>{
+      if(s.used) return;
+      let best=-1, bestDiff=1e9;
+      incoming.forEach((p,idx)=>{
+        if(p.used) return;
+        if(Math.abs(p.gross - s.gross) > 0.02) return;
+        let dd = 0;
+        if(p.date && s.date){ dd = Math.abs(p.date - s.date)/DAY; if(maxDays!=null && dd>maxDays) return; }
+        if(dd < bestDiff){ bestDiff=dd; best=idx; }
+      });
+      if(best>=0){ incoming[best].used=true; s.used=true; s.matchName=incoming[best].name; }
+    });
+  };
+  tryMatch(7);      // 1. Runde: Betrag + Datum ≤ 7 Tage
+  tryMatch(null);   // 2. Runde: Rest nur über Betrag
+  const matched = sales.filter(s=>s.used);
+  const salesNoMoney = sales.filter(s=>!s.used);
+  const moneyNoSale = incoming.filter(p=>!p.used);
+  const money = arr=> arr.reduce((a,x)=>a+(x.gross||0),0);
+  const card = (icon,title,color,count,inner)=>`<div class="acc-recon-card">
+    <h4 style="color:${color}">${icon} ${title}<span class="cnt">${count}</span></h4>${inner||'<div style="color:var(--text3);font-size:11.5px;">—</div>'}</div>`;
+  const rowsHtml = arr => arr.slice(0,60).map(x=>`<div class="acc-recon-row"><span>${x.date?x.date.toLocaleDateString('de-DE'):'—'} · ${_accEsc((x.fan||x.name||'').slice(0,22))}</span><span>${_accEur(x.gross)}</span></div>`).join('') || '<div style="color:var(--text3);font-size:11.5px;">—</div>';
+  out.innerHTML = `
+    <div style="margin:14px 0 4px;font-size:12px;color:var(--text2);">Datei: <b>${_accEsc(fname)}</b> · ${incoming.length} Eingänge erkannt · ${_accEur(money(incoming))} gesamt</div>
+    <div class="acc-recon-cols">
+      ${card('✅','Zugeordnet','#22c55e', matched.length, rowsHtml(matched))}
+      ${card('⚠️','Geld ohne Sale','#ffd166', moneyNoSale.length, rowsHtml(moneyNoSale))}
+      ${card('❗','Sale ohne Eingang','#ff5c7a', salesNoMoney.length, rowsHtml(salesNoMoney))}
+      ${card('↩️','Rückbuchungen','#a78bfa', refunds.length, rowsHtml(refunds))}
+    </div>
+    <div class="acc-note">Abgleich rein lokal im Browser. „Geld ohne Sale" = PayPal-Eingang, aber kein Sale im CRM erfasst (nachbuchen?). „Sale ohne Eingang" = im CRM erfasst, aber kein PayPal-Eingang gefunden (offen / anderer Weg / Scam prüfen). Zugeordnet wird über den Betrag (±0,02 €); das Datum dient nur als Feinabgleich.</div>`;
+}
+
 function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
   document.getElementById('sidebar-overlay').classList.add('open');
@@ -5130,7 +5494,7 @@ function _fmtHours(sec) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking','accounting'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -5153,6 +5517,7 @@ function showPage(name) {
   if (name === 'members') { if (typeof loadMembers === 'function') loadMembers(); }
   if (name === 'creators') { if (typeof loadCreatorsPage === 'function') loadCreatorsPage(); }
   if (name === 'tracking') { if (typeof loadChatterTracking === 'function') loadChatterTracking(); }
+  if (name === 'accounting') { if (typeof loadAccounting === 'function') loadAccounting(); }
   if (name === 'hotkeys') { if (typeof renderHotkeysPage === 'function') renderHotkeysPage(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues
