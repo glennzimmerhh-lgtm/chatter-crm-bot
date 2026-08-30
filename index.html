@@ -1609,11 +1609,11 @@
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Time</th><th>Shift</th><th>Chatter</th><th>Amount</th><th>Note</th>
+              <th>Datum</th><th>Zeit</th><th>Model</th><th>Chatter</th><th>Betrag</th><th>Produkt</th>
             </tr>
           </thead>
           <tbody id="sales-tbody">
-            <tr><td colspan="6"><div class="empty">No data — connect Google Sheet</div></td></tr>
+            <tr><td colspan="6"><div class="empty">Lade…</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -4218,7 +4218,8 @@ function renderDashboard() {
   const filteredSales  = filterByPeriod(salesData,  'Datum', p);
   const filteredShifts = filterByPeriod(shiftsData, 'Datum', p);
 
-  const filteredCrmForKpi = filterCrmByPeriod(crmSalesData, p);
+  // Abgelehnte (rejected) Sales zählen NICHT — sonst weicht die KPI von der Umsatz-Aufteilung ab.
+  const filteredCrmForKpi = filterCrmByPeriod(crmSalesData, p).filter(s => (s.status || '') !== 'rejected');
   const crmRevenue   = filteredCrmForKpi.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
   // CRM is the single source of truth. The legacy Google-Sheets mirror duplicates the same sales
   // (it lags ~a day), which double-counted past days (~+200€ on "yesterday"). Count CRM only.
@@ -4326,7 +4327,7 @@ function renderDashboard() {
   renderReplyChart(p);
   renderShiftsToday(todayShifts, todayRevenue);
   renderTopSpenders();
-  renderRecentSales(filteredSales);
+  renderRecentSales(filteredCrmForKpi);
   renderPaymentMethodDonut(filteredCrmForKpi, p);
   try { if (typeof renderDxActivityFeed === 'function') renderDxActivityFeed(); } catch(e) {}
   try { if (typeof updateShiftGoal === 'function') updateShiftGoal(); } catch(e) {}
@@ -4354,7 +4355,7 @@ function renderRevenueChart(period) {
   const vals   = chartDays.map(d => {
     // CRM only — bucket by Berlin calendar day (nicht Gerätezeit!), sonst wandern
     // Abend-Berlin-Zahlungen einen Tag zu früh und Chart ≠ KPI.
-    const crmRev = crmSalesData.filter(r => localDateStr(parseTs(r.timestamp)) === d.dateStr)
+    const crmRev = crmSalesData.filter(r => (r.status || '') !== 'rejected' && localDateStr(parseTs(r.timestamp)) === d.dateStr)
       .reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
     return Math.round(crmRev);
   });
@@ -4364,28 +4365,32 @@ function renderRevenueChart(period) {
 
   if (revenueChart) revenueChart.destroy();
   const ctx = document.getElementById('revenueChart').getContext('2d');
-  const _grad = ctx.createLinearGradient(0, 0, 0, 240);
-  _grad.addColorStop(0, 'rgba(0,212,170,0.40)');
-  _grad.addColorStop(1, 'rgba(0,212,170,0)');
   const _lastIdx = vals.length - 1;
+  // Balkendiagramm für Woche/Monat (Tages-Umsatz), Linien-Trend für Heute/Gestern
+  const isBar = (period === 'woche' || period === 'monat');
+  let dataset;
+  if (isBar) {
+    const barGrad = ctx.createLinearGradient(0, 0, 0, 240);
+    barGrad.addColorStop(0, 'rgba(124,92,255,0.95)');
+    barGrad.addColorStop(1, 'rgba(0,212,170,0.85)');
+    dataset = {
+      data: vals, backgroundColor: barGrad,
+      hoverBackgroundColor: '#00d4aa',
+      borderRadius: 5, borderSkipped: false, maxBarThickness: (period === 'monat' ? 20 : 42),
+    };
+  } else {
+    const _grad = ctx.createLinearGradient(0, 0, 0, 240);
+    _grad.addColorStop(0, 'rgba(0,212,170,0.40)');
+    _grad.addColorStop(1, 'rgba(0,212,170,0)');
+    dataset = {
+      data: vals, borderColor: '#00d4aa', borderWidth: 2.5, fill: true, backgroundColor: _grad, tension: 0.4,
+      pointRadius: (c) => c.dataIndex === _lastIdx ? 4.5 : 0, pointHoverRadius: 5,
+      pointBackgroundColor: '#00d4aa', pointBorderColor: '#0a0e15', pointBorderWidth: 2,
+    };
+  }
   revenueChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data: vals,
-        borderColor: '#00d4aa',
-        borderWidth: 2.5,
-        fill: true,
-        backgroundColor: _grad,
-        tension: 0.4,
-        pointRadius: (c) => c.dataIndex === _lastIdx ? 4.5 : 0,
-        pointHoverRadius: 5,
-        pointBackgroundColor: '#00d4aa',
-        pointBorderColor: '#0a0e15',
-        pointBorderWidth: 2,
-      }]
-    },
+    type: isBar ? 'bar' : 'line',
+    data: { labels, datasets: [dataset] },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: {
@@ -4394,8 +4399,8 @@ function renderRevenueChart(period) {
         callbacks: { label: ctx => ctx.raw.toLocaleString('de-DE') + ' €' }
       }},
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#8888a0', font: { size: 11 }, maxRotation: 0 } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0', font: { size: 11 }, callback: v => v + ' €' } }
+        x: { grid: { display: false }, ticks: { color: '#8888a0', font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: (period === 'monat' ? 16 : 12) } },
+        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8888a0', font: { size: 11 }, callback: v => v + ' €' } }
       }
     }
   });
@@ -4412,21 +4417,14 @@ function renderRevenueChart(period) {
 
   // Daily SALES counts + NEW SUBS counts for their sparklines/chips
   try {
-    const salesSeries = chartDays.map(d => (crmSalesData || []).filter(r => {
-      const rd = parseTs(r.timestamp);
-      const iso = `${rd.getFullYear()}-${String(rd.getMonth()+1).padStart(2,'0')}-${String(rd.getDate()).padStart(2,'0')}`;
-      return iso === d.dateStr;
-    }).length);
+    const salesSeries = chartDays.map(d => (crmSalesData || []).filter(r =>
+      (r.status || '') !== 'rejected' && localDateStr(parseTs(r.timestamp)) === d.dateStr).length);
     _dxDrawSpark('spark-sales', salesSeries, '#4a9eff');
     const sc = document.getElementById('kpi-sales-chip');
     if (sc && salesSeries.length >= 2) _dxSetChip(sc, salesSeries[salesSeries.length-1], salesSeries[salesSeries.length-2] || 0);
 
-    const subsSeries = chartDays.map(d => (typeof crmConvsData !== 'undefined' ? crmConvsData : []).filter(c => {
-      if (!c.first_time) return false;
-      const rd = parseTs(c.first_time);
-      const iso = `${rd.getFullYear()}-${String(rd.getMonth()+1).padStart(2,'0')}-${String(rd.getDate()).padStart(2,'0')}`;
-      return iso === d.dateStr;
-    }).length);
+    const subsSeries = chartDays.map(d => (typeof crmConvsData !== 'undefined' ? crmConvsData : []).filter(c =>
+      c.first_time && localDateStr(parseTs(c.first_time)) === d.dateStr).length);
     _dxDrawSpark('spark-subs', subsSeries, '#a78bfa');
   } catch(e) {}
 }
@@ -4608,23 +4606,29 @@ function renderShiftsToday(todayShifts, totalRevenue) {
 }
 
 function renderRecentSales(sales) {
+  // Aus dem CRM (nicht mehr aus dem toten Google-Sheet). Erwartet CRM-Sales-Objekte.
   const tbody = document.getElementById('sales-tbody');
-  const recent = [...sales].reverse().slice(0, 30);
-  const periodLabel = { heute: 'today', woche: 'this week', monat: 'this month' }[currentPeriod] || 'in this period';
+  if (!tbody) return;
+  const recent = [...(sales || [])].sort((a, b) => parseTs(b.timestamp) - parseTs(a.timestamp)).slice(0, 30);
+  const periodLabel = { heute: 'heute', gestern: 'gestern', woche: 'diese Woche', monat: 'diesen Monat' }[currentPeriod] || 'im Zeitraum';
   if (!recent.length) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">No sales ${periodLabel}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">Keine Sales ${periodLabel}</div></td></tr>`;
     return;
   }
+  const esc = (typeof _trkEsc === 'function') ? _trkEsc : (s => s);
   tbody.innerHTML = recent.map(r => {
-    const shiftNum = parseInt((r['Shift'] || '').replace('Shift ', '')) || 1;
-    const badgeClass = ['badge-s1','badge-s2','badge-s3'][shiftNum - 1] || 'badge-s1';
+    const d = parseTs(r.timestamp);
+    const date = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' });
+    const time = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+    const model = r.creator_name || ('Creator ' + (r.creator_id || 1));
+    const note = r.product || r.notes || '—';
     return `<tr>
-      <td>${r['Datum'] || '—'}</td>
-      <td>${r['Uhrzeit'] || '—'}</td>
-      <td><span class="badge ${badgeClass}">${r['Shift'] || '—'}</span></td>
-      <td>${r['Chatter'] || '—'}</td>
-      <td style="color:#00d4aa;font-weight:600">${fmt(r['Betrag (€)'] || 0)}</td>
-      <td style="color:#8888a0">${r['Notiz'] || '—'}</td>
+      <td>${date}</td>
+      <td style="color:#8888a0">${time}</td>
+      <td>${esc(model)}</td>
+      <td>${esc(r.chatter || '—')}</td>
+      <td style="color:#00d4aa;font-weight:600">${fmt(r.amount || 0)}</td>
+      <td style="color:#8888a0">${esc(note)}</td>
     </tr>`;
   }).join('');
 }
@@ -9182,9 +9186,12 @@ window.loadNotifications = async function loadNotifications() {
   }
 
   // Try Vercel proxy first (no CORS issues), fall back to Railway direct
+  // Nur Sales/Subs/Payments laden (keine Nachrichten, die sonst alles verdrängen)
+  // und großzügig viele — so sieht man weit mehr als die letzten Stunden.
+  const _nq = '?types=sale,new_sub,paypal,revolut&limit=500';
   const URLS = [
-    '/api/notifications',
-    'https://worker-production-806f.up.railway.app/notifications'
+    '/api/notifications' + _nq,
+    'https://worker-production-806f.up.railway.app/notifications' + _nq
   ];
   let raw = null;
   let lastErr = '';

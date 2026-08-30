@@ -4069,8 +4069,19 @@ The 3 options should have different vibes:
 
 # ── NOTIFICATIONS FEED ───────────────────────────────────────────────────────
 @app.get('/notifications')
-def get_notifications(limit: int = 80):
-    """Combined activity feed: new subs, messages, sales."""
+def get_notifications(limit: int = 80, types: str = '', hours: int = 0):
+    """Combined activity feed: new subs, messages, sales, payments.
+    - types: comma list (sale,new_sub,message,paypal,revolut) → only build those.
+      Wichtig: ohne Filter dominieren Nachrichten die neuesten N und verdrängen
+      Sales/Subs. Die Activity-Seite ruft daher types=sale,new_sub,paypal,revolut.
+    - hours: nur Events der letzten N Stunden (0 = kein Zeitfilter).
+    - limit: pro Typ UND fürs Endergebnis.
+    """
+    want = set(t.strip() for t in types.split(',') if t.strip()) if types else None
+    def _on(t): return (want is None) or (t in want)
+    cutoff = None
+    if hours and hours > 0:
+        cutoff = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
     events = []
     with db() as conn:
         with conn.cursor() as c:
@@ -4082,51 +4093,66 @@ def get_notifications(limit: int = 80):
             def _cn(tgid):
                 return _cnames.get(_creator_id_for_tg(tgid), '')
             # New subscribers
-            c.execute('''SELECT tg_id, anon_id, internal_name, tg_username, first_time as ts
-                         FROM conversations ORDER BY first_time DESC LIMIT %s''', (limit,))
-            for r in c.fetchall():
-                events.append({'type': 'new_sub', 'ts': str(r['ts']),
-                               'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
-                               'name': r['internal_name'] or r['anon_id'],
-                               'creator_name': _cn(r['tg_id']),
-                               'username': r['tg_username'] or ''})
-            # Incoming messages (last N)
-            c.execute('''SELECT m.tg_id, m.text, m.timestamp as ts,
-                                c.anon_id, c.internal_name
-                         FROM messages m
-                         JOIN conversations c ON c.tg_id = m.tg_id
-                         WHERE m.direction='in'
-                         ORDER BY m.timestamp DESC LIMIT %s''', (limit,))
-            for r in c.fetchall():
-                events.append({'type': 'message', 'ts': str(r['ts']),
-                               'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
-                               'name': r['internal_name'] or r['anon_id'],
-                               'text': r['text'][:80]})
-            # Sales
-            c.execute('''SELECT s.tg_id, s.amount, s.product, s.chatter, s.timestamp as ts,
-                                c.anon_id, c.internal_name
-                         FROM sales s
-                         JOIN conversations c ON c.tg_id = s.tg_id
-                         ORDER BY s.timestamp DESC LIMIT %s''', (limit,))
-            for r in c.fetchall():
-                events.append({'type': 'sale', 'ts': str(r['ts']),
-                               'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
-                               'name': r['internal_name'] or r['anon_id'],
-                               'creator_name': _cn(r['tg_id']),
-                               'amount': float(r['amount']), 'product': r['product'] or '',
-                               'chatter': r['chatter'] or ''})
-            # PayPal / Revolut payments (parsed from email)
-            try:
-                c.execute('''SELECT amount, currency, sender, subject, provider, ts
-                             FROM paypal_notifications ORDER BY ts DESC LIMIT %s''', (limit,))
+            if _on('new_sub'):
+                q = 'SELECT tg_id, anon_id, internal_name, tg_username, first_time as ts FROM conversations'
+                p = []
+                if cutoff: q += ' WHERE first_time >= %s'; p.append(cutoff)
+                q += ' ORDER BY first_time DESC LIMIT %s'; p.append(limit)
+                c.execute(q, tuple(p))
                 for r in c.fetchall():
-                    amt = (str(r['amount'] or '') + ' ' + str(r['currency'] or '')).strip()
-                    events.append({'type': (r.get('provider') or 'paypal'), 'ts': str(r['ts']),
-                                   'amount': r['amount'] or '', 'currency': r['currency'] or '',
-                                   'text': f"Money received ({amt or 'Betrag unbekannt'})",
-                                   'sender': r['sender'] or ''})
-            except Exception as _pe:
-                print(f'payment notif feed error: {_pe}')
+                    events.append({'type': 'new_sub', 'ts': str(r['ts']),
+                                   'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
+                                   'name': r['internal_name'] or r['anon_id'],
+                                   'creator_name': _cn(r['tg_id']),
+                                   'username': r['tg_username'] or ''})
+            # Incoming messages (last N)
+            if _on('message'):
+                q = ('SELECT m.tg_id, m.text, m.timestamp as ts, c.anon_id, c.internal_name '
+                     'FROM messages m JOIN conversations c ON c.tg_id = m.tg_id '
+                     "WHERE m.direction='in'")
+                p = []
+                if cutoff: q += ' AND m.timestamp >= %s'; p.append(cutoff)
+                q += ' ORDER BY m.timestamp DESC LIMIT %s'; p.append(limit)
+                c.execute(q, tuple(p))
+                for r in c.fetchall():
+                    events.append({'type': 'message', 'ts': str(r['ts']),
+                                   'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
+                                   'name': r['internal_name'] or r['anon_id'],
+                                   'text': r['text'][:80]})
+            # Sales
+            if _on('sale'):
+                q = ('SELECT s.tg_id, s.amount, s.product, s.chatter, s.timestamp as ts, c.anon_id, c.internal_name '
+                     'FROM sales s JOIN conversations c ON c.tg_id = s.tg_id')
+                p = []
+                if cutoff: q += ' WHERE s.timestamp >= %s'; p.append(cutoff)
+                q += ' ORDER BY s.timestamp DESC LIMIT %s'; p.append(limit)
+                c.execute(q, tuple(p))
+                for r in c.fetchall():
+                    events.append({'type': 'sale', 'ts': str(r['ts']),
+                                   'tg_id': r['tg_id'], 'anon_id': r['anon_id'],
+                                   'name': r['internal_name'] or r['anon_id'],
+                                   'creator_name': _cn(r['tg_id']),
+                                   'amount': float(r['amount']), 'product': r['product'] or '',
+                                   'chatter': r['chatter'] or ''})
+            # PayPal / Revolut payments (parsed from email)
+            if _on('paypal') or _on('revolut'):
+                try:
+                    q = 'SELECT amount, currency, sender, subject, provider, ts FROM paypal_notifications'
+                    p = []
+                    if cutoff: q += ' WHERE ts >= %s'; p.append(cutoff)
+                    q += ' ORDER BY ts DESC LIMIT %s'; p.append(limit)
+                    c.execute(q, tuple(p))
+                    for r in c.fetchall():
+                        prov = (r.get('provider') or 'paypal')
+                        if not _on(prov):
+                            continue
+                        amt = (str(r['amount'] or '') + ' ' + str(r['currency'] or '')).strip()
+                        events.append({'type': prov, 'ts': str(r['ts']),
+                                       'amount': r['amount'] or '', 'currency': r['currency'] or '',
+                                       'text': f"Money received ({amt or 'Betrag unbekannt'})",
+                                       'sender': r['sender'] or ''})
+                except Exception as _pe:
+                    print(f'payment notif feed error: {_pe}')
     # Sort all events by timestamp desc, return top N
     events.sort(key=lambda x: x['ts'], reverse=True)
     return events[:limit]
