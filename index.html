@@ -3575,14 +3575,25 @@ const SHIFT_DEFS = [
 let salesData = [];
 let crmSalesData = []; // sales from Railway backend
 let crmConvsData = []; // all conversations for new-sub tracking
-let _spendByTg = {};   // tg_id -> total spend (precomputed, O(1) lookup)
+let _spendByTg = {};    // tg_id -> total spend (precomputed, O(1) lookup)
+let _firstSaleTs = {};  // tg_id -> timestamp-STRING der ersten Zahlung (für Neu/Bestand)
+let _dayAgg = {};       // 'YYYY-MM-DD' (Berlin) -> {rev, count}  (rejected ausgeschlossen)
 function _rebuildSpendMap() {
-  const m = {};
+  // EIN Durchlauf über alle Sales — statt teurer O(Käufer×Zeilen)-Scans pro Render.
+  const m = {}, first = {}, firstMs = {}, day = {};
   for (const s of (crmSalesData || [])) {
     if (!s || !s.tg_id) continue;
-    m[s.tg_id] = (m[s.tg_id] || 0) + (parseFloat(s.amount) || 0);
+    const amt = parseFloat(s.amount) || 0;
+    m[s.tg_id] = (m[s.tg_id] || 0) + amt;
+    const ms = parseTs(s.timestamp).getTime();
+    if (!(s.tg_id in firstMs) || ms < firstMs[s.tg_id]) { firstMs[s.tg_id] = ms; first[s.tg_id] = s.timestamp; }
+    if ((s.status || '') !== 'rejected') {
+      const ds = localDateStr(parseTs(s.timestamp));
+      const cell = day[ds] || (day[ds] = { rev: 0, count: 0 });
+      cell.rev += amt; cell.count += 1;
+    }
   }
-  _spendByTg = m;
+  _spendByTg = m; _firstSaleTs = first; _dayAgg = day;
 }
 window._getCrmSalesData = () => crmSalesData;
 window._setCrmSalesData = (d) => { crmSalesData = d; _rebuildSpendMap(); };
@@ -4243,15 +4254,12 @@ function renderDashboard() {
   const arppu = uniqueSpenders > 0 ? totalRevenue / uniqueSpenders : 0;
   const convPct = totalConvs > 0 ? Math.round((uniqueSpenders / totalConvs) * 100) : 0;
 
-  // New vs Existing buyers
-  const allTimeBuyers = new Set(crmSalesData.map(s => s.tg_id));
+  // New vs Existing buyers — über die vorberechnete Erst-Sale-Map (O(Käufer) statt O(Käufer×Zeilen))
   const periodBuyers = new Set(filteredCrmForKpi.map(s => s.tg_id));
-  let newBuyers = 0, existingBuyers = 0;
-  periodBuyers.forEach(id => {
-    const firstSale = crmSalesData.filter(s => s.tg_id === id).sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))[0];
-    if (firstSale && filterCrmByPeriod([firstSale], p).length > 0) newBuyers++;
-    else existingBuyers++;
-  });
+  const firstObjs = [...periodBuyers].map(id => ({ tg_id: id, timestamp: _firstSaleTs[id] }));
+  const newSet = new Set(filterCrmByPeriod(firstObjs, p).map(o => o.tg_id));
+  const newBuyers = newSet.size;
+  const existingBuyers = periodBuyers.size - newBuyers;
 
   // Revenue by product type
   const productMap = {};
@@ -4352,13 +4360,8 @@ function buildChartDays(period) {
 function renderRevenueChart(period) {
   const chartDays = buildChartDays(period || 'heute');
   const labels = chartDays.map(d => d.label);
-  const vals   = chartDays.map(d => {
-    // CRM only — bucket by Berlin calendar day (nicht Gerätezeit!), sonst wandern
-    // Abend-Berlin-Zahlungen einen Tag zu früh und Chart ≠ KPI.
-    const crmRev = crmSalesData.filter(r => (r.status || '') !== 'rejected' && localDateStr(parseTs(r.timestamp)) === d.dateStr)
-      .reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
-    return Math.round(crmRev);
-  });
+  // Tages-Umsatz aus der vorberechneten Berlin-Tages-Map (O(1) je Tag statt Full-Scan)
+  const vals = chartDays.map(d => Math.round((_dayAgg[d.dateStr] || { rev: 0 }).rev));
 
   const titles = { heute: 'Daily Revenue (last 7 days)', woche: 'Daily Revenue (this week)', monat: 'Daily Revenue (this month)' };
   document.getElementById('chart-rev-title').textContent = titles[period] || titles['heute'];
@@ -4417,14 +4420,19 @@ function renderRevenueChart(period) {
 
   // Daily SALES counts + NEW SUBS counts for their sparklines/chips
   try {
-    const salesSeries = chartDays.map(d => (crmSalesData || []).filter(r =>
-      (r.status || '') !== 'rejected' && localDateStr(parseTs(r.timestamp)) === d.dateStr).length);
+    const salesSeries = chartDays.map(d => (_dayAgg[d.dateStr] || { count: 0 }).count);
     _dxDrawSpark('spark-sales', salesSeries, '#4a9eff');
     const sc = document.getElementById('kpi-sales-chip');
     if (sc && salesSeries.length >= 2) _dxSetChip(sc, salesSeries[salesSeries.length-1], salesSeries[salesSeries.length-2] || 0);
 
-    const subsSeries = chartDays.map(d => (typeof crmConvsData !== 'undefined' ? crmConvsData : []).filter(c =>
-      c.first_time && localDateStr(parseTs(c.first_time)) === d.dateStr).length);
+    // Subs pro Berlin-Tag einmalig aggregieren (O(M)), dann je Chart-Tag ablesen
+    const _convDay = {};
+    for (const c of (typeof crmConvsData !== 'undefined' ? crmConvsData : [])) {
+      if (!c || !c.first_time) continue;
+      const ds = localDateStr(parseTs(c.first_time));
+      _convDay[ds] = (_convDay[ds] || 0) + 1;
+    }
+    const subsSeries = chartDays.map(d => _convDay[d.dateStr] || 0);
     _dxDrawSpark('spark-subs', subsSeries, '#a78bfa');
   } catch(e) {}
 }

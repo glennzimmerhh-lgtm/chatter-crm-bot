@@ -585,6 +585,9 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_conv_creator_time ON conversations(creator_id, last_time DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_conv_online ON conversations(is_online)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_tg_id ON sales(tg_id)",
+                # Sales sind fast immer nach Zeit sortiert (Dashboard, Notifications, Buchhaltung)
+                "CREATE INDEX IF NOT EXISTS idx_sales_timestamp ON sales(timestamp DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_conv_first_time ON conversations(first_time DESC)",
 
             ]:
                 try:
