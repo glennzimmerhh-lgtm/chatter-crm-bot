@@ -3606,22 +3606,20 @@ function today() {
 }
 
 function getWeekStart() {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = (day === 0 ? -6 : 1 - day);
-  d.setDate(d.getDate() + diff);
+  const w = (typeof _berlinWeekDates === 'function') ? _berlinWeekDates() : null;
+  if (w && w.length) return w[0];
+  const d = new Date(); const day = d.getDay(); d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
   return d.toISOString().slice(0, 10);
 }
 
 function getMonthStart() {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  return today().slice(0, 7) + '-01';   // Berlin-Monatsanfang
 }
 
 function getDateRange(period) {
   const tod = today();
   if (period === 'heute') return { start: tod, end: tod };
-  if (period === 'gestern') { const y = new Date(); y.setDate(y.getDate() - 1); const ys = y.toISOString().slice(0,10); return { start: ys, end: ys }; }
+  if (period === 'gestern') { const ys = (typeof _berlinShiftStr === 'function') ? _berlinShiftStr(-1) : tod; return { start: ys, end: ys }; }
   if (period === 'woche') return { start: getWeekStart(), end: tod };
   if (period === 'monat') return { start: getMonthStart(), end: tod };
   return { start: '0000-00-00', end: '9999-99-99' }; // alle
@@ -4299,9 +4297,9 @@ function renderDashboard() {
     if (!c.first_time) return false;
     const ft = parseTs(c.first_time);
     if (p === 'heute') return localDateStr(ft) === todayStr;
-    if (p === 'gestern') { const y = new Date(now); y.setDate(y.getDate()-1); return localDateStr(ft) === localDateStr(y); }
-    if (p === 'woche') { const w = new Date(now); w.setDate(w.getDate()-7); return ft >= w; }
-    if (p === 'monat') return localDateStr(ft).slice(0,7) === localDateStr(now).slice(0,7);
+    if (p === 'gestern') return localDateStr(ft) === _berlinShiftStr(-1);
+    if (p === 'woche') return new Set(_berlinWeekDates()).has(localDateStr(ft));
+    if (p === 'monat') return localDateStr(ft).slice(0,7) === todayStr.slice(0,7);
     if (p === 'range' && customRangeFrom && customRangeTo) return ft >= customRangeFrom && ft <= customRangeTo;
     return true;
   });
@@ -4335,46 +4333,29 @@ function renderDashboard() {
 }
 
 function buildChartDays(period) {
-  // Returns array of {dateStr, label} for chart x-axis
-  const tod = new Date();
-  const days = [];
-  if (period === 'heute' || period === 'gestern') {
-    // Show last 7 days (yesterday view shows the same window for context)
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(tod); d.setDate(d.getDate() - i);
-      days.push({ dateStr: d.toISOString().slice(0,10), label: d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric' }), isToday: i === 0 });
-    }
-  } else if (period === 'woche') {
-    // Mon–today of current week
-    const dayOfWeek = tod.getDay();
-    const daysFromMon = (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
-    for (let i = daysFromMon; i >= 0; i--) {
-      const d = new Date(tod); d.setDate(d.getDate() - i);
-      days.push({ dateStr: d.toISOString().slice(0,10), label: d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric' }), isToday: i === 0 });
-    }
-  } else {
-    // Monat: all days of current month up to today
-    const year = tod.getFullYear(), month = tod.getMonth();
-    const daysInMonth = tod.getDate();
-    for (let day = 1; day <= daysInMonth; day++) {
-      const d = new Date(year, month, day);
-      const isT = day === daysInMonth;
-      days.push({ dateStr: d.toISOString().slice(0,10), label: day + '.', isToday: isT });
-    }
-  }
-  return days;
+  // Returns array of {dateStr, label} for chart x-axis — ALL in Europe/Berlin days.
+  const todayStr = _berlinTodayStr();
+  let dates;
+  if (period === 'woche')      dates = _berlinWeekDates();      // Mo–heute
+  else if (period === 'monat') dates = _berlinMonthDates();     // 1.–heute
+  else                         dates = _berlinLastNDates(7);    // letzte 7 Tage
+  return dates.map(ds => {
+    const dObj = new Date(ds + 'T12:00:00Z');                   // Mittag UTC → tz-neutral fürs Label
+    const label = (period === 'monat')
+      ? (parseInt(ds.slice(8,10), 10) + '.')
+      : dObj.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric' });
+    return { dateStr: ds, label, isToday: ds === todayStr };
+  });
 }
 
 function renderRevenueChart(period) {
   const chartDays = buildChartDays(period || 'heute');
   const labels = chartDays.map(d => d.label);
   const vals   = chartDays.map(d => {
-    // CRM only — the Google-Sheets mirror duplicates these sales and was double-counting.
-    const crmRev = crmSalesData.filter(r => {
-      const rd = parseTs(r.timestamp);
-      const iso = `${rd.getFullYear()}-${String(rd.getMonth()+1).padStart(2,'0')}-${String(rd.getDate()).padStart(2,'0')}`;
-      return iso === d.dateStr;
-    }).reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    // CRM only — bucket by Berlin calendar day (nicht Gerätezeit!), sonst wandern
+    // Abend-Berlin-Zahlungen einen Tag zu früh und Chart ≠ KPI.
+    const crmRev = crmSalesData.filter(r => localDateStr(parseTs(r.timestamp)) === d.dateStr)
+      .reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
     return Math.round(crmRev);
   });
 
@@ -4791,15 +4772,42 @@ function parseTs(ts) {
   return new Date(ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z');
 }
 
+// ── Berlin-Kalender-Helfer (ALLE Zeiträume rechnen in Europe/Berlin) ─────────
+function _berlinTodayStr() { return localDateStr(new Date()); }             // YYYY-MM-DD Berlin
+function _berlinShiftStr(days) {                                            // Berlin-Tag ± n Tage
+  const [Y,M,D] = _berlinTodayStr().split('-').map(Number);
+  const dt = new Date(Date.UTC(Y, M-1, D)); dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0,10);
+}
+function _berlinWeekDates() {                                               // Montag..heute (Berlin)
+  const [Y,M,D] = _berlinTodayStr().split('-').map(Number);
+  const base = new Date(Date.UTC(Y, M-1, D));
+  const dow = base.getUTCDay();                                            // 0=So..6=Sa
+  const back = (dow === 0 ? 6 : dow - 1);                                  // Tage seit Montag
+  const out = [];
+  for (let i = back; i >= 0; i--) { const dt = new Date(base); dt.setUTCDate(dt.getUTCDate()-i); out.push(dt.toISOString().slice(0,10)); }
+  return out;
+}
+function _berlinMonthDates() {                                              // 1..heute des Monats (Berlin)
+  const [Y,M,D] = _berlinTodayStr().split('-').map(Number);
+  const out = [];
+  for (let day = 1; day <= D; day++) { out.push(new Date(Date.UTC(Y, M-1, day)).toISOString().slice(0,10)); }
+  return out;
+}
+function _berlinLastNDates(n) {                                             // letzte n Berlin-Tage inkl. heute
+  const out = []; for (let i = n-1; i >= 0; i--) out.push(_berlinShiftStr(-i)); return out;
+}
+
 function filterCrmByPeriod(data, period) {
-  const now = new Date();
-  const todayStr = localDateStr(now);
+  const todayStr = _berlinTodayStr();
+  const weekSet  = (period === 'woche') ? new Set(_berlinWeekDates()) : null;
   return data.filter(s => {
     const d = parseTs(s.timestamp);
-    if (period === 'heute') return localDateStr(d) === todayStr;
-    if (period === 'gestern') { const y = new Date(now); y.setDate(y.getDate() - 1); return localDateStr(d) === localDateStr(y); }
-    if (period === 'woche') { const w = new Date(now); w.setDate(w.getDate() - 7); return d >= w; }
-    if (period === 'monat') return localDateStr(d).slice(0,7) === localDateStr(now).slice(0,7);
+    const ds = localDateStr(d);                                            // Berlin-Tag der Zahlung
+    if (period === 'heute')   return ds === todayStr;
+    if (period === 'gestern') return ds === _berlinShiftStr(-1);
+    if (period === 'woche')   return weekSet.has(ds);
+    if (period === 'monat')   return ds.slice(0,7) === todayStr.slice(0,7);
     if (period === 'range' && customRangeFrom && customRangeTo) return d >= customRangeFrom && d <= customRangeTo;
     return true;
   });

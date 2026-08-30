@@ -5631,11 +5631,17 @@ def get_sale_codes():
     return [dict(r) for r in rows]
 
 @app.get('/sales')
-def get_sales(limit: int = 200):
+def get_sales(limit: int = 100000):
+    # NOTE: default is high so period totals (Woche/Monat/Alle) are complete.
+    # We do NOT ship the raw screenshot blob here (huge payload) — only a flag +
+    # the screenshot URL; the image itself is fetched on demand via /sale/{id}/screenshot.
     with db() as conn:
         with conn.cursor() as c:
             c.execute(
-                'SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp,status,screenshot,rejection_reason,payment_method,payment_code FROM sales ORDER BY timestamp DESC LIMIT %s',
+                "SELECT id,tg_id,anon_id,amount,product,notes,chatter,timestamp,status,"
+                "(screenshot IS NOT NULL AND screenshot <> '') AS has_screenshot,"
+                "rejection_reason,payment_method,payment_code "
+                "FROM sales ORDER BY timestamp DESC LIMIT %s",
                 (limit,)
             )
             rows = c.fetchall()
@@ -5647,7 +5653,8 @@ def get_sales(limit: int = 200):
     result = []
     for r in rows:
         d = dict(r)
-        d['screenshot_url'] = f'/sale/{r["id"]}/screenshot' if r['screenshot'] else ''
+        has_ss = d.pop('has_screenshot', False)
+        d['screenshot_url'] = f'/sale/{r["id"]}/screenshot' if has_ss else ''
         _cid = _creator_id_for_tg(r['tg_id'])
         d['creator_id'] = _cid
         d['creator_name'] = _names.get(_cid, f'Creator {_cid}')
