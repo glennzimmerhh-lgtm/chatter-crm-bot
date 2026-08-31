@@ -933,6 +933,7 @@ def _calls_client_for(tg_id) -> Optional[object]:
 # creator_id -> Telethon client. Creator 1 = Marie's existing tg_client.
 _creator_clients = {}
 _creator_runs = {}   # creator_id -> running flag
+_creator_tasks = {}  # creator_id -> asyncio.Task des laufenden Userbot-Loops
 
 def _creator_id_for_tg(tg_id) -> int:
     """Creator id is encoded in the conversation key: creator 1 = plain id (e.g. '12345'),
@@ -1259,7 +1260,13 @@ async def _run_creator_userbot(cid: int, session_str: str):
                 except Exception as _e:
                     print(f'creator {_cid} outgoing capture: {_e}')
 
-            await client.start()
+            # WICHTIG: connect() statt start(). start() würde bei einer toten/
+            # widerrufenen Session auf eine interaktive Login-Eingabe (Telefonnummer)
+            # warten — auf dem Server kommt die nie → der Bot hängt STUNDENLANG ohne
+            # Fehler. connect()+is_user_authorized() bricht stattdessen sauber ab.
+            await client.connect()
+            if not await client.is_user_authorized():
+                raise RuntimeError('Session nicht autorisiert (widerrufen/abgelaufen) — Creator neu verbinden')
             _creator_clients[cid] = client
             print(f'✅ Creator-{cid} Userbot verbunden!')
             asyncio.create_task(_update_creator_avatar(cid, client))
@@ -1297,11 +1304,43 @@ async def _run_creator_bots_manager():
                     cid = r['id']
                     if not _creator_runs.get(cid):
                         _creator_runs[cid] = True
-                        asyncio.create_task(_run_creator_userbot(cid, r['tg_session']))
+                        _creator_tasks[cid] = asyncio.create_task(_run_creator_userbot(cid, r['tg_session']))
                         print(f'▶️  Starting Creator-{cid} userbot')
         except Exception as e:
             print(f'creator bots manager error: {e}')
         await asyncio.sleep(60)
+
+async def _restart_creator_userbot(cid: int):
+    """Laufenden Creator-Loop HART beenden und mit der FRISCHEN Session aus der DB
+    neu starten. Ohne das würde eine neu verbundene Session erst nach einem Worker-
+    Neustart greifen (alter Loop hält die tote Session + das 'läuft'-Flag)."""
+    _creator_runs[cid] = False
+    t = _creator_tasks.pop(cid, None)
+    if t:
+        t.cancel()
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
+    old = _creator_clients.pop(cid, None)
+    if old:
+        try:
+            await old.disconnect()
+        except Exception:
+            pass
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('SELECT tg_session FROM creators WHERE id=%s', (cid,))
+            row = c.fetchone()
+    except Exception:
+        row = None
+    sess = (row.get('tg_session') if row else '') or ''
+    if not sess:
+        print(f'⚠️ Restart Creator-{cid}: keine Session gespeichert')
+        return
+    _creator_runs[cid] = True
+    _creator_tasks[cid] = asyncio.create_task(_run_creator_userbot(cid, sess))
+    print(f'🔄 Creator-{cid} Userbot mit neuer Session neu gestartet')
 
 # ── PAYPAL EMAIL POLLER ───────────────────────────────────────────────────────
 # Detects "money received" emails from PayPal in a connected mailbox (IMAP) and
@@ -2283,6 +2322,11 @@ async def setup_creator_qr(cid: int):
                     st['status'] = 'done'
                     try: await client.disconnect()
                     except Exception: pass
+                    # Userbot SOFORT mit der neuen Session neu starten (kein Redeploy nötig)
+                    try:
+                        await _restart_creator_userbot(cid)
+                    except Exception as _re:
+                        print(f'restart after QR (creator {cid}): {_re}')
                     return
                 except asyncio.TimeoutError:
                     try:
@@ -2406,10 +2450,15 @@ async def setup_creator_verify(cid: int, code: str = Form(...), password: str = 
         await setup_client.disconnect()
         with db() as conn, conn.cursor() as c:
             c.execute('UPDATE creators SET tg_session=%s WHERE id=%s', (session_str, cid))
+        # Userbot SOFORT mit der neuen Session neu starten (kein Worker-Neustart nötig).
+        try:
+            await _restart_creator_userbot(cid)
+        except Exception as _re:
+            print(f'restart after verify (creator {cid}): {_re}')
         result = ('<div class="result"><h3>✅ Verbunden & gespeichert</h3>'
-                  '<div style="color:#a0f0a0;">Das Telegram-Konto ist jetzt mit diesem Creator verbunden.</div></div>'
-                  '<p style="color:#888;font-size:13px;margin-top:20px;">Der Bot dieses Creators startet, sobald der '
-                  'Worker neu lädt (Stage 2b). Du kannst dieses Fenster schließen.</p>')
+                  '<div style="color:#a0f0a0;">Das Telegram-Konto ist jetzt mit diesem Creator verbunden — '
+                  'der Userbot wurde direkt neu gestartet.</div></div>'
+                  '<p style="color:#888;font-size:13px;margin-top:20px;">Du kannst dieses Fenster schließen.</p>')
         return render_setup(result)
     except Exception as e:
         return render_setup(f'<div class="error">❌ {e}</div>')
