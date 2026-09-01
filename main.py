@@ -3989,6 +3989,17 @@ async def ai_coach(body: CoachProxyIn):
         raise HTTPException(502, f'Engine-Fehler: {e}')
 
 
+def _ai_err_msg(e) -> str:
+    """Menschlich lesbare Ursache für KI-Fehler (statt roher 500er im Chat)."""
+    s = str(e)
+    if '401' in s or 'Unauthorized' in s or 'invalid_api_key' in s:
+        return 'OpenAI-Key ungültig/abgelaufen — in Railway OPENAI_API_KEY erneuern.'
+    if '429' in s or 'Too Many Requests' in s or 'quota' in s.lower() or 'insufficient' in s.lower():
+        return 'OpenAI-Limit/Quota erreicht — kurz warten oder Kontingent aufstocken.'
+    if '503' in s or 'nicht gesetzt' in s:
+        return 'OPENAI_API_KEY fehlt in Railway.'
+    return 'KI momentan nicht erreichbar.'
+
 class TranslateIn(BaseModel):
     text: str
 
@@ -4005,7 +4016,9 @@ async def ai_translate(body: TranslateIn):
         ], max_tokens=200, temperature=0.3))
         return {'ok': True, 'result': result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        # Nicht mehr 500 werfen (spammt den Chat). Original-Text als Fallback zurück.
+        print(f'/ai/translate error: {e}')
+        return {'ok': False, 'result': body.text, 'error': _ai_err_msg(e)}
 
 class StyleIn(BaseModel):
     text: str
@@ -4061,7 +4074,8 @@ Gib NUR die deutsche Übersetzung zurück — einen Satz, fertig."""
         result = await loop.run_in_executor(None, lambda: _openai_chat(messages, max_tokens=120, temperature=0.5))
         return {'ok': True, 'result': result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        print(f'/ai/style error: {e}')
+        return {'ok': False, 'result': '', 'error': _ai_err_msg(e)}
 
 class SuggestIn(BaseModel):
     tg_id: str
