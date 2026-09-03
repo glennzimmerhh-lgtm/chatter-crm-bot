@@ -2328,6 +2328,10 @@
     <div class="page-header">
       <h1 class="page-title">👥 Members</h1>
       <p style="color:var(--text2);font-size:13px;margin-top:4px;">Manage access — invite chatters and assign roles.</p>
+      <button onclick="revokeAllSessions()" title="Loggt sofort ALLE anderen aus — Notfall-Kill-Switch"
+        style="margin-top:12px;background:linear-gradient(135deg,#ff5c7a,#c81e4a);border:none;color:#fff;font-weight:800;font-size:13px;padding:11px 16px;border-radius:11px;cursor:pointer;box-shadow:0 6px 16px -8px rgba(255,92,122,.8);">
+        🚪 Alle anderen sofort abmelden (Notfall)
+      </button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px;align-items:start;">
       <!-- Create user -->
@@ -2813,6 +2817,35 @@ function isAdmin() {
   return localStorage.getItem('crm_role') === 'admin';
 }
 
+// ══ SECURITY: Session-Token an jede Backend-Anfrage hängen + bei 401 hart ausloggen ══
+(function(){
+  if (window._authPatched) return; window._authPatched = true;
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    init = init || {};
+    try {
+      const url = (typeof input === 'string') ? input : ((input && input.url) || '');
+      const tok = localStorage.getItem('crm_token') || '';
+      const toBackend = url.startsWith('/') || (url.indexOf(location.host) !== -1) ||
+                        (window.BACKEND_URL && url.indexOf(window.BACKEND_URL) !== -1);
+      if (tok && toBackend) {
+        const h = new Headers((init.headers) || (typeof input !== 'string' && input.headers) || {});
+        if (!h.has('X-Session-Token')) h.set('X-Session-Token', tok);
+        init.headers = h;
+      }
+    } catch(e){}
+    return _origFetch(input, init).then(function(resp){
+      try {
+        if (resp && resp.status === 401 && (localStorage.getItem('crm_token') || '')) {
+          ['crm_token','crm_user','crm_login','crm_role','crm_auth'].forEach(k => localStorage.removeItem(k));
+          if (!window._loggingOut) { window._loggingOut = true; alert('Deine Sitzung wurde beendet — bitte neu einloggen.'); location.reload(); }
+        }
+      } catch(e){}
+      return resp;
+    });
+  };
+})();
+
 async function doLogin() {
   const user = document.getElementById('login-user').value.trim();
   const pw   = document.getElementById('login-pw').value;
@@ -2840,6 +2873,7 @@ async function doLogin() {
       localStorage.setItem('crm_login', data.username); // login name for auth token
       localStorage.setItem('crm_role', data.role);
       localStorage.setItem('crm_auth', btoa(data.username + ':' + data.role));
+      localStorage.setItem('crm_token', data.token || ''); // server-side session token (SECURITY)
       err.style.display = 'none';
       document.getElementById('login-pw').value = '';
       // Page reload ensures all functions (chat, notifications, etc.) are properly
@@ -3283,9 +3317,13 @@ function toggleTheme() {
 })();
 
 function doLogout() {
+  // Session serverseitig killen
+  try { fetch('/api/auth/logout', { method: 'POST' }).catch(()=>{}); } catch(e){}
   localStorage.removeItem('crm_user');
   localStorage.removeItem('crm_auth');
   localStorage.removeItem('crm_role');
+  localStorage.removeItem('crm_login');
+  localStorage.removeItem('crm_token');
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-pw').value = '';
   document.querySelector('.sidebar').style.display = 'none';
@@ -10658,6 +10696,17 @@ function _membersDiag(msg) {
   el.style.display = 'block';
   el.textContent = '🔍 ' + new Date().toLocaleTimeString('de-DE') + ' — ' + msg;
 }
+
+window.revokeAllSessions = async function revokeAllSessions() {
+  if ((localStorage.getItem('crm_role') || '') !== 'admin') { alert('Nur Admins.'); return; }
+  if (!confirm('ALLE anderen sofort ausloggen? Jeder (außer dir) muss sich neu einloggen.\n\nBenutze das, um einen unbefugten Zugang rauszuwerfen.')) return;
+  try {
+    const r = await fetch('/api/auth/revoke-all', { method: 'POST' });
+    const d = await r.json().catch(()=>({}));
+    if (r.ok) alert('✅ ' + (d.revoked || 0) + ' Sitzung(en) beendet. Wer nicht dein aktuelles Login ist, ist jetzt raus.');
+    else alert('Fehler: ' + (d.detail || r.status));
+  } catch(e) { alert('Fehler: ' + e.message); }
+};
 
 window.loadMembers = async function loadMembers() {
   const list = document.getElementById('members-list');

@@ -86,7 +86,7 @@ try:
     _PSYCOPG2_OK = True
 except ImportError:
     _PSYCOPG2_OK = False
-from fastapi import FastAPI, HTTPException, Form, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, HTTPException, Form, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -540,6 +540,17 @@ def init_db():
                     "INSERT INTO crm_users (username,email,password_hash,role,display_name) VALUES (%s,%s,%s,%s,%s)",
                     ('Glenn', 'glennzimmerhh@gmail.com', hashlib.sha256('Smartviral1!'.encode()).hexdigest(), 'admin', 'Glenn')
                 )
+            # ── SECURITY: server-side sessions (revocable tokens) ──────────────
+            c.execute('''CREATE TABLE IF NOT EXISTS crm_sessions (
+                token       TEXT PRIMARY KEY,
+                user_id     INTEGER NOT NULL,
+                username    TEXT NOT NULL,
+                role        TEXT DEFAULT 'chatter',
+                created_at  TEXT NOT NULL,
+                last_seen   TEXT DEFAULT '',
+                ip          TEXT DEFAULT ''
+            )''')
+            c.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON crm_sessions(user_id)")
 
             # Settings table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_settings (
@@ -2245,6 +2256,34 @@ app.add_middleware(
     max_age=86400,
 )
 
+# ══ SECURITY GATE ═══════════════════════════════════════════════════════════
+# Jede verändernde Anfrage (POST/PUT/PATCH/DELETE) braucht ein gültiges, in der DB
+# hinterlegtes Session-Token, das an ein NOCH existierendes crm_users-Konto gebunden
+# ist. Session löschen oder User löschen → Token sofort tot. Lesen/Medien (GET) bleiben
+# offen, damit Bilder/Avatare/Vault via <img> weiter laden.
+from starlette.responses import JSONResponse as _JSONResponse
+
+_PUBLIC_WRITE = {'/auth/login', '/auth/logout', '/webhook/payment', '/activity/heartbeat'}
+def _is_public_write(path: str) -> bool:
+    if path in _PUBLIC_WRITE:
+        return True
+    if path.startswith('/setup'):        # Telegram-Connect-Formulare (kein Token-Header)
+        return True
+    return False
+
+@app.middleware('http')
+async def _auth_gate(request: Request, call_next):
+    if request.method.upper() in ('GET', 'HEAD', 'OPTIONS'):
+        return await call_next(request)
+    path = request.url.path
+    if _is_public_write(path):
+        return await call_next(request)
+    user = _session_user(request.headers.get('x-session-token', ''))
+    if not user:
+        return _JSONResponse({'detail': 'Session ungültig – bitte neu einloggen', 'auth': False}, status_code=401)
+    request.state.user = user
+    return await call_next(request)
+
 # ── SETUP ─────────────────────────────────────────────────────────────────────
 SETUP_HTML = """<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chatter CRM – Setup</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,sans-serif;background:#0f0f0f;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}.card{background:#1a1a1a;border:1px solid #333;border-radius:16px;padding:40px;width:100%;max-width:480px}h1{font-size:22px;margin-bottom:6px}.sub{color:#888;font-size:14px;margin-bottom:32px}label{display:block;font-size:13px;color:#aaa;margin-bottom:6px}input{width:100%;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:12px 14px;font-size:15px;margin-bottom:18px;outline:none}input:focus{border-color:#6c63ff}button{width:100%;background:#6c63ff;color:#fff;border:none;border-radius:8px;padding:14px;font-size:16px;font-weight:600;cursor:pointer}.result{background:#111;border:1px solid #6c63ff;border-radius:8px;padding:16px;margin-top:24px;word-break:break-all;font-family:monospace;font-size:12px;color:#a0f0a0}.result h3{color:#6c63ff;margin-bottom:10px;font-size:14px}.copy-btn{background:#333;color:#eee;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;margin-top:12px;width:100%}.error{background:#2a1010;border:1px solid #f55;border-radius:8px;padding:14px;margin-top:16px;color:#f88;font-size:14px}.step{color:#6c63ff;font-size:13px;margin-bottom:20px}</style></head><body><div class="card"><h1>🔐 Chatter CRM Setup</h1><p class="sub">Session-String generieren</p>{CONTENT}</div><script>function copySession(){const el=document.getElementById('session-str');navigator.clipboard.writeText(el.innerText).then(()=>{document.getElementById('copy-btn').innerText='✓ Kopiert!';})}</script></body></html>"""
 FORM_STEP1 = """<p class="step">Schritt 1 – API-Zugangsdaten</p><form method="POST" action="/setup/send-code"><label>API ID</label><input name="api_id" type="number" required><label>API Hash</label><input name="api_hash" type="text" required><label>Telefonnummer</label><input name="phone" type="text" placeholder="+49151..." required><button type="submit">SMS-Code anfordern →</button></form>"""
@@ -3140,12 +3179,40 @@ import hashlib as _hashlib
 def _hash_pw(pw: str) -> str:
     return _hashlib.sha256(pw.encode()).hexdigest()
 
+import secrets as _secrets
+
+def _new_token() -> str:
+    return _secrets.token_urlsafe(36)
+
+def _session_user(token: str):
+    """Return {id,username,role,...} for a valid token whose user STILL exists,
+    else None. This is the core of the lockout: delete the session row (or the
+    user) → the token is instantly dead on the next request."""
+    if not token:
+        return None
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute('''SELECT s.token, u.id, u.username, u.role, u.display_name, u.email
+                         FROM crm_sessions s JOIN crm_users u ON u.id = s.user_id
+                         WHERE s.token=%s''', (token,))
+            row = c.fetchone()
+            if not row:
+                return None
+            # touch last_seen (best effort)
+            try:
+                c.execute('UPDATE crm_sessions SET last_seen=%s WHERE token=%s', (datetime.now().isoformat(), token))
+            except Exception:
+                pass
+            return dict(row)
+    except Exception:
+        return None
+
 class LoginIn(BaseModel):
     username: str
     password: str
 
 @app.post('/auth/login')
-def auth_login(body: LoginIn):
+def auth_login(body: LoginIn, request: Request):
     with db() as conn:
         with conn.cursor() as c:
             c.execute('SELECT id,username,email,role,display_name FROM crm_users WHERE username=%s AND password_hash=%s',
@@ -3155,7 +3222,55 @@ def auth_login(body: LoginIn):
         raise HTTPException(401, 'Falscher Benutzername oder Passwort')
     d = dict(row)
     d['display_name'] = d['display_name'] or d['username']
+    # Issue a fresh server-side session token (revocable)
+    token = _new_token()
+    try:
+        ip = request.headers.get('x-forwarded-for', '') or (request.client.host if request.client else '')
+        with db() as conn, conn.cursor() as c:
+            c.execute('INSERT INTO crm_sessions (token,user_id,username,role,created_at,last_seen,ip) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                      (token, d['id'], d['username'], d['role'], datetime.now().isoformat(), datetime.now().isoformat(), ip[:64]))
+    except Exception as e:
+        print(f'session insert error: {e}')
+        raise HTTPException(500, 'Login fehlgeschlagen')
+    d['token'] = token
     return d
+
+@app.post('/auth/logout')
+def auth_logout(request: Request):
+    tok = request.headers.get('x-session-token', '')
+    if tok:
+        try:
+            with db() as conn, conn.cursor() as c:
+                c.execute('DELETE FROM crm_sessions WHERE token=%s', (tok,))
+        except Exception:
+            pass
+    return {'ok': True}
+
+@app.post('/auth/revoke-all')
+def auth_revoke_all(request: Request):
+    """Admin kill-switch: alle Sessions löschen → JEDER muss sich neu einloggen."""
+    user = _session_user(request.headers.get('x-session-token', ''))
+    if not user or user.get('role') != 'admin':
+        raise HTTPException(403, 'Nur Admins.')
+    with db() as conn, conn.cursor() as c:
+        # eigene Session behalten, alle anderen killen
+        c.execute('DELETE FROM crm_sessions WHERE token<>%s', (request.headers.get('x-session-token', ''),))
+        n = c.rowcount
+    return {'ok': True, 'revoked': n}
+
+@app.get('/auth/sessions')
+def auth_sessions(request: Request):
+    user = _session_user(request.headers.get('x-session-token', ''))
+    if not user or user.get('role') != 'admin':
+        raise HTTPException(403, 'Nur Admins.')
+    with db() as conn, conn.cursor() as c:
+        c.execute('''SELECT s.token, s.username, s.role, s.created_at, s.last_seen, s.ip
+                     FROM crm_sessions s ORDER BY s.last_seen DESC''')
+        rows = [dict(r) for r in c.fetchall()]
+    # Token maskieren
+    for r in rows:
+        r['token_short'] = (r['token'][:8] + '…'); r.pop('token', None)
+    return rows
 
 @app.get('/auth/users')
 def list_users():
@@ -3176,7 +3291,9 @@ class UserCreate(BaseModel):
     role: str = 'chatter'
 
 @app.post('/auth/users')
-def create_user(body: UserCreate):
+def create_user(body: UserCreate, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'Nur Admins dürfen Mitglieder anlegen.')
     try:
         dn = body.display_name.strip() or body.username.strip()
         with db() as conn:
@@ -3197,7 +3314,9 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
 
 @app.patch('/auth/users/{user_id}')
-def update_user(user_id: int, body: UserUpdate):
+def update_user(user_id: int, body: UserUpdate, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'Nur Admins.')
     with db() as conn:
         with conn.cursor() as c:
             if body.display_name is not None:
@@ -3206,12 +3325,16 @@ def update_user(user_id: int, body: UserUpdate):
                 c.execute('UPDATE crm_users SET email=%s WHERE id=%s', (body.email, user_id))
             if body.password:
                 c.execute('UPDATE crm_users SET password_hash=%s WHERE id=%s', (_hash_pw(body.password), user_id))
+                # Passwortwechsel = alle bestehenden Sessions dieses Users killen
+                c.execute('DELETE FROM crm_sessions WHERE user_id=%s', (user_id,))
             if body.role is not None:
                 c.execute('UPDATE crm_users SET role=%s WHERE id=%s', (body.role, user_id))
     return {'ok': True}
 
 @app.delete('/auth/users/{user_id}')
-def delete_user(user_id: int):
+def delete_user(user_id: int, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'Nur Admins.')
     with db() as conn:
         with conn.cursor() as c:
             # Prevent deleting last admin
@@ -3222,6 +3345,8 @@ def delete_user(user_id: int):
                 if row and row['role'] == 'admin':
                     raise HTTPException(400, 'Letzter Admin kann nicht gelöscht werden')
             c.execute('DELETE FROM crm_users WHERE id=%s', (user_id,))
+            # Sessions des gelöschten Users sofort killen (Token tot)
+            c.execute('DELETE FROM crm_sessions WHERE user_id=%s', (user_id,))
     return {'ok': True}
 
 # ── CRM SETTINGS ─────────────────────────────────────────────────────────────
