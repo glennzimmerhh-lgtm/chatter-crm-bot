@@ -3592,6 +3592,15 @@ function checkAuth() {
   const storedLogin = localStorage.getItem('crm_login') || storedUser; // login name used for auth token
   const storedRole  = localStorage.getItem('crm_role');
   const storedAuth  = localStorage.getItem('crm_auth');
+  const storedToken = localStorage.getItem('crm_token');
+  // SECURITY: Alt-Sitzung ohne Server-Token (von vor dem Security-Update) → zwingend neu einloggen,
+  // sonst schlägt jeder Schreibvorgang mit 401 fehl.
+  if (storedUser && !storedToken) {
+    ['crm_user','crm_login','crm_role','crm_auth','crm_token'].forEach(k => localStorage.removeItem(k));
+    document.querySelector('.sidebar').style.display = 'none';
+    document.querySelector('.main').style.display = 'none';
+    return false;
+  }
   // crm_auth = btoa(loginName + ':' + role) — must match login name, NOT display name
   if (storedUser && storedRole && storedAuth === btoa(storedLogin + ':' + storedRole)) {
     showApp(storedUser);
