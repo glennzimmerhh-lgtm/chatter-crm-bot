@@ -2487,7 +2487,10 @@
       <div class="acc-fld"><label>+ fix €</label><input class="num" id="acc-feefix" type="number" step="0.01" onchange="saveAccSettings();renderAccounting()"></div>
       <div class="acc-fld"><label>USt %</label><input class="num" id="acc-vat" type="number" step="0.1" onchange="saveAccSettings();renderAccounting()"></div>
       <button class="acc-btn" onclick="printAccountingBeleg()">🖨️ PDF-Beleg</button>
+      <button class="acc-btn ghost" onclick="exportAllSales()" title="Jeden Sale seit CRM-Start als CSV">⤓ Alle Sales (CSV)</button>
     </div>
+
+    <div id="acc-method-filter" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;"></div>
 
     <div class="acc-kpis" id="acc-kpis"></div>
 
@@ -5156,12 +5159,26 @@ async function loadChatterTracking(period){
 // ── BUCHHALTUNG / ACCOUNTING ────────────────────────────────────────────────
 const _ACC_MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 let _accCreators = null;
+let _accMethodsOff = {};   // {methodLabel:true} = ausgeblendete Zahlungswege
+function toggleAccMethod(m){
+  _accMethodsOff[m] = !_accMethodsOff[m];
+  renderAccounting();
+}
+function setAllAccMethods(on){
+  if (on) { _accMethodsOff = {}; }
+  else {
+    // "Keine" macht wenig Sinn — hier als Reset auf alle an
+    _accMethodsOff = {};
+  }
+  renderAccounting();
+}
 function _accEur(v){ return (Math.round((v||0)*100)/100).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €'; }
 function _accEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function _accBerlinYMD(){ try{ return new Date().toLocaleDateString('en-CA',{timeZone:'Europe/Berlin'}); }catch(e){ return new Date().toISOString().slice(0,10); } }
 function _accSettings(){
   let s = {}; try { s = JSON.parse(localStorage.getItem('acc_settings')||'{}'); } catch(e){}
-  return { feePct: (s.feePct!=null?+s.feePct:2.99), feeFix: (s.feeFix!=null?+s.feeFix:0.39), vat: (s.vat!=null?+s.vat:0) };
+  // Standard 0 % Gebühr — bei euch laufen Zahlungen als PayPal Family & Friends (gebührenfrei).
+  return { feePct: (s.feePct!=null?+s.feePct:0), feeFix: (s.feeFix!=null?+s.feeFix:0), vat: (s.vat!=null?+s.vat:0) };
 }
 function saveAccSettings(){
   const s = { feePct: parseFloat(document.getElementById('acc-feepct').value)||0,
@@ -5215,6 +5232,7 @@ function _accRows(){
   const st = _accSettings();
   const all = (window._getCrmSalesData ? window._getCrmSalesData() : (window.crmSalesData||[])) || [];
   const rows = [];
+  const methodsPresent = {};   // alle Zahlungswege im Zeitraum (für die Filter-Chips)
   all.forEach(s => {
     if ((s.status||'') === 'rejected') return;
     if (sel.cid && String(s.creator_id||'') !== String(sel.cid)) return;
@@ -5222,6 +5240,8 @@ function _accRows(){
     if (localDateStr(d).slice(0,7) !== sel.ym) return;
     const gross = parseFloat(s.amount)||0;
     const method = (window._breakdownMethodLabel ? window._breakdownMethodLabel(s.payment_method) : (s.payment_method||'—'));
+    methodsPresent[method] = (methodsPresent[method]||0) + 1;
+    if (_accMethodsOff[method]) return;   // per Filter ausgeblendet
     const fee = (method === 'PayPal') ? (gross * (st.feePct/100) + st.feeFix) : 0;
     const vat = st.vat>0 ? (gross - gross/(1+st.vat/100)) : 0;
     const net = gross - fee;
@@ -5229,10 +5249,28 @@ function _accRows(){
                 method, chatter: s.chatter||'—', gross, fee, vat, net });
   });
   rows.sort((a,b)=> a.d - b.d);
-  return { sel, st, rows };
+  return { sel, st, rows, methodsPresent };
 }
 function renderAccounting(){
-  const { sel, st, rows } = _accRows();
+  const { sel, st, rows, methodsPresent } = _accRows();
+  // Zahlungsweg-Filter-Chips (aus den tatsächlich vorhandenen Wegen im Zeitraum)
+  const fbox = document.getElementById('acc-method-filter');
+  if (fbox) {
+    const names = Object.keys(methodsPresent || {}).sort();
+    if (!names.length) { fbox.innerHTML = ''; }
+    else {
+      const anyOff = names.some(m => _accMethodsOff[m]);
+      fbox.innerHTML = '<span style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin-right:2px;">Zahlungsweg</span>' +
+        names.map(m => {
+          const off = !!_accMethodsOff[m];
+          const bg = off ? 'rgba(255,255,255,.04)' : 'rgba(0,212,170,.14)';
+          const bd = off ? 'var(--border)' : 'rgba(0,212,170,.5)';
+          const col = off ? 'var(--text3)' : '#00d4aa';
+          return `<button onclick="toggleAccMethod('${m.replace(/'/g,"\\'")}')" style="cursor:pointer;border:1px solid ${bd};background:${bg};color:${col};font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;">${off?'○':'●'} ${m} · ${methodsPresent[m]}</button>`;
+        }).join('') +
+        (anyOff ? `<button onclick="setAllAccMethods(true)" style="cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:11.5px;padding:5px 10px;border-radius:999px;">alle anzeigen</button>` : '');
+    }
+  }
   const tbody = document.getElementById('acc-tbody'), tfoot = document.getElementById('acc-tfoot');
   const table = document.getElementById('acc-table');
   if (table) table.classList.toggle('novat', !(st.vat>0));
@@ -5271,6 +5309,45 @@ function renderAccounting(){
     `Gebühr = ${st.feePct}% + ${_accEur(st.feeFix)} pro PayPal-Transaktion (Schätzung, in der Leiste anpassbar). ` +
     (st.vat>0 ? `USt mit ${st.vat}% aus Brutto herausgerechnet.` : `USt aus (Kleinunternehmer/§19 oder nicht ausgewiesen).`) +
     ` Andere Zahlungswege ohne Gebühr gerechnet.`;
+}
+
+// ── Export ALLER Sales seit CRM-Start (CSV) ─────────────────────────────────
+async function exportAllSales(){
+  // Immer frisch vom Server holen, damit wirklich ALLE Zeilen dabei sind (nicht nur geladene).
+  let all = [];
+  try {
+    all = await fetch('/api/sales?limit=1000000').then(r=>r.json());
+    if (window._setCrmSalesData) window._setCrmSalesData(all);
+  } catch(e){
+    all = (window._getCrmSalesData ? window._getCrmSalesData() : (window.crmSalesData||[])) || [];
+  }
+  if (!all.length){ alert('Keine Sales gefunden.'); return; }
+  const rows = [...all].sort((a,b)=> parseTs(a.timestamp) - parseTs(b.timestamp));
+  const esc = v => { v = (v==null?'':String(v)); return /[",;\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  const header = ['Datum','Uhrzeit','Model','Fan','Produkt','Zahlungsweg','Chatter','Betrag_EUR','Status','tg_id'];
+  const lines = [header.join(',')];
+  let total = 0, counted = 0;
+  rows.forEach(s=>{
+    const d = parseTs(s.timestamp);
+    const date = isNaN(d.getTime())? '' : d.toLocaleDateString('en-CA',{timeZone:'Europe/Berlin'});
+    const time = isNaN(d.getTime())? '' : d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'});
+    const model = s.creator_name || ('Creator '+(s.creator_id||1));
+    const method = window._breakdownMethodLabel ? window._breakdownMethodLabel(s.payment_method) : (s.payment_method||'');
+    const amt = (parseFloat(s.amount)||0);
+    const status = s.status || '';
+    if (status !== 'rejected'){ total += amt; counted++; }
+    lines.push([esc(date),esc(time),esc(model),esc(s.internal_name||s.anon_id||s.tg_id||''),esc(s.product||''),esc(method),esc(s.chatter||''),
+                amt.toFixed(2).replace('.',','),esc(status),esc(s.tg_id||'')].join(','));
+  });
+  lines.push('');
+  lines.push(['SUMME (ohne rejected)','','','','','','', total.toFixed(2).replace('.',','), counted+' Sales',''].join(','));
+  const blob = new Blob(['﻿'+lines.join('\n')], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'ZF-CRM_alle-sales_'+_accBerlinYMD()+'.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  alert('✅ '+rows.length+' Sales exportiert ('+counted+' gültige, Summe '+_accEur(total)+').');
 }
 
 // ── PDF-Beleg (druckoptimiert via iframe) ───────────────────────────────────
