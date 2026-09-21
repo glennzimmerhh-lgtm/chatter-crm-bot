@@ -964,6 +964,72 @@
   .loading-bar-wrap { width: 240px; background: rgba(255,255,255,0.07); border-radius: 100px; height: 4px; overflow: hidden; }
   .loading-bar-fill { height: 4px; border-radius: 100px; background: var(--teal); width: 0%; transition: width 0.05s linear; box-shadow: 0 0 8px rgba(0,212,170,0.5); }
   .loading-pct { font-size: 12px; color: var(--text3); font-variant-numeric: tabular-nums; }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     GLOBAL THEME v4 — neuer App-Look (gleiche Farbpalette Teal→Lila).
+     Nur Dark-Mode (body:not(.light)); Oberflächen/Struktur neu, Farben bleiben.
+     ══════════════════════════════════════════════════════════════════════ */
+  body:not(.light){
+    background:
+      radial-gradient(900px 520px at 14% -12%, rgba(0,212,170,.06), transparent 60%),
+      radial-gradient(1000px 620px at 86% -8%, rgba(124,92,255,.09), transparent 62%),
+      var(--bg);
+    background-attachment: fixed;
+  }
+  /* Sidebar — glasig, tiefer, ruhiger */
+  body:not(.light) .sidebar{
+    background:
+      linear-gradient(180deg, rgba(124,92,255,.07), transparent 16%),
+      rgba(11,11,19,.72);
+    backdrop-filter: blur(14px) saturate(1.05);
+    -webkit-backdrop-filter: blur(14px) saturate(1.05);
+    border-right: 1px solid rgba(255,255,255,.06);
+  }
+  body:not(.light) .logo{ border-bottom: 1px solid rgba(255,255,255,.05); }
+  body:not(.light) .nav-section{ font-size: 10px; letter-spacing: 1.3px; color: #5c5c76; font-weight: 800; padding: 16px 14px 6px; }
+  body:not(.light) .nav-item{ border-radius: 11px; font-size: 13px; font-weight: 550; }
+  body:not(.light) .nav-item:hover{ background: rgba(124,92,255,.10); color: var(--text); }
+  body:not(.light) .nav-item.active{ background: linear-gradient(135deg, rgba(0,212,170,.16), rgba(124,92,255,.15)); color: #ffffff; }
+  /* Seitentitel + Topbar — größer, klarer */
+  body:not(.light) .topbar-title,
+  body:not(.light) .page-title{ font-size: 24px; font-weight: 850; letter-spacing: -.02em; }
+  body:not(.light) .page-header{ margin-bottom: 22px; }
+  body:not(.light) .date-badge{ background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 11px; color: var(--text2); }
+  body:not(.light) .refresh-btn{ background: linear-gradient(135deg,#00d4aa,#0bbf9c); border: none; color: #04231d; font-weight: 800; border-radius: 11px; box-shadow: 0 6px 16px -8px rgba(0,212,170,.7); }
+  body:not(.light) .config-btn{ background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 11px; color: var(--text2); }
+  body:not(.light) .config-btn:hover{ border-color: rgba(255,255,255,.18); color: var(--text); }
+  /* Panels + Karten — Glas, weiche Ränder, dezenter Schatten */
+  body:not(.light) .panel{
+    background: linear-gradient(160deg, rgba(255,255,255,.045), rgba(255,255,255,.012));
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 18px;
+    box-shadow: 0 14px 34px -24px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  body:not(.light) .panel-hd{ border-bottom: 1px solid rgba(255,255,255,.06); }
+  body:not(.light) .panel-title{ font-size: 14px; font-weight: 800; letter-spacing: -.01em; }
+  body:not(.light) .panel-tag{ background: rgba(124,92,255,.12); color: #a78bfa; border: 1px solid rgba(124,92,255,.28); border-radius: 999px; padding: 3px 10px; font-weight: 700; }
+  body:not(.light) .kpi-card{
+    background: linear-gradient(160deg, rgba(255,255,255,.05), rgba(255,255,255,.012));
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 16px;
+    box-shadow: 0 12px 30px -22px rgba(0,0,0,.72), inset 0 1px 0 rgba(255,255,255,.05);
+    transition: transform .16s cubic-bezier(.2,.8,.2,1), border-color .16s;
+  }
+  body:not(.light) .kpi-card:hover{ transform: translateY(-2px); border-color: rgba(255,255,255,.14); }
+  /* Zeitraum-Buttons als Pillen; aktiv = Teal→Lila */
+  body:not(.light) .period-btn{ background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); color: var(--text2); border-radius: 999px; padding: 7px 15px; font-weight: 700; font-size: 12.5px; transition: .15s; }
+  body:not(.light) .period-btn:hover:not(.active){ color: var(--text); border-color: rgba(255,255,255,.16); }
+  body:not(.light) .period-btn.active{ background: linear-gradient(135deg,#00d4aa,#7c5cff); color: #06130f; border: none; box-shadow: 0 6px 16px -8px rgba(124,92,255,.7); }
+  /* Tabellen — ruhiger, lila Hover */
+  body:not(.light) th{ font-size: 10.5px; letter-spacing: .5px; color: #6a6a82; }
+  body:not(.light) td{ border-top: 1px solid rgba(255,255,255,.05); }
+  body:not(.light) tr:hover td{ background: rgba(124,92,255,.05); }
+  /* Login-Box im neuen Glas-Look */
+  body:not(.light) .login-box{
+    background: linear-gradient(160deg, rgba(255,255,255,.05), rgba(255,255,255,.012));
+    border: 1px solid rgba(255,255,255,.08); border-radius: 20px;
+    box-shadow: 0 40px 90px -50px rgba(124,92,255,.55), inset 0 1px 0 rgba(255,255,255,.06);
+  }
 </style>
 </head>
 <body>
