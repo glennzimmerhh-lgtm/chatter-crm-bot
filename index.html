@@ -1054,6 +1054,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="10" x2="6" y2="10"/><line x1="10" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="14" y2="10"/><line x1="18" y1="10" x2="18" y2="10"/><line x1="7" y1="14" x2="17" y2="14"/></svg>
       Hotkeys
     </div>
+    <div class="nav-item" onclick="showPage('notes')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+      Notizen
+    </div>
     <div class="nav-item" onclick="showPage('mystats')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       My Stats
@@ -1065,6 +1069,10 @@
     <div class="nav-item admin-only" onclick="showPage('performance')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       Performance
+    </div>
+    <div class="nav-item admin-only" onclick="showPage('team')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Team
     </div>
     <div class="nav-item admin-only" onclick="showPage('tracking')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/></svg>
@@ -2523,6 +2531,105 @@
         <div id="acc-recon-out"></div>
       </div>
     </div>
+  </div>
+
+  <div id="page-team" style="display:none;">
+    <style>
+      #page-team .tm-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:20px; }
+      #page-team .tm-kpi{ background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.012)); border:1px solid var(--border); border-radius:14px; padding:14px 16px; position:relative; overflow:hidden; }
+      #page-team .tm-kpi::after{ content:''; position:absolute; left:0; top:0; right:0; height:3px; background:linear-gradient(90deg,var(--c,#00d4aa),transparent 82%); }
+      #page-team .tm-kpi .l{ font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text3); font-weight:700; }
+      #page-team .tm-kpi .v{ font-size:22px; font-weight:800; margin-top:5px; }
+      #page-team .tm-duty{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:20px; }
+      #page-team .tm-card{ background:linear-gradient(160deg,rgba(0,212,170,.10),rgba(0,212,170,.02)); border:1px solid rgba(0,212,170,.35); border-radius:14px; padding:14px; }
+      #page-team .tm-card.sup{ background:linear-gradient(160deg,rgba(124,92,255,.12),rgba(124,92,255,.02)); border-color:rgba(124,92,255,.4); }
+      #page-team .tm-card .role{ font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#00d4aa; font-weight:800; }
+      #page-team .tm-card.sup .role{ color:#a78bfa; }
+      #page-team .tm-card .nm{ font-size:16px; font-weight:800; margin-top:3px; }
+      #page-team .tm-card .sh{ font-size:12px; color:var(--text3); margin-top:2px; }
+      #page-team table.tm-tbl{ width:100%; border-collapse:collapse; }
+      #page-team .tm-tbl th{ text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); font-weight:700; padding:10px 12px; border-bottom:1px solid var(--border); }
+      #page-team .tm-tbl td{ padding:11px 12px; border-bottom:1px solid rgba(255,255,255,.05); font-size:13px; }
+      #page-team .r{ text-align:right; }
+      #page-team .tm-ano{ display:inline-block; background:rgba(255,209,102,.14); color:#ffd166; border:1px solid rgba(255,209,102,.3); font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:999px; margin-right:4px; }
+      #page-team .tm-pay{ background:rgba(0,212,170,.12); border:1px solid rgba(0,212,170,.4); color:#00d4aa; font-size:11.5px; font-weight:700; padding:4px 10px; border-radius:8px; cursor:pointer; }
+      #page-team .tm-form{ background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.012)); border:1px solid var(--border); border-radius:14px; padding:16px; margin-top:20px; max-width:900px; }
+      #page-team .tm-form input, #page-team .tm-form select{ background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:9px; color:var(--text); padding:8px 10px; font-size:13px; }
+      #page-team .tm-fgrid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; align-items:end; }
+      #page-team .tm-fgrid label{ font-size:10.5px; color:var(--text3); font-weight:700; display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
+      #page-team .tm-add{ background:linear-gradient(135deg,#00d4aa,#0bbf9c); color:#04231d; border:none; font-weight:800; font-size:13px; padding:9px 16px; border-radius:10px; cursor:pointer; }
+      #page-team .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+    </style>
+    <div class="page-header">
+      <h1 class="page-title">👥 Team</h1>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap;">
+        <button class="period-btn" id="tm-btn-heute" onclick="loadTeam('heute')">Heute</button>
+        <button class="period-btn active" id="tm-btn-woche" onclick="loadTeam('woche')">7 Tage</button>
+        <button class="period-btn" id="tm-btn-monat" onclick="loadTeam('monat')">30 Tage</button>
+        <span id="tm-now" style="margin-left:auto;font-size:12px;color:var(--text3);"></span>
+      </div>
+    </div>
+    <div id="tm-duty-wrap" style="margin-bottom:8px;font-size:12px;font-weight:700;color:var(--text2);"></div>
+    <div class="tm-duty" id="tm-duty"></div>
+    <div class="tm-kpis" id="tm-kpis"></div>
+    <div class="panel">
+      <div class="panel-hd"><div class="panel-title">Mitarbeiter · Schichten & Löhne</div></div>
+      <div style="overflow-x:auto;">
+        <table class="tm-tbl"><thead><tr>
+          <th>Mitarbeiter</th><th>Schicht</th><th class="r">Umsatz</th><th class="r">Sales</th><th class="r">Std</th>
+          <th class="r">Lohn fällig</th><th class="r">Ausgezahlt</th><th class="r">Offen</th><th>Auffälligkeiten</th><th></th>
+        </tr></thead>
+        <tbody id="tm-tbody"><tr><td colspan="10"><div class="empty">Lade…</div></td></tr></tbody></table>
+      </div>
+    </div>
+    <div class="tm-form">
+      <div style="font-size:12px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">+ Mitarbeiter anlegen / bearbeiten</div>
+      <input type="hidden" id="tm-id">
+      <div class="tm-fgrid">
+        <div><label>Name (= Chatter)</label><input id="tm-name" placeholder="z.B. Michael"></div>
+        <div><label>Rolle</label><select id="tm-role"><option value="chatter">Chatter</option><option value="supervisor">Supervisor</option></select></div>
+        <div><label>Schicht</label><select id="tm-shift">
+          <option value="09:00|17:00">Tag · 09:00–17:00</option>
+          <option value="17:00|01:00">Nacht · 17:00–01:00</option>
+          <option value="|">— keine feste Schicht</option>
+        </select></div>
+        <div><label>Tage</label><select id="tm-days"><option value="daily">Täglich</option><option value="mon-fri">Mo–Fr</option><option value="fri-sun">Fr–So</option></select></div>
+        <div><label>Lohn-Modell</label><select id="tm-wtype"><option value="percent">% vom Umsatz</option><option value="hourly">€ pro Stunde</option><option value="weekly">€ pro Woche (fix)</option></select></div>
+        <div><label>Wert</label><input id="tm-wval" type="number" step="0.01" placeholder="z.B. 5"></div>
+        <div><button class="tm-add" onclick="saveStaff()">Speichern</button></div>
+      </div>
+      <div id="tm-form-msg" style="font-size:12px;color:var(--text3);margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <div id="page-notes" style="display:none;">
+    <style>
+      #page-notes .nt-composer{ background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.012)); border:1px solid var(--border); border-radius:16px; padding:16px; margin-bottom:20px; max-width:820px; }
+      #page-notes textarea{ width:100%; min-height:80px; resize:vertical; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:12px; color:var(--text); padding:12px 14px; font-size:14px; font-family:inherit; }
+      #page-notes textarea:focus{ outline:none; border-color:rgba(0,212,170,.5); box-shadow:0 0 0 3px rgba(0,212,170,.12); }
+      #page-notes .nt-add{ margin-top:10px; background:linear-gradient(135deg,#00d4aa,#0bbf9c); color:#04231d; border:none; font-weight:800; font-size:13px; padding:10px 18px; border-radius:11px; cursor:pointer; box-shadow:0 6px 16px -8px rgba(0,212,170,.8); }
+      #page-notes .nt-list{ display:grid; gap:12px; max-width:820px; }
+      #page-notes .nt-card{ background:linear-gradient(160deg,rgba(255,255,255,.04),rgba(255,255,255,.01)); border:1px solid var(--border); border-radius:14px; padding:14px 16px; }
+      #page-notes .nt-card.pinned{ border-color:rgba(255,209,102,.5); box-shadow:inset 0 0 0 1px rgba(255,209,102,.18); }
+      #page-notes .nt-txt{ font-size:14px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+      #page-notes .nt-meta{ display:flex; align-items:center; gap:10px; margin-top:10px; font-size:11.5px; color:var(--text3); }
+      #page-notes .nt-meta .sp{ margin-left:auto; display:flex; gap:8px; }
+      #page-notes .nt-btn{ background:rgba(255,255,255,.05); border:1px solid var(--border); color:var(--text2); font-size:11.5px; font-weight:700; padding:4px 10px; border-radius:8px; cursor:pointer; }
+      #page-notes .nt-btn:hover{ color:var(--text); border-color:rgba(255,255,255,.2); }
+      #page-notes .nt-btn.del:hover{ color:#ff5c7a; border-color:rgba(255,92,122,.4); }
+    </style>
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+      <div>
+        <h1 class="page-title">📝 Geteilte Notizen</h1>
+        <p style="color:var(--text2);font-size:13px;margin-top:4px;">Team-Notizen — alle Chatter tragen zusammen, jeder sieht alles.</p>
+      </div>
+      <button class="nt-btn" onclick="loadNotes()" style="padding:8px 14px;">↻ Reload</button>
+    </div>
+    <div class="nt-composer">
+      <textarea id="nt-input" placeholder="Neue Notiz für alle… (z.B. Fan-Infos, Absprachen, To-dos)"></textarea>
+      <button class="nt-add" onclick="addNote()">＋ Notiz hinzufügen</button>
+    </div>
+    <div class="nt-list" id="nt-list"><div class="empty">Lade…</div></div>
   </div>
 
   <div id="page-chat" style="display:none;">
@@ -5520,6 +5627,155 @@ function _accReconcile(text, fname){
     <div class="acc-note">Abgleich rein lokal im Browser. „Geld ohne Sale" = PayPal-Eingang, aber kein Sale im CRM erfasst (nachbuchen?). „Sale ohne Eingang" = im CRM erfasst, aber kein PayPal-Eingang gefunden (offen / anderer Weg / Scam prüfen). Zugeordnet wird über den Betrag (±0,02 €); das Datum dient nur als Feinabgleich.</div>`;
 }
 
+// ── GETEILTE NOTIZEN (Team) ─────────────────────────────────────────────────
+function _ntEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+async function loadNotes(){
+  const list = document.getElementById('nt-list'); if (!list) return;
+  try {
+    const rows = await fetch('/api/notes').then(r=>r.json());
+    if (!rows.length){ list.innerHTML = '<div class="empty">Noch keine Notizen — leg die erste an.</div>'; return; }
+    const me = (localStorage.getItem('crm_role')||'') === 'admin';
+    list.innerHTML = rows.map(n=>{
+      const d = parseTs(n.created_at);
+      const when = isNaN(d.getTime()) ? '' : d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'});
+      return `<div class="nt-card${n.pinned?' pinned':''}">
+        <div class="nt-txt">${_ntEsc(n.text)}</div>
+        <div class="nt-meta">
+          <span>${n.pinned?'📌 ':''}${_ntEsc(n.author||'—')} · ${when}</span>
+          <span class="sp">
+            <button class="nt-btn" onclick="togglePinNote(${n.id}, ${n.pinned?0:1})">${n.pinned?'Loslösen':'Anpinnen'}</button>
+            <button class="nt-btn del" onclick="deleteNote(${n.id})">Löschen</button>
+          </span>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e){ list.innerHTML = '<div class="empty" style="color:#ff5c7a">Fehler: '+_ntEsc(e.message||e)+'</div>'; }
+}
+async function addNote(){
+  const ta = document.getElementById('nt-input');
+  const text = (ta.value||'').trim(); if (!text) return;
+  const author = localStorage.getItem('crm_user') || 'Chatter';
+  try {
+    const r = await fetch('/api/notes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text, author }) });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    ta.value = ''; loadNotes();
+  } catch(e){ alert('Konnte nicht speichern: '+(e.message||e)); }
+}
+async function deleteNote(id){
+  if (!confirm('Diese Notiz löschen?')) return;
+  try { await fetch('/api/notes/'+id, { method:'DELETE' }); loadNotes(); } catch(e){ alert('Fehler: '+e.message); }
+}
+async function togglePinNote(id, pin){
+  try { await fetch('/api/notes/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pinned: !!pin }) }); loadNotes(); } catch(e){ alert('Fehler: '+e.message); }
+}
+
+// ── TEAM: Schichten & Löhne ─────────────────────────────────────────────────
+let _tmPeriod = 'woche';
+let _tmStaff = [];
+function _tmEur(v){ return (Math.round((v||0)*100)/100).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
+function _tmEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _tmWage(r){ return r.wage_type==='percent' ? (r.wage_value+'%') : r.wage_type==='hourly' ? (_tmEur(r.wage_value)+'/h') : (_tmEur(r.wage_value)+'/Wo'); }
+async function loadTeam(period){
+  _tmPeriod = period || _tmPeriod || 'woche';
+  ['heute','woche','monat'].forEach(p=>{ const b=document.getElementById('tm-btn-'+p); if(b) b.classList.toggle('active', p===_tmPeriod); });
+  const tbody = document.getElementById('tm-tbody');
+  try {
+    const [ov, staff] = await Promise.all([
+      fetch('/api/team/overview?period='+_tmPeriod).then(r=>r.json()),
+      fetch('/api/team/staff').then(r=>r.json())
+    ]);
+    _tmStaff = staff || [];
+    document.getElementById('tm-now').textContent = 'Stand ' + (ov.now||'') + ' Uhr (Berlin)';
+    // Wer im Dienst
+    const duty = ov.on_duty || [];
+    document.getElementById('tm-duty-wrap').textContent = duty.length ? ('🟢 Im Dienst: ' + duty.length) : 'Aktuell niemand im Dienst';
+    document.getElementById('tm-duty').innerHTML = duty.map(d=>{
+      const sup = d.role==='supervisor';
+      const ends = d.ends_in_min!=null ? ('noch '+Math.floor(d.ends_in_min/60)+' h '+(d.ends_in_min%60)+' min') : '';
+      return `<div class="tm-card${sup?' sup':''}"><div class="role">${sup?'Führt Aufsicht':'Im Dienst'}</div><div class="nm">${_tmEsc(d.name)}</div><div class="sh">${_tmEsc(d.shift)}</div><div class="sh">${ends}</div></div>`;
+    }).join('') || '';
+    // KPIs
+    const T = ov.totals || {};
+    document.getElementById('tm-kpis').innerHTML = [
+      ['Umsatz Team', _tmEur(T.revenue), '#00d4aa'],
+      ['Löhne fällig', _tmEur(T.wages_due), '#4a9eff'],
+      ['davon offen', _tmEur(T.wages_open), '#ff5c7a'],
+      ['ausgezahlt', _tmEur(T.wages_paid), '#22c55e'],
+      ['Umsatz ohne Zuordnung', _tmEur(T.revenue_unassigned), '#ffd166'],
+    ].map(k=>`<div class="tm-kpi" style="--c:${k[2]}"><div class="l">${k[0]}</div><div class="v">${k[1]}</div></div>`).join('');
+    // Tabelle
+    const rows = ov.rows || [];
+    if (!rows.length){ tbody.innerHTML = '<tr><td colspan="10"><div class="empty">Noch keine Mitarbeiter — unten anlegen.</div></td></tr>'; return; }
+    tbody.innerHTML = rows.map(r=>{
+      const dot = r.on_duty ? '<span class="dot" style="background:#22c55e"></span>' : '<span class="dot" style="background:#555"></span>';
+      const anos = (r.anomalies||[]).map(a=>`<span class="tm-ano">${_tmEsc(a)}</span>`).join('') || '<span style="color:var(--text3)">–</span>';
+      const roleTag = r.role==='supervisor' ? ' <span style="color:#a78bfa;font-size:10px;font-weight:800">SUP</span>' : '';
+      return `<tr>
+        <td>${dot}<b>${_tmEsc(r.name)}</b>${roleTag}<div style="font-size:10.5px;color:var(--text3)">${_tmWage(r)}</div></td>
+        <td>${_tmEsc(r.shift)}<div style="font-size:10.5px;color:var(--text3)">${_tmEsc(r.shift_days)}</div></td>
+        <td class="r" style="color:#00d4aa;font-weight:700">${_tmEur(r.revenue)}</td>
+        <td class="r">${r.sales}</td>
+        <td class="r">${r.hours}</td>
+        <td class="r">${_tmEur(r.wage_due)}</td>
+        <td class="r" style="color:#22c55e">${_tmEur(r.wage_paid)}</td>
+        <td class="r" style="color:${r.wage_open>0?'#ff5c7a':'var(--text3)'};font-weight:700">${_tmEur(r.wage_open)}</td>
+        <td>${anos}</td>
+        <td class="r" style="white-space:nowrap">
+          ${r.wage_open>0?`<button class="tm-pay" onclick="payoutStaff('${_tmEsc(r.name)}',${r.wage_open})">Auszahlen</button>`:''}
+          <button class="nt-btn" onclick="editStaff(${r.id})" style="padding:4px 8px">✏️</button>
+          <button class="nt-btn" onclick="deleteStaff(${r.id})" style="padding:4px 8px">🗑</button>
+        </td></tr>`;
+    }).join('');
+  } catch(e){ if(tbody) tbody.innerHTML = '<tr><td colspan="10"><div class="empty" style="color:#ff5c7a">Fehler: '+_tmEsc(e.message||e)+'</div></td></tr>'; }
+}
+async function saveStaff(){
+  const body = {
+    id: parseInt(document.getElementById('tm-id').value)||null,
+    name: document.getElementById('tm-name').value.trim(),
+    role: document.getElementById('tm-role').value,
+    shift_start: (document.getElementById('tm-shift').value.split('|')[0]||''),
+    shift_end: (document.getElementById('tm-shift').value.split('|')[1]||''),
+    shift_days: document.getElementById('tm-days').value,
+    wage_type: document.getElementById('tm-wtype').value,
+    wage_value: parseFloat(document.getElementById('tm-wval').value)||0,
+    active: true
+  };
+  if (!body.name){ document.getElementById('tm-form-msg').textContent='Name fehlt.'; return; }
+  try {
+    const r = await fetch('/api/team/staff', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    ['tm-id','tm-name','tm-wval'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('tm-form-msg').textContent='✓ Gespeichert';
+    loadTeam();
+  } catch(e){ document.getElementById('tm-form-msg').textContent='Fehler: '+(e.message||e); }
+}
+function editStaff(id){
+  const s = _tmStaff.find(x=>x.id===id); if(!s) return;
+  document.getElementById('tm-id').value = s.id;
+  document.getElementById('tm-name').value = s.name||'';
+  document.getElementById('tm-role').value = s.role||'chatter';
+  document.getElementById('tm-shift').value = (s.shift_start||'')+'|'+(s.shift_end||'');
+  document.getElementById('tm-days').value = s.shift_days||'daily';
+  document.getElementById('tm-wtype').value = s.wage_type||'percent';
+  document.getElementById('tm-wval').value = s.wage_value||0;
+  document.getElementById('tm-form-msg').textContent = 'Bearbeite: '+(s.name||'');
+  document.querySelector('#page-team .tm-form').scrollIntoView({behavior:'smooth'});
+}
+async function deleteStaff(id){
+  if(!confirm('Mitarbeiter löschen? (Lohn-Historie bleibt erhalten)')) return;
+  try { await fetch('/api/team/staff/'+id, { method:'DELETE' }); loadTeam(); } catch(e){ alert('Fehler: '+e.message); }
+}
+async function payoutStaff(name, open){
+  const val = prompt('Auszahlung an '+name+' (€):', (Math.round(open*100)/100).toString().replace('.',','));
+  if (val==null) return;
+  const amount = parseFloat(String(val).replace(',','.'))||0;
+  if (amount<=0) return;
+  try {
+    await fetch('/api/team/payout', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ staff:name, amount, note:'CRM Auszahlung' }) });
+    loadTeam();
+  } catch(e){ alert('Fehler: '+e.message); }
+}
+
 function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
   document.getElementById('sidebar-overlay').classList.add('open');
@@ -5642,7 +5898,7 @@ function _fmtHours(sec) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking','accounting'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking','accounting','notes','team'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -5666,6 +5922,8 @@ function showPage(name) {
   if (name === 'creators') { if (typeof loadCreatorsPage === 'function') loadCreatorsPage(); }
   if (name === 'tracking') { if (typeof loadChatterTracking === 'function') loadChatterTracking(); }
   if (name === 'accounting') { if (typeof loadAccounting === 'function') loadAccounting(); }
+  if (name === 'notes') { if (typeof loadNotes === 'function') loadNotes(); }
+  if (name === 'team') { if (typeof loadTeam === 'function') loadTeam(); }
   if (name === 'hotkeys') { if (typeof renderHotkeysPage === 'function') renderHotkeysPage(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues

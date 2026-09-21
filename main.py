@@ -551,6 +551,38 @@ def init_db():
                 ip          TEXT DEFAULT ''
             )''')
             c.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON crm_sessions(user_id)")
+            # Shared team notes (chatters collect info together)
+            c.execute('''CREATE TABLE IF NOT EXISTS shared_notes (
+                id          SERIAL PRIMARY KEY,
+                author      TEXT DEFAULT '',
+                text        TEXT NOT NULL,
+                pinned      INTEGER DEFAULT 0,
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT DEFAULT ''
+            )''')
+            # ── TEAM: staff (Schichten) + wage_ledger (Lohn-Auszahlungen) ──────
+            c.execute('''CREATE TABLE IF NOT EXISTS staff (
+                id          SERIAL PRIMARY KEY,
+                name        TEXT NOT NULL,
+                role        TEXT DEFAULT 'chatter',
+                shift_start TEXT DEFAULT '',
+                shift_end   TEXT DEFAULT '',
+                shift_days  TEXT DEFAULT 'daily',
+                wage_type   TEXT DEFAULT 'percent',
+                wage_value  REAL DEFAULT 0,
+                active      BOOLEAN DEFAULT TRUE,
+                created_at  TEXT NOT NULL
+            )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS wage_ledger (
+                id          SERIAL PRIMARY KEY,
+                staff       TEXT NOT NULL,
+                amount      REAL NOT NULL,
+                period_from TEXT DEFAULT '',
+                period_to   TEXT DEFAULT '',
+                note        TEXT DEFAULT '',
+                created_at  TEXT NOT NULL
+            )''')
+            c.execute("CREATE INDEX IF NOT EXISTS idx_wage_staff ON wage_ledger(staff)")
 
             # Settings table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_settings (
@@ -3851,6 +3883,199 @@ def chatter_tracking(period: str = 'today'):
                     'revenue': round(s.get('revenue', 0), 2), 'fakechecks': fcs.get(n, 0)})
     out.sort(key=lambda x: (-x['revenue'], -x['active_seconds']))
     return {'period': period, 'chatters': out}
+
+# ── SHARED TEAM NOTES ────────────────────────────────────────────────────────
+class NoteIn(BaseModel):
+    text: str
+    author: str = ''
+
+class NoteEdit(BaseModel):
+    text: Optional[str] = None
+    pinned: Optional[bool] = None
+
+@app.get('/notes')
+def notes_list():
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT id, author, text, pinned, created_at, updated_at FROM shared_notes ORDER BY pinned DESC, id DESC')
+        return [dict(r) for r in c.fetchall()]
+
+@app.post('/notes')
+def notes_create(body: NoteIn):
+    txt = (body.text or '').strip()
+    if not txt:
+        raise HTTPException(400, 'Leere Notiz.')
+    with db() as conn, conn.cursor() as c:
+        c.execute('INSERT INTO shared_notes (author, text, pinned, created_at) VALUES (%s,%s,0,%s) RETURNING id',
+                  ((body.author or '').strip()[:60], txt[:5000], datetime.now().isoformat()))
+        nid = c.fetchone()['id']
+    return {'ok': True, 'id': nid}
+
+@app.patch('/notes/{note_id}')
+def notes_edit(note_id: int, body: NoteEdit):
+    with db() as conn, conn.cursor() as c:
+        if body.text is not None:
+            c.execute('UPDATE shared_notes SET text=%s, updated_at=%s WHERE id=%s', (body.text.strip()[:5000], datetime.now().isoformat(), note_id))
+        if body.pinned is not None:
+            c.execute('UPDATE shared_notes SET pinned=%s WHERE id=%s', (1 if body.pinned else 0, note_id))
+    return {'ok': True}
+
+@app.delete('/notes/{note_id}')
+def notes_delete(note_id: int):
+    with db() as conn, conn.cursor() as c:
+        c.execute('DELETE FROM shared_notes WHERE id=%s', (note_id,))
+    return {'ok': True}
+
+# ── TEAM: Schichten & Löhne ─────────────────────────────────────────────────
+class StaffIn(BaseModel):
+    id: Optional[int] = None
+    name: str
+    role: str = 'chatter'
+    shift_start: str = ''
+    shift_end: str = ''
+    shift_days: str = 'daily'
+    wage_type: str = 'percent'     # percent | hourly | weekly
+    wage_value: float = 0
+    active: bool = True
+
+class PayoutIn(BaseModel):
+    staff: str
+    amount: float
+    period_from: str = ''
+    period_to: str = ''
+    note: str = ''
+
+def _team_berlin_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo('Europe/Berlin'))
+    except Exception:
+        return datetime.now()
+
+def _team_period(period):
+    now_b = _team_berlin_now()
+    if period == 'heute':
+        start = now_b.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == 'monat':
+        start = now_b - timedelta(days=30)
+    elif period == 'alle':
+        start = None
+    else:
+        start = now_b - timedelta(days=7)
+    def _local(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    return (_local(start) if start else None), (start.strftime('%Y-%m-%d') if start else None)
+
+def _team_on_duty(s, now_b):
+    ss, se = (s.get('shift_start') or ''), (s.get('shift_end') or '')
+    if not ss or not se:
+        return (False, None)
+    days = (s.get('shift_days') or 'daily').lower()
+    wd = now_b.weekday()   # 0=Mo..6=So
+    day_ok = True
+    if days in ('mon-fri', 'mo-fr', 'weekdays'):      day_ok = wd <= 4
+    elif days in ('fri-sun', 'fr-so', 'weekend'):     day_ok = wd >= 4
+    try:
+        sh, sm = map(int, ss.split(':')); eh, em = map(int, se.split(':'))
+    except Exception:
+        return (False, None)
+    cur = now_b.hour * 60 + now_b.minute
+    smin, emin = sh * 60 + sm, eh * 60 + em
+    inshift = (cur >= smin or cur < emin) if emin <= smin else (smin <= cur < emin)
+    if not (day_ok and inshift):
+        return (False, None)
+    ends_in = ((emin - cur) % (24 * 60)) if emin <= smin else (emin - cur)
+    return (True, ends_in)
+
+@app.get('/team/staff')
+def team_staff_list():
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT * FROM staff ORDER BY role DESC, name ASC')
+        return [dict(r) for r in c.fetchall()]
+
+@app.post('/team/staff')
+def team_staff_save(body: StaffIn):
+    now = datetime.now().isoformat()
+    with db() as conn, conn.cursor() as c:
+        if body.id:
+            c.execute('''UPDATE staff SET name=%s, role=%s, shift_start=%s, shift_end=%s, shift_days=%s,
+                         wage_type=%s, wage_value=%s, active=%s WHERE id=%s''',
+                      (body.name.strip(), body.role, body.shift_start, body.shift_end, body.shift_days,
+                       body.wage_type, float(body.wage_value or 0), bool(body.active), body.id))
+            return {'ok': True, 'id': body.id}
+        c.execute('''INSERT INTO staff (name,role,shift_start,shift_end,shift_days,wage_type,wage_value,active,created_at)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                  (body.name.strip(), body.role, body.shift_start, body.shift_end, body.shift_days,
+                   body.wage_type, float(body.wage_value or 0), bool(body.active), now))
+        return {'ok': True, 'id': c.fetchone()['id']}
+
+@app.delete('/team/staff/{sid}')
+def team_staff_delete(sid: int):
+    with db() as conn, conn.cursor() as c:
+        c.execute('DELETE FROM staff WHERE id=%s', (sid,))
+    return {'ok': True}
+
+@app.post('/team/payout')
+def team_payout(body: PayoutIn):
+    with db() as conn, conn.cursor() as c:
+        c.execute('INSERT INTO wage_ledger (staff,amount,period_from,period_to,note,created_at) VALUES (%s,%s,%s,%s,%s,%s)',
+                  (body.staff.strip(), float(body.amount or 0), body.period_from, body.period_to, body.note, datetime.now().isoformat()))
+    return {'ok': True}
+
+@app.get('/team/overview')
+def team_overview(period: str = 'woche'):
+    now_b = _team_berlin_now()
+    since_ts, since_day = _team_period(period)
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT * FROM staff ORDER BY role DESC, name ASC')
+        staff = [dict(r) for r in c.fetchall()]
+        q = "SELECT chatter, COUNT(*) n, COALESCE(SUM(amount),0) rev FROM sales WHERE chatter<>'' AND COALESCE(status,'')<>'rejected'"; p = []
+        if since_ts: q += " AND timestamp>=%s"; p.append(since_ts)
+        c.execute(q + " GROUP BY chatter", tuple(p))
+        salesmap = {r['chatter']: {'rev': float(r['rev'] or 0), 'n': r['n']} for r in c.fetchall()}
+        q = "SELECT chatter, COUNT(*) n FROM messages WHERE direction='out' AND chatter<>''"; p = []
+        if since_ts: q += " AND timestamp>=%s"; p.append(since_ts)
+        c.execute(q + " GROUP BY chatter", tuple(p))
+        msgmap = {r['chatter']: r['n'] for r in c.fetchall()}
+        q = "SELECT chatter, COALESCE(SUM(active_seconds),0) sec FROM chatter_activity WHERE chatter<>''"; p = []
+        if since_day: q += " AND day>=%s"; p.append(since_day)
+        c.execute(q + " GROUP BY chatter", tuple(p))
+        actmap = {r['chatter']: int(r['sec'] or 0) for r in c.fetchall()}
+        q = "SELECT staff, COALESCE(SUM(amount),0) paid FROM wage_ledger WHERE 1=1"; p = []
+        if since_ts: q += " AND created_at>=%s"; p.append(since_ts)
+        c.execute(q + " GROUP BY staff", tuple(p))
+        paidmap = {r['staff']: float(r['paid'] or 0) for r in c.fetchall()}
+    days_in = {'heute': 1, 'woche': 7, 'monat': 30}.get(period, 7)
+    on_duty, rows = [], []
+    tot_rev = tot_due = tot_open = tot_paid = 0.0
+    for s in staff:
+        name = s['name']
+        sm = salesmap.get(name, {}); rev = sm.get('rev', 0.0); sales_n = sm.get('n', 0)
+        msgs = msgmap.get(name, 0); hours = round(actmap.get(name, 0) / 3600.0, 1)
+        wt = (s.get('wage_type') or 'percent'); wv = float(s.get('wage_value') or 0)
+        if wt == 'percent':   due = rev * wv / 100.0
+        elif wt == 'hourly':  due = hours * wv
+        else:                 due = wv * (days_in / 7.0)
+        paid = paidmap.get(name, 0.0); openw = max(0.0, due - paid)
+        on, ends = _team_on_duty(s, now_b)
+        shift_str = (s.get('shift_start', '') + '–' + s.get('shift_end', '')) if s.get('shift_start') else '—'
+        anos = []
+        if s.get('shift_start') and hours < 0.2: anos.append('kaum aktiv')
+        if sales_n == 0 and rev == 0 and period != 'heute': anos.append('keine Sales')
+        if on:
+            on_duty.append({'name': name, 'role': s['role'], 'shift': shift_str, 'ends_in_min': ends})
+        rows.append({'id': s['id'], 'name': name, 'role': s['role'], 'shift': shift_str,
+                     'shift_days': s.get('shift_days', 'daily'), 'revenue': round(rev, 2), 'sales': sales_n,
+                     'messages': msgs, 'hours': hours, 'wage_type': wt, 'wage_value': wv,
+                     'wage_due': round(due, 2), 'wage_paid': round(paid, 2), 'wage_open': round(openw, 2),
+                     'on_duty': on, 'anomalies': anos})
+        tot_rev += rev; tot_due += due; tot_open += openw; tot_paid += paid
+    staff_names = set(s['name'] for s in staff)
+    unassigned = sum(v['rev'] for k, v in salesmap.items() if k not in staff_names)
+    rows.sort(key=lambda x: -x['revenue'])
+    return {'period': period, 'now': now_b.strftime('%H:%M'), 'on_duty': on_duty, 'rows': rows,
+            'totals': {'revenue': round(tot_rev, 2), 'wages_due': round(tot_due, 2), 'wages_open': round(tot_open, 2),
+                       'wages_paid': round(tot_paid, 2), 'revenue_unassigned': round(unassigned, 2)}}
 
 @app.get('/settings/crm')
 def get_crm_settings():
