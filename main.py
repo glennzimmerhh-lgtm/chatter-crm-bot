@@ -4088,6 +4088,92 @@ def team_overview(period: str = 'woche'):
             'totals': {'revenue': round(tot_rev, 2), 'wages_due': round(tot_due, 2), 'wages_open': round(tot_open, 2),
                        'wages_paid': round(tot_paid, 2), 'revenue_unassigned': round(unassigned, 2)}}
 
+# ── JARVIS: KI-Ops-Assistent (analysiert echte Zahlen) ──────────────────────
+def _jarvis_snapshot():
+    now_b = _team_berlin_now()
+    def loc(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    today0 = loc(now_b.replace(hour=0, minute=0, second=0, microsecond=0))
+    since7, since30 = loc(now_b - timedelta(days=7)), loc(now_b - timedelta(days=30))
+    snap = {'now': now_b.strftime('%Y-%m-%d %H:%M')}
+    with db() as conn, conn.cursor() as c:
+        def rev(ts):
+            c.execute("SELECT COALESCE(SUM(amount),0) v, COUNT(*) n FROM sales WHERE COALESCE(status,'')<>'rejected'" + (" AND timestamp>=%s" if ts else ""), ((ts,) if ts else ()))
+            r = c.fetchone(); return round(float(r['v'] or 0), 2), int(r['n'] or 0)
+        snap['revenue_today'], snap['sales_today'] = rev(today0)
+        snap['revenue_7d'], snap['sales_7d'] = rev(since7)
+        snap['revenue_30d'], snap['sales_30d'] = rev(since30)
+        c.execute("SELECT payment_method, COALESCE(SUM(amount),0) v FROM sales WHERE COALESCE(status,'')<>'rejected' AND timestamp>=%s GROUP BY payment_method", (since30,))
+        snap['by_method_30d'] = {(r['payment_method'] or 'unbekannt'): round(float(r['v'] or 0), 2) for r in c.fetchall()}
+        c.execute("SELECT chatter, COALESCE(SUM(amount),0) v, COUNT(*) n FROM sales WHERE chatter<>'' AND COALESCE(status,'')<>'rejected' AND timestamp>=%s GROUP BY chatter ORDER BY v DESC LIMIT 12", (since30,))
+        snap['by_chatter_30d'] = [{'chatter': r['chatter'], 'revenue': round(float(r['v'] or 0), 2), 'sales': int(r['n'] or 0)} for r in c.fetchall()]
+        try:
+            c.execute("SELECT COUNT(*) n FROM conversations WHERE first_time>=%s", (since7,))
+            snap['new_subs_7d'] = int(c.fetchone()['n'] or 0)
+        except Exception:
+            snap['new_subs_7d'] = None
+        try:
+            c.execute("SELECT value FROM crm_settings WHERE key='shift_goal'"); g = c.fetchone(); snap['shift_goal'] = g['value'] if g else ''
+        except Exception:
+            snap['shift_goal'] = ''
+    return snap
+
+@app.get('/jarvis/snapshot')
+def jarvis_snapshot():
+    return _jarvis_snapshot()
+
+class JarvisAsk(BaseModel):
+    question: str = ''
+    character: str = ''
+
+def _jarvis_get_character():
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT value FROM crm_settings WHERE key='jarvis_character'"); r = c.fetchone()
+            return r['value'] if r else ''
+    except Exception:
+        return ''
+
+def _jarvis_set_character(char):
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("UPDATE crm_settings SET value=%s WHERE key='jarvis_character'", (char,))
+            if c.rowcount == 0:
+                c.execute("INSERT INTO crm_settings (key,value) VALUES ('jarvis_character',%s)", (char,))
+    except Exception as e:
+        print(f'jarvis character save: {e}')
+
+@app.get('/jarvis/character')
+def jarvis_get_char():
+    return {'character': _jarvis_get_character()}
+
+@app.post('/jarvis/ask')
+def jarvis_ask(body: JarvisAsk):
+    snap = _jarvis_snapshot()
+    char = (body.character or '').strip()
+    if char:
+        _jarvis_set_character(char)
+    else:
+        char = _jarvis_get_character()
+    sys = ("Du bist Jarvis, der Operations-Assistent einer Agentur, die Adult-Content über Telegram vermarktet und verkauft "
+           "(Paid Calls, PPV, Content). Du analysierst NUR die echten Zahlen, die dir gegeben werden, und gibst konkrete, "
+           "umsetzbare, regelbasierte Empfehlungen — keine erfundenen Zahlen, keine Prognosen, keine Finanz- oder Rechtsberatung. "
+           "Antworte auf Deutsch, kurz und auf den Punkt, mit klaren Handlungsempfehlungen.")
+    if char:
+        sys += "\n\nZusätzlicher Charakter/Ton (vom Nutzer): " + char[:500]
+    import json as _jj
+    ctx = "Aktuelle CRM-Zahlen (Stand " + snap.get('now', '') + "):\n" + _jj.dumps(snap, ensure_ascii=False)
+    q = (body.question or '').strip() or ("Analysiere die aktuellen Zahlen und nenne mir die 3 wichtigsten Dinge, die ich ändern/verbessern sollte "
+                                          "— jeweils mit kurzer Begründung direkt aus den Zahlen.")
+    try:
+        reply = _openai_chat([{'role': 'system', 'content': sys},
+                              {'role': 'user', 'content': ctx + "\n\nFrage: " + q}], max_tokens=520, temperature=0.5)
+        return {'ok': True, 'reply': reply, 'snapshot': snap}
+    except Exception as e:
+        print(f'/jarvis/ask error: {e}')
+        return {'ok': False, 'reply': '', 'error': _ai_err_msg(e), 'snapshot': snap}
+
 # ── CHATTER-PORTAL: Earnings + Payout ───────────────────────────────────────
 def _me_local(dt):
     try:    return dt.astimezone().replace(tzinfo=None).isoformat()

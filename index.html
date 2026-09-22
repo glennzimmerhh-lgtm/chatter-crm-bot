@@ -1123,6 +1123,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       Dashboard
     </div>
+    <div class="nav-item admin-only" onclick="showPage('jarvis')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+      Jarvis
+    </div>
     <div class="nav-item admin-only" onclick="showPage('creators')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17.5" cy="9.5" r="2.4"/><path d="M15 20a4.5 4.5 0 0 1 6.5-4"/></svg>
       Creators
@@ -2637,6 +2641,46 @@
         <input type="file" id="acc-csv" accept=".csv,text/csv" style="display:none;" onchange="handlePaypalCsv(this)">
         <div id="acc-recon-out"></div>
       </div>
+    </div>
+  </div>
+
+  <div id="page-jarvis" style="display:none;">
+    <style>
+      #page-jarvis .jv-head{ display:flex; align-items:center; gap:14px; margin-bottom:18px; }
+      #page-jarvis .jv-orb{ width:46px; height:46px; border-radius:13px; background:linear-gradient(135deg,#00d4aa,#7c5cff); display:grid; place-items:center; box-shadow:0 8px 22px -8px rgba(124,92,255,.7); }
+      #page-jarvis .jv-orb svg{ width:24px; height:24px; color:#fff; }
+      #page-jarvis .jv-strip{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:16px; }
+      #page-jarvis .jv-s{ background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.012)); border:1px solid var(--border); border-radius:12px; padding:11px 13px; }
+      #page-jarvis .jv-s .l{ font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--text3); font-weight:700; }
+      #page-jarvis .jv-s .v{ font-size:18px; font-weight:800; margin-top:3px; }
+      #page-jarvis .jv-out{ background:linear-gradient(160deg,rgba(124,92,255,.08),rgba(255,255,255,.012)); border:1px solid rgba(124,92,255,.24); border-radius:16px; padding:18px 20px; min-height:120px; font-size:14px; line-height:1.6; white-space:pre-wrap; }
+      #page-jarvis .jv-actions{ display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
+      #page-jarvis .jv-btn{ background:linear-gradient(135deg,#00d4aa,#7c5cff); border:none; color:#06130f; font-weight:800; font-size:14px; padding:12px 20px; border-radius:12px; cursor:pointer; box-shadow:0 6px 18px -8px rgba(124,92,255,.7); }
+      #page-jarvis .jv-btn:disabled{ opacity:.6; cursor:not-allowed; }
+      #page-jarvis .jv-ask{ display:flex; gap:8px; margin-top:12px; }
+      #page-jarvis .jv-ask input{ flex:1; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:12px; color:var(--text); padding:12px 14px; font-size:14px; }
+      #page-jarvis .jv-char{ margin-top:16px; }
+      #page-jarvis .jv-char textarea{ width:100%; min-height:60px; resize:vertical; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:12px; color:var(--text); padding:10px 12px; font-size:13px; font-family:inherit; }
+      #page-jarvis .jv-send{ background:linear-gradient(135deg,#00d4aa,#0bbf9c); border:none; color:#04231d; font-weight:800; border-radius:12px; padding:0 18px; cursor:pointer; }
+    </style>
+    <div class="page-header">
+      <div class="jv-head">
+        <div class="jv-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg></div>
+        <div><h1 class="page-title" style="margin:0">Jarvis</h1><div style="font-size:12.5px;color:var(--text3)">Operations · analysiert deine echten Zahlen</div></div>
+      </div>
+    </div>
+    <div class="jv-strip" id="jv-strip"></div>
+    <div class="jv-actions">
+      <button class="jv-btn" id="jv-analyze" onclick="jarvisAnalyze()">🔮 Jetzt analysieren</button>
+    </div>
+    <div class="jv-out" id="jv-out">Klick „Jetzt analysieren" — Jarvis schaut sich deine aktuellen Zahlen an und sagt dir die wichtigsten Hebel. Oder stell unten direkt eine Frage.</div>
+    <div class="jv-ask">
+      <input id="jv-q" placeholder="Frag Jarvis… (z.B. „Welcher Chatter ist am stärksten?")" onkeydown="if(event.key==='Enter')jarvisAsk()">
+      <button class="jv-send" onclick="jarvisAsk()">Fragen ↑</button>
+    </div>
+    <div class="jv-char">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin-bottom:6px;">Charakter (optional) — wird gespeichert</div>
+      <textarea id="jv-character" placeholder="z.B. Sprich mich mit 'Boss' an und sei extra motivierend. Erwähne öfter mein 10k€-Ziel."></textarea>
     </div>
   </div>
 
@@ -5839,6 +5883,44 @@ async function togglePinNote(id, pin){
   try { await fetch('/api/notes/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pinned: !!pin }) }); loadNotes(); } catch(e){ alert('Fehler: '+e.message); }
 }
 
+// ── JARVIS: KI-Ops-Assistent ────────────────────────────────────────────────
+let _jvCharLoaded = false;
+async function loadJarvis(){
+  try {
+    const s = await fetch('/api/jarvis/snapshot').then(r=>r.json());
+    document.getElementById('jv-strip').innerHTML = [
+      ['Umsatz heute', _tmEur(s.revenue_today), s.sales_today+' Sales'],
+      ['Umsatz 7 Tage', _tmEur(s.revenue_7d), s.sales_7d+' Sales'],
+      ['Umsatz 30 Tage', _tmEur(s.revenue_30d), s.sales_30d+' Sales'],
+      ['Neue Subs (7d)', (s.new_subs_7d!=null?s.new_subs_7d:'—'), ''],
+    ].map(k=>`<div class="jv-s"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div style="font-size:10.5px;color:var(--text3)">${k[2]}</div></div>`).join('');
+  } catch(e){}
+  if (!_jvCharLoaded){
+    _jvCharLoaded = true;
+    try { const c = await fetch('/api/jarvis/character').then(r=>r.json()); if (c && c.character) document.getElementById('jv-character').value = c.character; } catch(e){}
+  }
+}
+async function _jvRun(question){
+  const out = document.getElementById('jv-out');
+  const btn = document.getElementById('jv-analyze');
+  const character = document.getElementById('jv-character').value.trim();
+  out.textContent = 'Jarvis denkt nach…'; if(btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/jarvis/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: question||'', character }) });
+    const d = await r.json();
+    if (d.ok && d.reply){ out.textContent = d.reply; }
+    else { out.textContent = '⚠️ ' + (d.error || 'Jarvis nicht erreichbar.') + (d.error && d.error.indexOf('OpenAI')>=0 ? '\n\n(OpenAI-Key in Railway prüfen.)' : ''); }
+  } catch(e){ out.textContent = 'Fehler: '+(e.message||e); }
+  finally { if(btn) btn.disabled = false; }
+}
+function jarvisAnalyze(){ _jvRun(''); }
+function jarvisAsk(){
+  const q = document.getElementById('jv-q').value.trim();
+  if (!q) return;
+  document.getElementById('jv-q').value = '';
+  _jvRun(q);
+}
+
 // ── TEAM: Schichten & Löhne ─────────────────────────────────────────────────
 let _tmPeriod = 'woche';
 let _tmStaff = [];
@@ -6168,7 +6250,7 @@ function _fmtHours(sec) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking','accounting','notes','team','earnings'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking','accounting','notes','team','earnings','jarvis'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -6195,6 +6277,7 @@ function showPage(name) {
   if (name === 'notes') { if (typeof loadNotes === 'function') loadNotes(); }
   if (name === 'team') { if (typeof loadTeam === 'function') loadTeam(); }
   if (name === 'earnings') { if (typeof loadEarnings === 'function') loadEarnings(); }
+  if (name === 'jarvis') { if (typeof loadJarvis === 'function') loadJarvis(); }
   if (name === 'hotkeys') { if (typeof renderHotkeysPage === 'function') renderHotkeysPage(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues
