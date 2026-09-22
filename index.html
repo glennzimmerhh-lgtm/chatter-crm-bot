@@ -1030,6 +1030,43 @@
     border: 1px solid rgba(255,255,255,.08); border-radius: 20px;
     box-shadow: 0 40px 90px -50px rgba(124,92,255,.55), inset 0 1px 0 rgba(255,255,255,.06);
   }
+
+  /* ── THEME v4.1 — kräftiger, klar sichtbar (überschreibt auch Dashboard) ── */
+  body:not(.light){
+    background:
+      radial-gradient(1100px 560px at 12% -14%, rgba(0,212,170,.07), transparent 58%),
+      radial-gradient(1200px 700px at 88% -10%, rgba(124,92,255,.14), transparent 60%),
+      #08080f;
+    background-attachment: fixed;
+  }
+  /* Sidebar: klare Gruppen-Trenner + gefüllter aktiver Reiter */
+  body:not(.light) .nav-section{ border-top: 1px solid rgba(255,255,255,.06); margin-top: 8px; padding-top: 14px; }
+  body:not(.light) .nav-section:first-of-type{ border-top: none; margin-top: 0; }
+  body:not(.light) .nav-item{ padding: 11px 12px; }
+  body:not(.light) .nav-item.active{ background: linear-gradient(135deg, rgba(0,212,170,.22), rgba(124,92,255,.22)); box-shadow: inset 0 0 0 1px rgba(124,92,255,.32); }
+  /* Karten: flacher, größer gerundet, ruhiger — greift auch auf dem Dashboard */
+  body:not(.light) .kpi-card,
+  body:not(.light) #page-dashboard .kpi-card{
+    border-radius: 20px !important;
+    padding: 18px 20px !important;
+    background: rgba(255,255,255,.028) !important;
+    border: 1px solid rgba(255,255,255,.08) !important;
+    box-shadow: 0 20px 44px -30px rgba(0,0,0,.85) !important;
+  }
+  body:not(.light) #page-dashboard .kpi-card.kpi-hero{
+    background: rgba(0,212,170,.05) !important;
+    border-color: rgba(0,212,170,.26) !important;
+    box-shadow: 0 20px 44px -28px rgba(0,212,170,.30) !important;
+  }
+  body:not(.light) .panel,
+  body:not(.light) #page-dashboard .panel{
+    border-radius: 20px !important;
+    background: rgba(255,255,255,.03) !important;
+    border: 1px solid rgba(255,255,255,.07) !important;
+    box-shadow: 0 18px 40px -28px rgba(0,0,0,.75) !important;
+  }
+  body:not(.light) .panel-title,
+  body:not(.light) #page-dashboard .panel-title{ font-size: 14.5px !important; font-weight: 800 !important; }
 </style>
 </head>
 <body>
@@ -1127,6 +1164,10 @@
     <div class="nav-item" onclick="showPage('mystats')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       My Stats
+    </div>
+    <div class="nav-item" onclick="showPage('earnings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      My Earnings
     </div>
     <div class="nav-item" onclick="showPage('broadcast')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 10.8a19.79 19.79 0 01-3.07-8.63A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
@@ -2648,6 +2689,10 @@
         <tbody id="tm-tbody"><tr><td colspan="10"><div class="empty">Lade…</div></td></tr></tbody></table>
       </div>
     </div>
+    <div class="panel" style="margin-top:20px;">
+      <div class="panel-hd"><div class="panel-title">💸 Auszahlungs-Anfragen</div></div>
+      <div style="padding:14px 16px;" id="tm-payreqs"><div class="empty">–</div></div>
+    </div>
     <div class="tm-form">
       <div style="font-size:12px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">+ Mitarbeiter anlegen / bearbeiten</div>
       <input type="hidden" id="tm-id">
@@ -2665,6 +2710,65 @@
         <div><button class="tm-add" onclick="saveStaff()">Speichern</button></div>
       </div>
       <div id="tm-form-msg" style="font-size:12px;color:var(--text3);margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <div id="page-earnings" style="display:none;">
+    <style>
+      #page-earnings .ea-hero{ background:linear-gradient(150deg,rgba(124,92,255,.16),rgba(0,212,170,.06)); border:1px solid rgba(124,92,255,.3); border-radius:20px; padding:22px 24px; margin-bottom:16px; }
+      #page-earnings .ea-hero .l{ font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--text2); font-weight:700; }
+      #page-earnings .ea-hero .v{ font-size:40px; font-weight:850; margin-top:4px; letter-spacing:-.02em; }
+      #page-earnings .ea-hero .s{ font-size:12.5px; color:var(--text3); margin-top:6px; }
+      #page-earnings .ea-ready{ background:linear-gradient(150deg,rgba(34,197,94,.14),rgba(34,197,94,.03)); border:1px solid rgba(34,197,94,.4); border-radius:16px; padding:16px 18px; margin-bottom:16px; }
+      #page-earnings .ea-ready.locked{ background:rgba(255,255,255,.03); border-color:var(--border); }
+      #page-earnings .ea-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px; }
+      #page-earnings .ea-box{ background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.012)); border:1px solid var(--border); border-radius:14px; padding:14px 16px; position:relative; overflow:hidden; }
+      #page-earnings .ea-box::after{ content:''; position:absolute; left:0; top:0; right:0; height:3px; background:linear-gradient(90deg,var(--c,#00d4aa),transparent 82%); }
+      #page-earnings .ea-box .l{ font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text3); font-weight:700; }
+      #page-earnings .ea-box .v{ font-size:22px; font-weight:800; margin-top:5px; }
+      #page-earnings textarea{ width:100%; min-height:80px; resize:vertical; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:12px; color:var(--text); padding:12px 14px; font-size:14px; font-family:inherit; }
+      #page-earnings .ea-req-btn{ background:linear-gradient(135deg,#00d4aa,#7c5cff); border:none; color:#06130f; font-weight:800; font-size:14px; padding:13px 20px; border-radius:12px; cursor:pointer; width:100%; margin-top:12px; }
+      #page-earnings .ea-req-btn:disabled{ opacity:.5; cursor:not-allowed; }
+      #page-earnings .ea-reqrow{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 0; border-bottom:1px dashed rgba(255,255,255,.07); font-size:13px; }
+      #page-earnings .st{ font-size:11px; font-weight:800; padding:2px 9px; border-radius:999px; }
+      #page-earnings .st.pending{ background:rgba(255,209,102,.14); color:#ffd166; }
+      #page-earnings .st.paid{ background:rgba(34,197,94,.14); color:#22c55e; }
+      #page-earnings .st.approved{ background:rgba(74,158,255,.14); color:#4a9eff; }
+      #page-earnings .st.rejected{ background:rgba(255,92,122,.14); color:#ff5c7a; }
+    </style>
+    <div class="page-header">
+      <h1 class="page-title">💰 My Earnings</h1>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap;">
+        <button class="period-btn" id="ea-btn-d7" onclick="_eaSetPeriod('d7')">7 Tage</button>
+        <button class="period-btn" id="ea-btn-d14" onclick="_eaSetPeriod('d14')">14 Tage</button>
+        <button class="period-btn active" id="ea-btn-d30" onclick="_eaSetPeriod('d30')">30 Tage</button>
+        <button class="period-btn" id="ea-btn-d60" onclick="_eaSetPeriod('d60')">60 Tage</button>
+      </div>
+    </div>
+    <div class="ea-hero">
+      <div class="l" id="ea-hero-label">Dein Verdienst · 30 Tage</div>
+      <div class="v" id="ea-hero-val">–</div>
+      <div class="s" id="ea-hero-sub"></div>
+    </div>
+    <div class="ea-ready" id="ea-ready"></div>
+    <div class="ea-grid" id="ea-grid"></div>
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-hd"><div class="panel-title">Auszahlung anfordern</div></div>
+      <div style="padding:16px;">
+        <div style="font-size:12.5px;color:var(--text3);margin-bottom:10px;">Kurzes Wochen-Review (Pflicht): Wie liefen die letzten 1–2 Wochen — was lief gut, was nicht?</div>
+        <textarea id="ea-review" placeholder="z.B. die letzten 2 Wochen liefen gut, viele Calls verkauft…"></textarea>
+        <div style="display:flex;gap:10px;align-items:end;margin-top:10px;flex-wrap:wrap;">
+          <div><label style="font-size:10.5px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px;">Betrag (€)</label>
+          <input id="ea-amount" type="number" step="0.01" style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:9px 11px;font-size:14px;width:130px;"></div>
+          <div style="flex:1"></div>
+        </div>
+        <button class="ea-req-btn" id="ea-req-btn" onclick="requestPayout()">Auszahlung anfordern →</button>
+        <div id="ea-req-msg" style="font-size:12px;color:var(--text3);margin-top:8px;"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd"><div class="panel-title">Deine Anfragen</div></div>
+      <div style="padding:6px 16px 12px;" id="ea-reqs"><div class="empty">–</div></div>
     </div>
   </div>
 
@@ -5792,6 +5896,7 @@ async function loadTeam(period){
           <button class="nt-btn" onclick="deleteStaff(${r.id})" style="padding:4px 8px">🗑</button>
         </td></tr>`;
     }).join('');
+    if (typeof loadPayoutReqs === 'function') loadPayoutReqs();
   } catch(e){ if(tbody) tbody.innerHTML = '<tr><td colspan="10"><div class="empty" style="color:#ff5c7a">Fehler: '+_tmEsc(e.message||e)+'</div></td></tr>'; }
 }
 async function saveStaff(){
@@ -5839,6 +5944,105 @@ async function payoutStaff(name, open){
   try {
     await fetch('/api/team/payout', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ staff:name, amount, note:'CRM Auszahlung' }) });
     loadTeam();
+  } catch(e){ alert('Fehler: '+e.message); }
+}
+
+// ── CHATTER-PORTAL: My Earnings + Payout ────────────────────────────────────
+let _eaData = null, _eaPeriod = 'd30';
+const _EA_LBL = { d7:'7 Tage', d14:'14 Tage', d30:'30 Tage', d60:'60 Tage' };
+function _eaMe(){ try { return localStorage.getItem('crm_user') || ''; } catch(e){ return ''; } }
+async function loadEarnings(){
+  const me = _eaMe();
+  if (!me){ document.getElementById('ea-hero-val').textContent = 'Nicht eingeloggt'; return; }
+  try {
+    const [d, reqs] = await Promise.all([
+      fetch('/api/me/earnings?chatter='+encodeURIComponent(me)).then(r=>r.json()),
+      fetch('/api/me/payout-requests?chatter='+encodeURIComponent(me)).then(r=>r.json())
+    ]);
+    _eaData = d;
+    _eaRenderHero();
+    // Ready-Box
+    const ready = document.getElementById('ea-ready');
+    if (d.payout_ready){
+      ready.className = 'ea-ready';
+      ready.innerHTML = `<div style="font-weight:800;color:#22c55e">🟢 Auszahlung möglich</div><div style="font-size:12.5px;color:var(--text3);margin-top:2px;">Offener Betrag: <b>${_tmEur(d.unpaid_balance)}</b> — unten anfordern.</div>`;
+    } else {
+      ready.className = 'ea-ready locked';
+      ready.innerHTML = `<div style="font-weight:800;color:var(--text2)">Aktuell kein offener Betrag</div>`;
+    }
+    // Boxen
+    document.getElementById('ea-grid').innerHTML = [
+      ['Unpaid Balance', _tmEur(d.unpaid_balance), '#ff5c7a'],
+      ['Work Streak', (d.work_streak||0)+' Tage', '#ffd166'],
+      ['Ø pro Tag', _tmEur(d.avg_day), '#4a9eff'],
+      ['Bezahlt bis', d.paid_until || '—', '#22c55e'],
+      ['Tage gearbeitet (30d)', (d.days_worked_30||0), '#a78bfa'],
+    ].map(k=>`<div class="ea-box" style="--c:${k[2]}"><div class="l">${k[0]}</div><div class="v">${k[1]}</div></div>`).join('');
+    // Prefill amount
+    document.getElementById('ea-amount').value = (Math.round((d.unpaid_balance||0)*100)/100) || '';
+    document.getElementById('ea-req-btn').disabled = !(d.unpaid_balance>0);
+    // Requests
+    const box = document.getElementById('ea-reqs');
+    box.innerHTML = (reqs && reqs.length) ? reqs.map(r=>{
+      const dt = parseTs(r.created_at); const when = isNaN(dt.getTime())?'':dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'});
+      return `<div class="ea-reqrow"><span>${when} · ${_tmEur(r.amount)}</span><span class="st ${r.status}">${r.status}</span></div>`;
+    }).join('') : '<div class="empty">Noch keine Anfragen.</div>';
+  } catch(e){ document.getElementById('ea-hero-val').textContent = 'Fehler: '+(e.message||e); }
+}
+function _eaRenderHero(){
+  if (!_eaData) return;
+  const per = (_eaData.periods||{})[_eaPeriod] || {earnings:0,revenue:0};
+  document.getElementById('ea-hero-label').textContent = 'Dein Verdienst · ' + (_EA_LBL[_eaPeriod]||'');
+  document.getElementById('ea-hero-val').textContent = _tmEur(per.earnings);
+  document.getElementById('ea-hero-sub').textContent = 'Umsatz erzielt: ' + _tmEur(per.revenue) + ' · Lohn-Modell: ' + (_eaData.wage_type==='percent'?(_eaData.wage_value+'% vom Umsatz'):_eaData.wage_type==='hourly'?(_tmEur(_eaData.wage_value)+'/Std'):(_tmEur(_eaData.wage_value)+'/Woche'));
+}
+function _eaSetPeriod(p){
+  _eaPeriod = p;
+  ['d7','d14','d30','d60'].forEach(x=>{ const b=document.getElementById('ea-btn-'+x); if(b) b.classList.toggle('active', x===p); });
+  _eaRenderHero();
+}
+async function requestPayout(){
+  const me = _eaMe();
+  const amount = parseFloat(document.getElementById('ea-amount').value)||0;
+  const review = document.getElementById('ea-review').value.trim();
+  const msg = document.getElementById('ea-req-msg');
+  if (amount<=0){ msg.textContent='Betrag fehlt.'; return; }
+  if (review.length<10){ msg.textContent='Bitte kurzes Wochen-Review ausfüllen (Pflicht).'; return; }
+  try {
+    const r = await fetch('/api/me/payout-request', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ chatter:me, amount, weekly_review:review }) });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    msg.textContent='✅ Anfrage gesendet — dein Manager gibt sie frei.';
+    document.getElementById('ea-review').value='';
+    loadEarnings();
+  } catch(e){ msg.textContent='Fehler: '+(e.message||e); }
+}
+// Admin: Payout-Anfragen (im Team-Reiter)
+async function loadPayoutReqs(){
+  const box = document.getElementById('tm-payreqs'); if(!box) return;
+  try {
+    const rows = await fetch('/api/team/payout-requests').then(r=>r.json());
+    const pend = (rows||[]).filter(r=>r.status==='pending');
+    if (!pend.length){ box.innerHTML = '<div class="empty" style="padding:10px">Keine offenen Auszahlungs-Anfragen.</div>'; return; }
+    box.innerHTML = pend.map(r=>{
+      const dt = parseTs(r.created_at); const when = isNaN(dt.getTime())?'':dt.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:rgba(255,255,255,.02)">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+          <div><b>${_tmEsc(r.staff)}</b> · <span style="color:#00d4aa;font-weight:700">${_tmEur(r.amount)}</span> <span style="color:var(--text3);font-size:11px">· ${when}</span></div>
+          <div style="white-space:nowrap">
+            <button class="tm-pay" onclick="decidePayout(${r.id},'approved',true)">✅ Freigeben & zahlen</button>
+            <button class="nt-btn del" onclick="decidePayout(${r.id},'rejected',false)" style="padding:4px 10px">Ablehnen</button>
+          </div>
+        </div>
+        ${r.weekly_review?`<div style="font-size:12.5px;color:var(--text2);margin-top:8px;white-space:pre-wrap">📝 ${_tmEsc(r.weekly_review)}</div>`:''}
+      </div>`;
+    }).join('');
+  } catch(e){ box.innerHTML = '<div class="empty" style="color:#ff5c7a;padding:10px">Fehler: '+_tmEsc(e.message||e)+'</div>'; }
+}
+async function decidePayout(id, status, pay){
+  if (status==='rejected' && !confirm('Anfrage ablehnen?')) return;
+  try {
+    await fetch('/api/team/payout-requests/'+id+'/decide', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status, pay }) });
+    loadPayoutReqs(); loadTeam();
   } catch(e){ alert('Fehler: '+e.message); }
 }
 
@@ -5964,7 +6168,7 @@ function _fmtHours(sec) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function showPage(name) {
-  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking','accounting','notes','team'].forEach(p => {
+  ['dashboard','sales','shifts','chat','scripts','hotkeys','subscribers','broadcast','performance','members','notifications','vault','mystats','payments','pledges','creators','tracking','accounting','notes','team','earnings'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === name ? '' : 'none';
   });
@@ -5990,6 +6194,7 @@ function showPage(name) {
   if (name === 'accounting') { if (typeof loadAccounting === 'function') loadAccounting(); }
   if (name === 'notes') { if (typeof loadNotes === 'function') loadNotes(); }
   if (name === 'team') { if (typeof loadTeam === 'function') loadTeam(); }
+  if (name === 'earnings') { if (typeof loadEarnings === 'function') loadEarnings(); }
   if (name === 'hotkeys') { if (typeof renderHotkeysPage === 'function') renderHotkeysPage(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues

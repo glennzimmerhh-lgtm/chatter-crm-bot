@@ -583,6 +583,17 @@ def init_db():
                 created_at  TEXT NOT NULL
             )''')
             c.execute("CREATE INDEX IF NOT EXISTS idx_wage_staff ON wage_ledger(staff)")
+            c.execute('''CREATE TABLE IF NOT EXISTS payout_requests (
+                id            SERIAL PRIMARY KEY,
+                staff         TEXT NOT NULL,
+                amount        REAL NOT NULL,
+                weekly_review TEXT DEFAULT '',
+                status        TEXT DEFAULT 'pending',
+                created_at    TEXT NOT NULL,
+                decided_at    TEXT DEFAULT '',
+                decided_by    TEXT DEFAULT ''
+            )''')
+            c.execute("CREATE INDEX IF NOT EXISTS idx_payreq_staff ON payout_requests(staff)")
 
             # Settings table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_settings (
@@ -4076,6 +4087,120 @@ def team_overview(period: str = 'woche'):
     return {'period': period, 'now': now_b.strftime('%H:%M'), 'on_duty': on_duty, 'rows': rows,
             'totals': {'revenue': round(tot_rev, 2), 'wages_due': round(tot_due, 2), 'wages_open': round(tot_open, 2),
                        'wages_paid': round(tot_paid, 2), 'revenue_unassigned': round(unassigned, 2)}}
+
+# ── CHATTER-PORTAL: Earnings + Payout ───────────────────────────────────────
+def _me_local(dt):
+    try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+    except Exception: return dt.replace(tzinfo=None).isoformat()
+
+@app.get('/me/earnings')
+def me_earnings(chatter: str):
+    name = (chatter or '').strip()
+    if not name:
+        raise HTTPException(400, 'chatter fehlt')
+    now_b = _team_berlin_now()
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT * FROM staff WHERE name=%s', (name,))
+        s = c.fetchone(); s = dict(s) if s else {'wage_type': 'percent', 'wage_value': 0, 'created_at': ''}
+        wt = s.get('wage_type') or 'percent'; wv = float(s.get('wage_value') or 0)
+        def rev_since(ts):
+            q = "SELECT COALESCE(SUM(amount),0) v FROM sales WHERE chatter=%s AND COALESCE(status,'')<>'rejected'"; p = [name]
+            if ts: q += " AND timestamp>=%s"; p.append(ts)
+            c.execute(q, tuple(p)); return float(c.fetchone()['v'] or 0)
+        def hours_since(day):
+            q = "SELECT COALESCE(SUM(active_seconds),0) s FROM chatter_activity WHERE chatter=%s"; p = [name]
+            if day: q += " AND day>=%s"; p.append(day)
+            c.execute(q, tuple(p)); return int(c.fetchone()['s'] or 0) / 3600.0
+        def wage_for(days):
+            since_ts = _me_local(now_b - timedelta(days=days))
+            since_day = (now_b - timedelta(days=days)).strftime('%Y-%m-%d')
+            rev = rev_since(since_ts); hrs = hours_since(since_day)
+            earn = rev * wv / 100.0 if wt == 'percent' else (hrs * wv if wt == 'hourly' else wv * (days / 7.0))
+            return round(earn, 2), round(rev, 2)
+        periods = {}
+        for d in (7, 14, 30, 60):
+            e, r = wage_for(d); periods['d' + str(d)] = {'earnings': e, 'revenue': r}
+        rev_all = rev_since(None); hrs_all = hours_since(None)
+        if wt == 'percent':  due_all = rev_all * wv / 100.0
+        elif wt == 'hourly': due_all = hrs_all * wv
+        else:
+            try:
+                cr = datetime.fromisoformat(s.get('created_at')) if s.get('created_at') else None
+                weeks = max(1.0, (datetime.now() - cr).days / 7.0) if cr else 1.0
+            except Exception:
+                weeks = 1.0
+            due_all = wv * weeks
+        c.execute('SELECT COALESCE(SUM(amount),0) p FROM wage_ledger WHERE staff=%s', (name,))
+        paid_all = float(c.fetchone()['p'] or 0)
+        unpaid = max(0.0, due_all - paid_all)
+        c.execute("SELECT DISTINCT day FROM chatter_activity WHERE chatter=%s AND active_seconds>0 ORDER BY day DESC LIMIT 120", (name,))
+        days_active = set(r['day'] for r in c.fetchall())
+        streak = 0
+        for i in range(0, 120):
+            ds = (now_b - timedelta(days=i)).strftime('%Y-%m-%d')
+            if ds in days_active: streak += 1
+            elif i == 0:          continue
+            else:                 break
+        c.execute("SELECT created_at FROM wage_ledger WHERE staff=%s ORDER BY id DESC LIMIT 1", (name,))
+        lp = c.fetchone(); paid_until = (lp['created_at'][:10] if lp and lp['created_at'] else '')
+        c.execute("SELECT COUNT(DISTINCT day) n FROM chatter_activity WHERE chatter=%s AND active_seconds>0 AND day>=%s",
+                  (name, (now_b - timedelta(days=30)).strftime('%Y-%m-%d')))
+        dw = int(c.fetchone()['n'] or 0)
+    avg_day = round(periods['d30']['earnings'] / dw, 2) if dw else 0.0
+    return {'chatter': name, 'wage_type': wt, 'wage_value': wv, 'periods': periods,
+            'unpaid_balance': round(unpaid, 2), 'work_streak': streak, 'avg_day': avg_day,
+            'days_worked_30': dw, 'paid_until': paid_until, 'payout_ready': unpaid > 0}
+
+class PayoutReqIn(BaseModel):
+    chatter: str
+    amount: float
+    weekly_review: str = ''
+
+@app.post('/me/payout-request')
+def me_payout_request(body: PayoutReqIn):
+    name = (body.chatter or '').strip()
+    if not name:
+        raise HTTPException(400, 'chatter fehlt')
+    with db() as conn, conn.cursor() as c:
+        c.execute('INSERT INTO payout_requests (staff,amount,weekly_review,status,created_at) VALUES (%s,%s,%s,%s,%s) RETURNING id',
+                  (name, float(body.amount or 0), (body.weekly_review or '')[:2000], 'pending', datetime.now().isoformat()))
+        return {'ok': True, 'id': c.fetchone()['id']}
+
+@app.get('/me/payout-requests')
+def me_payout_requests(chatter: str):
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT id,amount,weekly_review,status,created_at,decided_at FROM payout_requests WHERE staff=%s ORDER BY id DESC LIMIT 50',
+                  ((chatter or '').strip(),))
+        return [dict(r) for r in c.fetchall()]
+
+@app.get('/team/payout-requests')
+def team_payout_requests():
+    with db() as conn, conn.cursor() as c:
+        c.execute("SELECT * FROM payout_requests ORDER BY (status='pending') DESC, id DESC LIMIT 100")
+        return [dict(r) for r in c.fetchall()]
+
+class PayoutDecideIn(BaseModel):
+    status: str          # approved | rejected
+    pay: bool = True
+
+@app.post('/team/payout-requests/{rid}/decide')
+def team_payout_decide(rid: int, body: PayoutDecideIn, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'Nur Admins.')
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT * FROM payout_requests WHERE id=%s', (rid,))
+        r = c.fetchone()
+        if not r:
+            raise HTTPException(404, 'Nicht gefunden')
+        r = dict(r)
+        final = 'paid' if (body.status == 'approved' and body.pay) else ('approved' if body.status == 'approved' else 'rejected')
+        who = getattr(request.state, 'user', {}).get('username', '')
+        c.execute('UPDATE payout_requests SET status=%s, decided_at=%s, decided_by=%s WHERE id=%s',
+                  (final, datetime.now().isoformat(), who, rid))
+        if body.status == 'approved' and body.pay:
+            c.execute('INSERT INTO wage_ledger (staff,amount,note,created_at) VALUES (%s,%s,%s,%s)',
+                      (r['staff'], float(r['amount'] or 0), 'Payout-Request #%d' % rid, datetime.now().isoformat()))
+    return {'ok': True}
 
 @app.get('/settings/crm')
 def get_crm_settings():
