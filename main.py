@@ -4089,6 +4089,20 @@ def team_overview(period: str = 'woche'):
                        'wages_paid': round(tot_paid, 2), 'revenue_unassigned': round(unassigned, 2)}}
 
 # ── JARVIS: KI-Ops-Assistent (analysiert echte Zahlen) ──────────────────────
+def _jv_parse_ts(s):
+    """Tolerant: parst die als String gespeicherten Timestamps zu naive datetime."""
+    if not s:
+        return None
+    try:
+        t = str(s).strip().replace('Z', '').replace('T', ' ')
+        t = t.split('+')[0].split('.')[0]
+        return datetime.strptime(t[:19], '%Y-%m-%d %H:%M:%S')
+    except Exception:
+        try:
+            return datetime.strptime(str(s)[:10], '%Y-%m-%d')
+        except Exception:
+            return None
+
 def _jarvis_snapshot():
     now_b = _team_berlin_now()
     def loc(dt):
@@ -4119,60 +4133,255 @@ def _jarvis_snapshot():
             snap['shift_goal'] = ''
     return snap
 
+def _jarvis_analytics():
+    """Tiefe Analyse aus echten Zahlen: Stunden-/Wochentag-Muster, beste Zeiten,
+    Verlust-/Ghosting-Analyse, Top-Produkte, Conversion. Alles regelbasiert."""
+    now_b = _team_berlin_now()
+    def loc(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    since30 = loc(now_b - timedelta(days=30))
+    WD = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+    out = {'now': now_b.strftime('%Y-%m-%d %H:%M'), 'window': '30 Tage'}
+    with db() as conn, conn.cursor() as c:
+        # Alle Sales der letzten 30 Tage laden und in Python nach Stunde/Wochentag bucketen
+        c.execute("SELECT timestamp, amount, product FROM sales WHERE COALESCE(status,'')<>'rejected' AND timestamp>=%s", (since30,))
+        rows = c.fetchall()
+        by_hour = {h: {'rev': 0.0, 'n': 0} for h in range(24)}
+        by_wd = {d: {'rev': 0.0, 'n': 0} for d in range(7)}
+        heat = {}  # "wd-hour" -> rev
+        prod = {}
+        for r in rows:
+            dt = _jv_parse_ts(r['timestamp'])
+            amt = float(r['amount'] or 0)
+            if dt:
+                h, d = dt.hour, dt.weekday()
+                by_hour[h]['rev'] += amt; by_hour[h]['n'] += 1
+                by_wd[d]['rev'] += amt; by_wd[d]['n'] += 1
+                heat[f'{d}-{h}'] = round(heat.get(f'{d}-{h}', 0.0) + amt, 2)
+            p = (r['product'] or 'unbekannt').strip() or 'unbekannt'
+            prod[p] = prod.get(p, 0.0) + amt
+        out['by_hour'] = [{'hour': h, 'revenue': round(v['rev'], 2), 'sales': v['n']} for h, v in by_hour.items()]
+        out['by_weekday'] = [{'wd': WD[d], 'revenue': round(v['rev'], 2), 'sales': v['n']} for d, v in by_wd.items()]
+        out['heatmap'] = heat
+        hours_sorted = sorted(out['by_hour'], key=lambda x: -x['revenue'])
+        out['best_hours'] = [h for h in hours_sorted[:3] if h['revenue'] > 0]
+        active = [h for h in out['by_hour'] if h['sales'] > 0]
+        out['weak_hours'] = sorted(active, key=lambda x: x['revenue'])[:3]
+        out['best_weekday'] = max(out['by_weekday'], key=lambda x: x['revenue']) if rows else None
+        out['top_products'] = [{'product': k, 'revenue': round(v, 2)} for k, v in sorted(prod.items(), key=lambda x: -x[1])[:8]]
+        # Conversion & Verlust: Konversationen mit vs. ohne Sale
+        try:
+            c.execute("SELECT COUNT(*) n FROM conversations")
+            total_conv = int(c.fetchone()['n'] or 0)
+            c.execute("SELECT COUNT(DISTINCT tg_id) n FROM sales WHERE COALESCE(status,'')<>'rejected'")
+            buyers = int(c.fetchone()['n'] or 0)
+            out['conversion'] = {
+                'total_contacts': total_conv, 'buyers': buyers,
+                'non_buyers': max(0, total_conv - buyers),
+                'rate_pct': round(100.0 * buyers / total_conv, 1) if total_conv else 0.0,
+            }
+        except Exception as e:
+            print(f'jarvis conversion: {e}'); out['conversion'] = None
+        # Ghosting: Kunde hat zuletzt geschrieben (unread>0) und wartet > 6h
+        try:
+            cutoff = loc(now_b - timedelta(hours=6))
+            c.execute("SELECT COUNT(*) n FROM conversations WHERE COALESCE(unread,0)>0 AND last_time<%s AND COALESCE(time_waster,FALSE)=FALSE", (cutoff,))
+            ghosted = int(c.fetchone()['n'] or 0)
+            c.execute("SELECT internal_name, anon_id, last_time, last_msg FROM conversations WHERE COALESCE(unread,0)>0 AND last_time<%s AND COALESCE(time_waster,FALSE)=FALSE ORDER BY last_time DESC LIMIT 8", (cutoff,))
+            samples = [{'name': (r['internal_name'] or r['anon_id'] or '?'), 'last_time': r['last_time'], 'last_msg': (r['last_msg'] or '')[:60]} for r in c.fetchall()]
+            out['ghosting'] = {'waiting_customers': ghosted, 'samples': samples}
+        except Exception as e:
+            print(f'jarvis ghosting: {e}'); out['ghosting'] = None
+    return out
+
+@app.get('/jarvis/analytics')
+def jarvis_analytics():
+    return _jarvis_analytics()
+
+def _jarvis_insights(snap=None, an=None):
+    """Proaktive, regelbasierte Hinweise aus echten Zahlen (keine Prognosen)."""
+    snap = snap or _jarvis_snapshot()
+    out = []
+    try:
+        bm = snap.get('by_method_30d') or {}
+        tot = sum(bm.values()) or 0
+        if tot > 0:
+            pp = bm.get('PayPal', 0) + bm.get('paypal', 0)
+            psc = sum(v for k, v in bm.items() if 'paysafe' in (k or '').lower() or (k or '').lower() == 'psc')
+            if pp / tot > 0.85:
+                out.append({'level': 'warn', 'text': f'Sehr PayPal-lastig ({round(100*pp/tot)}% der Zahlungen). Zahlungswege breiter streuen senkt Ausfallrisiko.'})
+            if psc == 0 and tot > 0:
+                out.append({'level': 'info', 'text': 'Paysafecard-Umsatz = 0 € in 30 Tagen. Als weitere Zahlungsoption bewerben.'})
+        if snap.get('revenue_today', 0) == 0 and int(snap.get('now', ' ')[11:13] or 0) >= 14:
+            out.append({'level': 'warn', 'text': 'Heute bis jetzt 0 € — Schicht prüfen, ob aktiv verkauft wird.'})
+        g = (an or {}).get('ghosting') if an else None
+        if g and g.get('waiting_customers', 0) >= 3:
+            out.append({'level': 'warn', 'text': f"{g['waiting_customers']} Kunden warten seit >6h auf Antwort — nachfassen, Umsatz liegt liegen."})
+        conv = (an or {}).get('conversion') if an else None
+        if conv and conv.get('rate_pct') is not None and conv.get('total_contacts', 0) >= 20 and conv['rate_pct'] < 15:
+            out.append({'level': 'info', 'text': f"Conversion nur {conv['rate_pct']}% ({conv['buyers']}/{conv['total_contacts']}). Erstansprache/Follow-up überprüfen."})
+    except Exception as e:
+        print(f'jarvis insights: {e}')
+    return out
+
 @app.get('/jarvis/snapshot')
 def jarvis_snapshot():
-    return _jarvis_snapshot()
+    snap = _jarvis_snapshot()
+    snap['insights'] = _jarvis_insights(snap)
+    return snap
 
-class JarvisAsk(BaseModel):
-    question: str = ''
-    character: str = ''
+# ── Jarvis Gedächtnis: Chatverlauf + Ziele ("Was ich weiß") ─────────────────
+def _jarvis_ensure_tables():
+    with db() as conn, conn.cursor() as c:
+        c.execute('''CREATE TABLE IF NOT EXISTS jarvis_chat (
+            id BIGSERIAL PRIMARY KEY, role TEXT NOT NULL, content TEXT NOT NULL,
+            ts TIMESTAMPTZ DEFAULT now())''')
+
+def _jarvis_history(limit=12):
+    try:
+        _jarvis_ensure_tables()
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT role, content, ts FROM jarvis_chat ORDER BY id DESC LIMIT %s", (limit,))
+            rows = list(c.fetchall())[::-1]
+            return [{'role': r['role'], 'content': r['content'],
+                     'ts': (r['ts'].isoformat() if r['ts'] else '')} for r in rows]
+    except Exception as e:
+        print(f'jarvis history: {e}'); return []
+
+def _jarvis_log(role, content):
+    try:
+        _jarvis_ensure_tables()
+        with db() as conn, conn.cursor() as c:
+            c.execute("INSERT INTO jarvis_chat (role, content) VALUES (%s,%s)", (role, (content or '')[:6000]))
+    except Exception as e:
+        print(f'jarvis log: {e}')
+
+@app.get('/jarvis/history')
+def jarvis_get_history(limit: int = 40):
+    return {'history': _jarvis_history(limit)}
+
+@app.post('/jarvis/reset')
+def jarvis_reset(request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    try:
+        _jarvis_ensure_tables()
+        with db() as conn, conn.cursor() as c:
+            c.execute("DELETE FROM jarvis_chat")
+        return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def _jarvis_get_key(key, default=''):
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT value FROM crm_settings WHERE key=%s", (key,)); r = c.fetchone()
+            return r['value'] if r else default
+    except Exception:
+        return default
+
+def _jarvis_set_key(key, val):
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("UPDATE crm_settings SET value=%s WHERE key=%s", (val, key))
+            if c.rowcount == 0:
+                c.execute("INSERT INTO crm_settings (key,value) VALUES (%s,%s)", (key, val))
+    except Exception as e:
+        print(f'jarvis set {key}: {e}')
 
 def _jarvis_get_character():
-    try:
-        with db() as conn, conn.cursor() as c:
-            c.execute("SELECT value FROM crm_settings WHERE key='jarvis_character'"); r = c.fetchone()
-            return r['value'] if r else ''
-    except Exception:
-        return ''
+    return _jarvis_get_key('jarvis_character', '')
 
 def _jarvis_set_character(char):
-    try:
-        with db() as conn, conn.cursor() as c:
-            c.execute("UPDATE crm_settings SET value=%s WHERE key='jarvis_character'", (char,))
-            if c.rowcount == 0:
-                c.execute("INSERT INTO crm_settings (key,value) VALUES ('jarvis_character',%s)", (char,))
-    except Exception as e:
-        print(f'jarvis character save: {e}')
+    _jarvis_set_key('jarvis_character', char)
 
 @app.get('/jarvis/character')
 def jarvis_get_char():
     return {'character': _jarvis_get_character()}
 
+class JarvisMemory(BaseModel):
+    goals: str = ''
+
+@app.get('/jarvis/memory')
+def jarvis_get_memory():
+    return {'goals': _jarvis_get_key('jarvis_goals', '')}
+
+@app.post('/jarvis/memory')
+def jarvis_set_memory(body: JarvisMemory):
+    _jarvis_set_key('jarvis_goals', (body.goals or '')[:2000])
+    return {'ok': True, 'goals': _jarvis_get_key('jarvis_goals', '')}
+
+class JarvisAsk(BaseModel):
+    question: str = ''
+    character: str = ''
+
 @app.post('/jarvis/ask')
 def jarvis_ask(body: JarvisAsk):
     snap = _jarvis_snapshot()
+    try:    an = _jarvis_analytics()
+    except Exception as e:  print(f'jarvis ask analytics: {e}'); an = {}
+    snap['insights'] = _jarvis_insights(snap, an)
     char = (body.character or '').strip()
     if char:
         _jarvis_set_character(char)
     else:
         char = _jarvis_get_character()
+    goals = _jarvis_get_key('jarvis_goals', '')
     sys = ("Du bist Jarvis, der Operations-Assistent einer Agentur, die Adult-Content über Telegram vermarktet und verkauft "
            "(Paid Calls, PPV, Content). Du analysierst NUR die echten Zahlen, die dir gegeben werden, und gibst konkrete, "
            "umsetzbare, regelbasierte Empfehlungen — keine erfundenen Zahlen, keine Prognosen, keine Finanz- oder Rechtsberatung. "
+           "Du hast Gedächtnis: beziehe dich auf den bisherigen Gesprächsverlauf und die gespeicherten Ziele. "
            "Antworte auf Deutsch, kurz und auf den Punkt, mit klaren Handlungsempfehlungen.")
+    if goals:
+        sys += "\n\nGespeicherte Ziele / Was du über den Betrieb weißt:\n" + goals[:1500]
     if char:
         sys += "\n\nZusätzlicher Charakter/Ton (vom Nutzer): " + char[:500]
     import json as _jj
-    ctx = "Aktuelle CRM-Zahlen (Stand " + snap.get('now', '') + "):\n" + _jj.dumps(snap, ensure_ascii=False)
+    ctx = ("Aktuelle CRM-Zahlen (Stand " + snap.get('now', '') + "):\n" + _jj.dumps(snap, ensure_ascii=False)
+           + "\n\nTiefe Analyse (30 Tage):\n" + _jj.dumps(an, ensure_ascii=False)[:6000])
     q = (body.question or '').strip() or ("Analysiere die aktuellen Zahlen und nenne mir die 3 wichtigsten Dinge, die ich ändern/verbessern sollte "
                                           "— jeweils mit kurzer Begründung direkt aus den Zahlen.")
+    msgs = [{'role': 'system', 'content': sys}]
+    for h in _jarvis_history(10):
+        if h['role'] in ('user', 'assistant'):
+            msgs.append({'role': h['role'], 'content': h['content']})
+    msgs.append({'role': 'user', 'content': ctx + "\n\nFrage: " + q})
     try:
-        reply = _openai_chat([{'role': 'system', 'content': sys},
-                              {'role': 'user', 'content': ctx + "\n\nFrage: " + q}], max_tokens=520, temperature=0.5)
+        reply = _openai_chat(msgs, max_tokens=560, temperature=0.5)
+        _jarvis_log('user', q)
+        _jarvis_log('assistant', reply)
         return {'ok': True, 'reply': reply, 'snapshot': snap}
     except Exception as e:
         print(f'/jarvis/ask error: {e}')
         return {'ok': False, 'reply': '', 'error': _ai_err_msg(e), 'snapshot': snap}
+
+# ── Jarvis Sprachausgabe (OpenAI TTS) ───────────────────────────────────────
+class JarvisSpeak(BaseModel):
+    text: str = ''
+    voice: str = 'onyx'
+
+@app.post('/jarvis/speak')
+def jarvis_speak(body: JarvisSpeak):
+    text = (body.text or '').strip()
+    if not text:
+        raise HTTPException(400, 'text fehlt')
+    if not OPENAI_API_KEY:
+        return {'ok': False, 'error': _ai_err_msg(Exception('OPENAI_API_KEY fehlt'))}
+    voice = (body.voice or 'onyx').strip() or 'onyx'
+    if voice not in ('alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'):
+        voice = 'onyx'
+    payload = _json.dumps({'model': 'tts-1', 'voice': voice, 'input': text[:1200], 'response_format': 'mp3'}).encode()
+    req = _urllib_req.Request('https://api.openai.com/v1/audio/speech', data=payload,
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {OPENAI_API_KEY}'})
+    try:
+        import base64 as _b64
+        with _urllib_req.urlopen(req, timeout=25) as resp:
+            audio = resp.read()
+        return {'ok': True, 'audio_b64': _b64.b64encode(audio).decode(), 'mime': 'audio/mpeg'}
+    except Exception as e:
+        print(f'/jarvis/speak error: {e}')
+        return {'ok': False, 'error': _ai_err_msg(e)}
 
 # ── CHATTER-PORTAL: Earnings + Payout ───────────────────────────────────────
 def _me_local(dt):

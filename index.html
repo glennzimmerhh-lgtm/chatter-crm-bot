@@ -2662,6 +2662,31 @@
       #page-jarvis .jv-char{ margin-top:16px; }
       #page-jarvis .jv-char textarea{ width:100%; min-height:60px; resize:vertical; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:12px; color:var(--text); padding:10px 12px; font-size:13px; font-family:inherit; }
       #page-jarvis .jv-send{ background:linear-gradient(135deg,#00d4aa,#0bbf9c); border:none; color:#04231d; font-weight:800; border-radius:12px; padding:0 18px; cursor:pointer; }
+      #page-jarvis .jv-tabs{ display:flex; gap:6px; margin:4px 0 16px; }
+      #page-jarvis .jv-tab{ background:rgba(255,255,255,.04); border:1px solid var(--border); color:var(--text2); font-weight:700; font-size:13px; padding:8px 16px; border-radius:10px; cursor:pointer; }
+      #page-jarvis .jv-tab.active{ background:linear-gradient(135deg,#00d4aa,#7c5cff); color:#fff; border-color:transparent; }
+      #page-jarvis .jv-ins{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+      #page-jarvis .jv-ins-i{ display:flex; gap:9px; align-items:flex-start; border:1px solid var(--border); border-radius:11px; padding:10px 13px; font-size:13px; line-height:1.45; background:rgba(255,255,255,.02); }
+      #page-jarvis .jv-ins-i.warn{ border-color:rgba(255,180,60,.35); background:rgba(255,180,60,.07); }
+      #page-jarvis .jv-ins-i .dot{ width:8px; height:8px; border-radius:50%; margin-top:5px; flex:none; background:#00d4aa; }
+      #page-jarvis .jv-ins-i.warn .dot{ background:#ffb43c; }
+      #page-jarvis .jv-chat{ display:flex; flex-direction:column; gap:10px; margin-bottom:12px; max-height:420px; overflow-y:auto; padding-right:4px; }
+      #page-jarvis .jv-msg{ max-width:82%; padding:11px 14px; border-radius:14px; font-size:13.5px; line-height:1.55; white-space:pre-wrap; }
+      #page-jarvis .jv-msg.u{ align-self:flex-end; background:linear-gradient(135deg,#00d4aa,#0bbf9c); color:#04231d; font-weight:600; border-bottom-right-radius:4px; }
+      #page-jarvis .jv-msg.a{ align-self:flex-start; background:linear-gradient(160deg,rgba(124,92,255,.1),rgba(255,255,255,.02)); border:1px solid rgba(124,92,255,.22); border-bottom-left-radius:4px; }
+      #page-jarvis .jv-msg .spk{ display:inline-flex; align-items:center; gap:4px; margin-top:7px; font-size:11px; color:var(--text3); cursor:pointer; font-weight:700; }
+      #page-jarvis .jv-toolbar{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:10px; }
+      #page-jarvis .jv-toolbar label{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text2); cursor:pointer; }
+      #page-jarvis .jv-heat{ overflow-x:auto; }
+      #page-jarvis .jv-heat table{ border-collapse:collapse; font-size:10px; }
+      #page-jarvis .jv-heat td,#page-jarvis .jv-heat th{ width:20px; height:18px; text-align:center; color:var(--text3); font-weight:700; padding:0; }
+      #page-jarvis .jv-heat td.c{ border-radius:3px; color:transparent; }
+      #page-jarvis .jv-grid2{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; }
+      #page-jarvis .jv-card{ border:1px solid var(--border); border-radius:14px; padding:15px 16px; background:rgba(255,255,255,.02); }
+      #page-jarvis .jv-card h4{ margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--text3); }
+      #page-jarvis .jv-row{ display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,.05); }
+      #page-jarvis .jv-row:last-child{ border-bottom:none; }
+      #page-jarvis .jv-row b{ color:var(--text); }
     </style>
     <div class="page-header">
       <div class="jv-head">
@@ -2670,18 +2695,48 @@
       </div>
     </div>
     <div class="jv-strip" id="jv-strip"></div>
-    <div class="jv-actions">
-      <button class="jv-btn" id="jv-analyze" onclick="jarvisAnalyze()">🔮 Jetzt analysieren</button>
+
+    <div class="jv-tabs">
+      <button class="jv-tab active" id="jv-tab-chat" onclick="jvTab('chat')">💬 Chat</button>
+      <button class="jv-tab" id="jv-tab-analyse" onclick="jvTab('analyse')">📊 Analyse</button>
+      <button class="jv-tab" id="jv-tab-memory" onclick="jvTab('memory')">🧠 Gedächtnis</button>
     </div>
-    <div class="jv-out" id="jv-out">Klick „Jetzt analysieren" — Jarvis schaut sich deine aktuellen Zahlen an und sagt dir die wichtigsten Hebel. Oder stell unten direkt eine Frage.</div>
-    <div class="jv-ask">
-      <input id="jv-q" placeholder="Frag Jarvis… (z.B. „Welcher Chatter ist am stärksten?")" onkeydown="if(event.key==='Enter')jarvisAsk()">
-      <button class="jv-send" onclick="jarvisAsk()">Fragen ↑</button>
+
+    <!-- CHAT -->
+    <div id="jv-view-chat">
+      <div class="jv-ins" id="jv-insights"></div>
+      <div class="jv-toolbar">
+        <button class="jv-btn" id="jv-analyze" onclick="jarvisAnalyze()">🔮 Jetzt analysieren</button>
+        <label><input type="checkbox" id="jv-autovoice"> Antworten vorlesen</label>
+        <span style="flex:1"></span>
+        <button class="jv-tab" onclick="jarvisReset()" style="font-size:12px;">Verlauf löschen</button>
+      </div>
+      <div class="jv-chat" id="jv-chat"></div>
+      <div class="jv-out" id="jv-out" style="display:none"></div>
+      <div class="jv-ask">
+        <input id="jv-q" placeholder="Frag Jarvis… (z.B. „Welcher Chatter ist am stärksten?")" onkeydown="if(event.key==='Enter')jarvisAsk()">
+        <button class="jv-send" onclick="jarvisAsk()">Fragen ↑</button>
+      </div>
     </div>
-    <div class="jv-char">
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin-bottom:6px;">Charakter (optional) — wird gespeichert</div>
-      <textarea id="jv-character" placeholder="z.B. Sprich mich mit 'Boss' an und sei extra motivierend. Erwähne öfter mein 10k€-Ziel."></textarea>
+
+    <!-- ANALYSE -->
+    <div id="jv-view-analyse" style="display:none">
+      <div id="jv-analytics" style="color:var(--text3);font-size:13px;">Lade Analyse…</div>
     </div>
+
+    <!-- GEDÄCHTNIS -->
+    <div id="jv-view-memory" style="display:none">
+      <div class="jv-char">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin-bottom:6px;">🎯 Ziele / Was Jarvis über den Betrieb weiß</div>
+        <textarea id="jv-goals" placeholder="z.B. Tagesziel 10.000€. Fokus auf Paid Calls. PayPal F&F bevorzugt. Schwächster Tag ist Sonntag."></textarea>
+        <button class="jv-tab active" onclick="jarvisSaveGoals()" style="margin-top:8px;">Ziele speichern</button>
+      </div>
+      <div class="jv-char" style="margin-top:18px;">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin-bottom:6px;">Charakter / Ton (optional) — wird gespeichert</div>
+        <textarea id="jv-character" placeholder="z.B. Sprich mich mit 'Boss' an und sei extra motivierend."></textarea>
+      </div>
+    </div>
+    <audio id="jv-audio" style="display:none"></audio>
   </div>
 
   <div id="page-team" style="display:none;">
@@ -5884,7 +5939,8 @@ async function togglePinNote(id, pin){
 }
 
 // ── JARVIS: KI-Ops-Assistent ────────────────────────────────────────────────
-let _jvCharLoaded = false;
+let _jvLoaded = false, _jvAnalyticsLoaded = false;
+function _jvEsc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 async function loadJarvis(){
   try {
     const s = await fetch('/api/jarvis/snapshot').then(r=>r.json());
@@ -5894,23 +5950,63 @@ async function loadJarvis(){
       ['Umsatz 30 Tage', _tmEur(s.revenue_30d), s.sales_30d+' Sales'],
       ['Neue Subs (7d)', (s.new_subs_7d!=null?s.new_subs_7d:'—'), ''],
     ].map(k=>`<div class="jv-s"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div style="font-size:10.5px;color:var(--text3)">${k[2]}</div></div>`).join('');
+    const ins = document.getElementById('jv-insights');
+    if (ins) ins.innerHTML = (s.insights||[]).map(i=>`<div class="jv-ins-i ${i.level==='warn'?'warn':''}"><span class="dot"></span><span>${_jvEsc(i.text)}</span></div>`).join('');
   } catch(e){}
-  if (!_jvCharLoaded){
-    _jvCharLoaded = true;
-    try { const c = await fetch('/api/jarvis/character').then(r=>r.json()); if (c && c.character) document.getElementById('jv-character').value = c.character; } catch(e){}
+  if (!_jvLoaded){
+    _jvLoaded = true;
+    try { const c = await fetch('/api/jarvis/character').then(r=>r.json()); if (c && c.character){ const el=document.getElementById('jv-character'); if(el) el.value = c.character; } } catch(e){}
+    try { const g = await fetch('/api/jarvis/memory').then(r=>r.json()); const el=document.getElementById('jv-goals'); if(el) el.value = g.goals||''; } catch(e){}
+    await jvLoadHistory();
   }
 }
+function jvTab(t){
+  ['chat','analyse','memory'].forEach(x=>{
+    document.getElementById('jv-view-'+x).style.display = (x===t?'':'none');
+    document.getElementById('jv-tab-'+x).classList.toggle('active', x===t);
+  });
+  if (t==='analyse' && !_jvAnalyticsLoaded) jvLoadAnalytics();
+}
+// ---- Chat + Gedächtnis ----
+async function jvLoadHistory(){
+  const box = document.getElementById('jv-chat'); if(!box) return;
+  try {
+    const d = await fetch('/api/jarvis/history?limit=40').then(r=>r.json());
+    const h = d.history||[];
+    if (!h.length){ box.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:10px;">Noch kein Gespräch. Klick „Jetzt analysieren" oder stell eine Frage — Jarvis merkt sich den Verlauf.</div>'; return; }
+    box.innerHTML = h.map(m=>_jvBubble(m.role, m.content)).join('');
+    box.scrollTop = box.scrollHeight;
+  } catch(e){}
+}
+function _jvBubble(role, text){
+  const cls = role==='user'?'u':'a';
+  const spk = role==='assistant' ? `<div class="spk" onclick="jvSpeak(this)">🔊 Vorlesen</div>` : '';
+  return `<div class="jv-msg ${cls}"><span class="tx">${_jvEsc(text)}</span>${spk}</div>`;
+}
+function _jvAppend(role, text){
+  const box = document.getElementById('jv-chat');
+  const empty = box.querySelector('div[style]'); if (empty && box.children.length===1) box.innerHTML='';
+  box.insertAdjacentHTML('beforeend', _jvBubble(role, text));
+  box.scrollTop = box.scrollHeight;
+  return box.lastElementChild;
+}
 async function _jvRun(question){
-  const out = document.getElementById('jv-out');
   const btn = document.getElementById('jv-analyze');
-  const character = document.getElementById('jv-character').value.trim();
-  out.textContent = 'Jarvis denkt nach…'; if(btn) btn.disabled = true;
+  const character = (document.getElementById('jv-character')||{}).value ? document.getElementById('jv-character').value.trim() : '';
+  if (question) _jvAppend('user', question);
+  const thinking = _jvAppend('assistant', 'Jarvis denkt nach…');
+  if(btn) btn.disabled = true;
   try {
     const r = await fetch('/api/jarvis/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: question||'', character }) });
     const d = await r.json();
-    if (d.ok && d.reply){ out.textContent = d.reply; }
-    else { out.textContent = '⚠️ ' + (d.error || 'Jarvis nicht erreichbar.') + (d.error && d.error.indexOf('OpenAI')>=0 ? '\n\n(OpenAI-Key in Railway prüfen.)' : ''); }
-  } catch(e){ out.textContent = 'Fehler: '+(e.message||e); }
+    if (d.ok && d.reply){
+      thinking.querySelector('.tx').textContent = d.reply;
+      if (document.getElementById('jv-autovoice') && document.getElementById('jv-autovoice').checked) _jvPlay(d.reply);
+    } else {
+      thinking.querySelector('.tx').textContent = '⚠️ ' + (d.error || 'Jarvis nicht erreichbar.') + (d.error && d.error.indexOf('OpenAI')>=0 ? ' (OpenAI-Key in Railway prüfen.)' : '');
+    }
+    if (typeof loadJarvis==='function'){ try { const s = await fetch('/api/jarvis/snapshot').then(r=>r.json()); const ins=document.getElementById('jv-insights'); if(ins) ins.innerHTML=(s.insights||[]).map(i=>`<div class="jv-ins-i ${i.level==='warn'?'warn':''}"><span class="dot"></span><span>${_jvEsc(i.text)}</span></div>`).join(''); } catch(e){} }
+  } catch(e){ thinking.querySelector('.tx').textContent = 'Fehler: '+(e.message||e); }
   finally { if(btn) btn.disabled = false; }
 }
 function jarvisAnalyze(){ _jvRun(''); }
@@ -5919,6 +6015,83 @@ function jarvisAsk(){
   if (!q) return;
   document.getElementById('jv-q').value = '';
   _jvRun(q);
+}
+async function jarvisReset(){
+  if (!confirm('Gesprächsverlauf von Jarvis löschen?')) return;
+  try { await fetch('/api/jarvis/reset', { method:'POST' }); document.getElementById('jv-chat').innerHTML=''; jvLoadHistory(); } catch(e){ alert('Fehler: '+(e.message||e)); }
+}
+async function jarvisSaveGoals(){
+  const goals = document.getElementById('jv-goals').value.trim();
+  try { await fetch('/api/jarvis/memory', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ goals }) }); alert('Ziele gespeichert — Jarvis bezieht sie ab jetzt ein.'); } catch(e){ alert('Fehler: '+(e.message||e)); }
+}
+// ---- Voice ----
+async function _jvPlay(text){
+  try {
+    const r = await fetch('/api/jarvis/speak', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text }) });
+    const d = await r.json();
+    if (d.ok && d.audio_b64){
+      const a = document.getElementById('jv-audio');
+      a.src = 'data:'+(d.mime||'audio/mpeg')+';base64,'+d.audio_b64;
+      a.play().catch(()=>{});
+    }
+  } catch(e){}
+}
+function jvSpeak(el){ const b = el.closest('.jv-msg'); if(b){ const t = b.querySelector('.tx'); if(t) _jvPlay(t.textContent); } }
+// ---- Analyse ----
+async function jvLoadAnalytics(){
+  const box = document.getElementById('jv-analytics'); if(!box) return;
+  box.innerHTML = 'Lade Analyse…';
+  try {
+    const a = await fetch('/api/jarvis/analytics').then(r=>r.json());
+    _jvAnalyticsLoaded = true;
+    box.innerHTML = _jvRenderAnalytics(a);
+  } catch(e){ box.innerHTML = '<span style="color:#ff5c7a">Fehler: '+_jvEsc(e.message||e)+'</span>'; }
+}
+function _jvRenderAnalytics(a){
+  const eur = (typeof _tmEur==='function')?_tmEur:(v=>'€'+(v||0));
+  let html = '';
+  // Beste / schwache Zeiten
+  const bh = (a.best_hours||[]).map(h=>`<div class="jv-row"><span>${String(h.hour).padStart(2,'0')}:00 Uhr</span><b>${eur(h.revenue)} · ${h.sales} Sales</b></div>`).join('') || '<div class="jv-row">Keine Daten</div>';
+  const wh = (a.weak_hours||[]).map(h=>`<div class="jv-row"><span>${String(h.hour).padStart(2,'0')}:00 Uhr</span><b>${eur(h.revenue)} · ${h.sales} Sales</b></div>`).join('') || '<div class="jv-row">Keine Daten</div>';
+  const tp = (a.top_products||[]).map(p=>`<div class="jv-row"><span>${_jvEsc(p.product)}</span><b>${eur(p.revenue)}</b></div>`).join('') || '<div class="jv-row">Keine Daten</div>';
+  const wd = (a.by_weekday||[]).map(d=>`<div class="jv-row"><span>${d.wd}</span><b>${eur(d.revenue)} · ${d.sales}</b></div>`).join('');
+  const conv = a.conversion;
+  const gh = a.ghosting;
+  html += '<div class="jv-grid2">';
+  html += `<div class="jv-card"><h4>🔥 Beste Stunden (30d)</h4>${bh}</div>`;
+  html += `<div class="jv-card"><h4>🥶 Schwächste aktive Stunden</h4>${wh}</div>`;
+  html += `<div class="jv-card"><h4>🏆 Top-Produkte</h4>${tp}</div>`;
+  html += `<div class="jv-card"><h4>📅 Umsatz nach Wochentag</h4>${wd}</div>`;
+  if (conv) html += `<div class="jv-card"><h4>🎯 Conversion</h4>
+      <div class="jv-row"><span>Kontakte gesamt</span><b>${conv.total_contacts}</b></div>
+      <div class="jv-row"><span>Käufer</span><b>${conv.buyers}</b></div>
+      <div class="jv-row"><span>Nicht-Käufer</span><b>${conv.non_buyers}</b></div>
+      <div class="jv-row"><span>Conversion-Rate</span><b>${conv.rate_pct}%</b></div></div>`;
+  if (gh) html += `<div class="jv-card"><h4>👻 Wartende Kunden (>6h)</h4>
+      <div class="jv-row"><span>Warten auf Antwort</span><b>${gh.waiting_customers}</b></div>
+      ${(gh.samples||[]).slice(0,5).map(s=>`<div class="jv-row"><span>${_jvEsc(s.name)}</span><b style="font-weight:500;color:var(--text3)">${_jvEsc(s.last_msg)}</b></div>`).join('')}</div>`;
+  html += '</div>';
+  html += _jvHeatmap(a);
+  return html;
+}
+function _jvHeatmap(a){
+  const heat = a.heatmap||{}; const WD=['Mo','Di','Mi','Do','Fr','Sa','So'];
+  let max = 0; Object.values(heat).forEach(v=>{ if(v>max) max=v; });
+  let t = '<div class="jv-card" style="margin-top:14px"><h4>🗓️ Heatmap · Wochentag × Uhrzeit (Umsatz)</h4><div class="jv-heat"><table><tr><th></th>';
+  for(let h=0;h<24;h++) t += `<th>${h}</th>`;
+  t += '</tr>';
+  for(let d=0;d<7;d++){
+    t += `<tr><th>${WD[d]}</th>`;
+    for(let h=0;h<24;h++){
+      const v = heat[d+'-'+h]||0;
+      const o = max>0 ? (0.12 + 0.88*(v/max)) : 0;
+      const bg = v>0 ? `rgba(124,92,255,${o.toFixed(2)})` : 'rgba(255,255,255,.03)';
+      t += `<td class="c" style="background:${bg}" title="${WD[d]} ${h}:00 — €${v}"></td>`;
+    }
+    t += '</tr>';
+  }
+  t += '</table></div><div style="font-size:11px;color:var(--text3);margin-top:8px">Je kräftiger lila, desto mehr Umsatz in diesem Zeitfenster (letzte 30 Tage).</div></div>';
+  return t;
 }
 
 // ── TEAM: Schichten & Löhne ─────────────────────────────────────────────────
