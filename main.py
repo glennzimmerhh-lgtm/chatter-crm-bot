@@ -4383,6 +4383,100 @@ def jarvis_speak(body: JarvisSpeak):
         print(f'/jarvis/speak error: {e}')
         return {'ok': False, 'error': _ai_err_msg(e)}
 
+# ── Jarvis Co-Pilot (pro Kunde) ─────────────────────────────────────────────
+class JarvisCopilot(BaseModel):
+    tg_id: str = ''
+    question: str = ''
+
+@app.post('/jarvis/copilot')
+def jarvis_copilot(body: JarvisCopilot):
+    tg_id = (body.tg_id or '').strip()
+    if not tg_id:
+        raise HTTPException(400, 'tg_id fehlt')
+    ctx = {}
+    with db() as conn, conn.cursor() as c:
+        c.execute("SELECT internal_name, anon_id, notes, msg_count, first_time, last_time FROM conversations WHERE tg_id=%s", (tg_id,))
+        cv = c.fetchone()
+        if cv:
+            ctx['kunde'] = {'name': cv['internal_name'] or cv['anon_id'] or '?', 'notizen': (cv['notes'] or '')[:400],
+                            'nachrichten_gesamt': cv['msg_count'], 'erster_kontakt': cv['first_time'], 'letzter_kontakt': cv['last_time']}
+        c.execute("SELECT COALESCE(SUM(amount),0) v, COUNT(*) n FROM sales WHERE tg_id=%s AND COALESCE(status,'')<>'rejected'", (tg_id,))
+        r = c.fetchone(); ctx['kunde_umsatz'] = round(float(r['v'] or 0), 2); ctx['kunde_sales'] = int(r['n'] or 0)
+        c.execute("SELECT product, amount, timestamp FROM sales WHERE tg_id=%s AND COALESCE(status,'')<>'rejected' ORDER BY id DESC LIMIT 8", (tg_id,))
+        ctx['letzte_kaeufe'] = [{'produkt': x['product'], 'betrag': float(x['amount'] or 0)} for x in c.fetchall()]
+        c.execute("SELECT text, direction, timestamp FROM messages WHERE tg_id=%s ORDER BY id DESC LIMIT 20", (tg_id,))
+        msgs = list(c.fetchall())[::-1]
+        ctx['verlauf'] = [{'von': ('Kunde' if m['direction'] == 'in' else 'Chatter'), 'text': (m['text'] or '')[:220]} for m in msgs]
+    goals = _jarvis_get_key('jarvis_goals', '')
+    sys = ("Du bist Jarvis, der Co-Pilot für einen Chatter einer Adult-Content-Agentur (Telegram). "
+           "Du bekommst den Verlauf und die Kaufhistorie EINES Kunden. Empfiehl den nächsten sinnvollen, seriösen Schritt "
+           "(z.B. passendes PPV/Content anbieten, Call vorschlagen, freundlich nachfassen). "
+           "KEINE Täuschung, keine Fake-Verifizierung, kein Zahlungsdruck, keine erfundenen Fakten. "
+           "Antworte auf Deutsch, sehr kurz: 1 klare Empfehlung + optional 1 Beispiel-Satz zum Schreiben.")
+    if goals:
+        sys += "\n\nBetriebs-Ziele: " + goals[:600]
+    q = (body.question or '').strip() or "Was ist der beste nächste Schritt bei diesem Kunden?"
+    ctx_str = _json.dumps(ctx, ensure_ascii=False)[:5000]
+    try:
+        reply = _openai_chat([{'role': 'system', 'content': sys},
+                              {'role': 'user', 'content': "Kunde:\n" + ctx_str + "\n\nFrage: " + q}], max_tokens=280, temperature=0.5)
+        return {'ok': True, 'reply': reply}
+    except Exception as e:
+        print(f'/jarvis/copilot error: {e}')
+        return {'ok': False, 'error': _ai_err_msg(e)}
+
+# ── Jarvis Briefing (Schichtstart / pro Chatter) ────────────────────────────
+def _jarvis_chatter_stats(name):
+    now_b = _team_berlin_now()
+    def loc(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    today0 = loc(now_b.replace(hour=0, minute=0, second=0, microsecond=0))
+    since7 = loc(now_b - timedelta(days=7))
+    st = {'chatter': name}
+    with db() as conn, conn.cursor() as c:
+        c.execute("SELECT COALESCE(SUM(amount),0) v, COUNT(*) n FROM sales WHERE chatter=%s AND COALESCE(status,'')<>'rejected' AND timestamp>=%s", (name, today0))
+        r = c.fetchone(); st['umsatz_heute'] = round(float(r['v'] or 0), 2); st['sales_heute'] = int(r['n'] or 0)
+        c.execute("SELECT COALESCE(SUM(amount),0) v, COUNT(*) n FROM sales WHERE chatter=%s AND COALESCE(status,'')<>'rejected' AND timestamp>=%s", (name, since7))
+        r = c.fetchone(); st['umsatz_7d'] = round(float(r['v'] or 0), 2); st['sales_7d'] = int(r['n'] or 0)
+        # Stärkste Stunden dieses Chatters (7d)
+        c.execute("SELECT timestamp, amount FROM sales WHERE chatter=%s AND COALESCE(status,'')<>'rejected' AND timestamp>=%s", (name, since7))
+        by_hour = {}
+        for x in c.fetchall():
+            dt = _jv_parse_ts(x['timestamp'])
+            if dt:
+                by_hour[dt.hour] = by_hour.get(dt.hour, 0.0) + float(x['amount'] or 0)
+        st['top_stunden'] = [{'stunde': h, 'umsatz': round(v, 2)} for h, v in sorted(by_hour.items(), key=lambda kv: -kv[1])[:3]]
+    return st
+
+@app.get('/jarvis/briefing')
+def jarvis_briefing(chatter: str = ''):
+    name = (chatter or '').strip()
+    goals = _jarvis_get_key('jarvis_goals', '')
+    try:
+        an = _jarvis_analytics()
+    except Exception:
+        an = {}
+    if name:
+        stats = _jarvis_chatter_stats(name)
+        waiting = (an.get('ghosting') or {}).get('waiting_customers', 0)
+        sys = ("Du bist Jarvis. Begrüße den Chatter zum Schichtstart in 2-3 kurzen, motivierenden Sätzen auf Deutsch. "
+               "Nutze NUR die echten Zahlen. Nenne sein heutiges Ergebnis, seine stärksten Stunden und ob Kunden warten. "
+               "Keine erfundenen Zahlen, kein Druck, seriös.")
+        ctx = _json.dumps({'chatter': stats, 'wartende_kunden_gesamt': waiting, 'ziele': goals[:400]}, ensure_ascii=False)
+    else:
+        snap = _jarvis_snapshot()
+        sys = ("Du bist Jarvis. Gib ein kurzes Schicht-/Tagesbriefing in 2-4 Sätzen auf Deutsch, nur aus echten Zahlen. "
+               "Nenne Umsatz heute, wichtigste Chance/Warnung und die beste Zeit heute. Seriös, kein Druck.")
+        ctx = _json.dumps({'snapshot': snap, 'analyse': an, 'ziele': goals[:400]}, ensure_ascii=False)[:5000]
+    try:
+        reply = _openai_chat([{'role': 'system', 'content': sys},
+                              {'role': 'user', 'content': ctx}], max_tokens=240, temperature=0.6)
+        return {'ok': True, 'reply': reply}
+    except Exception as e:
+        print(f'/jarvis/briefing error: {e}')
+        return {'ok': False, 'error': _ai_err_msg(e)}
+
 # ── CHATTER-PORTAL: Earnings + Payout ───────────────────────────────────────
 def _me_local(dt):
     try:    return dt.astimezone().replace(tzinfo=None).isoformat()

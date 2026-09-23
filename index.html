@@ -1405,6 +1405,20 @@
       <button id="btn-range" onclick="setCustomRange()" style="display:none;"></button>
     </div>
 
+    <!-- JARVIS BRIEFING-KARTE -->
+    <div id="dx-jarvis-card" style="display:none;margin-bottom:20px;border:1px solid rgba(124,92,255,.3);border-radius:16px;padding:16px 18px;background:linear-gradient(160deg,rgba(0,212,170,.06),rgba(124,92,255,.06));">
+      <div style="display:flex;align-items:center;gap:11px;margin-bottom:10px;">
+        <div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#00d4aa,#7c5cff);display:grid;place-items:center;flex:none;">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg>
+        </div>
+        <div style="font-weight:800;font-size:14.5px;">Jarvis · Tagesbriefing</div>
+        <span style="flex:1"></span>
+        <button onclick="dxJarvisBrief(true)" style="background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-size:12px;font-weight:700;padding:6px 12px;border-radius:9px;cursor:pointer;">↻ Neu</button>
+      </div>
+      <div id="dx-jarvis-brief" style="font-size:13.5px;line-height:1.55;color:var(--text2);">Lade Briefing…</div>
+      <div id="dx-jarvis-ins" style="display:flex;flex-direction:column;gap:7px;margin-top:11px;"></div>
+    </div>
+
     <!-- Branded date-range popover -->
     <div id="dx-range-pop">
       <div class="rp-presets">
@@ -2850,6 +2864,15 @@
       <div class="s" id="ea-hero-sub"></div>
     </div>
     <div class="ea-ready" id="ea-ready"></div>
+    <div id="ea-jarvis" style="border:1px solid rgba(124,92,255,.3);border-radius:14px;padding:14px 16px;margin-bottom:16px;background:linear-gradient(160deg,rgba(0,212,170,.05),rgba(124,92,255,.06));">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;">
+        <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#00d4aa,#7c5cff);display:grid;place-items:center;flex:none;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg></div>
+        <div style="font-weight:800;font-size:13.5px;">Jarvis · Dein Coaching</div>
+        <span style="flex:1"></span>
+        <button onclick="eaJarvisCoach(true)" style="background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:9px;cursor:pointer;">↻</button>
+      </div>
+      <div id="ea-jarvis-txt" style="font-size:13px;line-height:1.55;color:var(--text2);">Lade dein Briefing…</div>
+    </div>
     <div class="ea-grid" id="ea-grid"></div>
     <div class="panel" style="margin-bottom:16px;">
       <div class="panel-hd"><div class="panel-title">Auszahlung anfordern</div></div>
@@ -3055,6 +3078,8 @@
           <button id="fake-call-btn" class="mt-btn mt-call" onclick="openFakeCallModal()" style="display:none;" title="Start pre-recorded call">📞 Start Call</button>
           <!-- KI-Coach Button (admin only) — feedback on this chat -->
           <button id="ai-coach-btn" class="mt-btn mt-coach admin-only" onclick="openCoach()" title="KI-Feedback zu diesem Chat">🔍 KI-Coach</button>
+          <!-- Jarvis Co-Pilot — nächster Schritt bei diesem Kunden -->
+          <button id="jv-copilot-btn" class="mt-btn" onclick="jvCopilot()" style="display:none;" title="Jarvis: bester nächster Schritt bei diesem Kunden">✨ Jarvis</button>
           <!-- KI-für-diesen-Fan Schalter (admin only, Test-Modus) -->
           <button id="ai-fan-btn" class="mt-btn admin-only" onclick="toggleAiFan()" data-on="0" title="KI für diesen Fan an/aus (greift im Test-Modus)">🤖 KI: aus</button>
         </div>
@@ -6094,6 +6119,82 @@ function _jvHeatmap(a){
   return t;
 }
 
+// ── JARVIS-Integration: Dashboard-Karte, Chat-Co-Pilot, Earnings, Schicht-Briefing ──
+let _dxBriefLoaded = false;
+async function dxJarvisBrief(force){
+  const card = document.getElementById('dx-jarvis-card'); if(!card) return;
+  const admin = (localStorage.getItem('crm_role')||'') === 'admin' || document.body.classList.contains('is-admin');
+  card.style.display = '';
+  if (_dxBriefLoaded && !force) return;
+  _dxBriefLoaded = true;
+  const txt = document.getElementById('dx-jarvis-brief');
+  const insBox = document.getElementById('dx-jarvis-ins');
+  txt.textContent = 'Jarvis schaut sich die Zahlen an…';
+  try {
+    const s = await fetch('/api/jarvis/snapshot').then(r=>r.json());
+    insBox.innerHTML = (s.insights||[]).map(i=>`<div style="font-size:12.5px;color:var(--text2);border-left:3px solid ${i.level==='warn'?'#ffb43c':'#00d4aa'};padding:4px 10px;background:rgba(255,255,255,.02);border-radius:6px;">${_jvEsc(i.text)}</div>`).join('');
+  } catch(e){}
+  try {
+    const b = await fetch('/api/jarvis/briefing').then(r=>r.json());
+    txt.textContent = (b.ok && b.reply) ? b.reply : ('⚠️ '+(b.error||'Briefing nicht verfügbar.'));
+  } catch(e){ txt.textContent = 'Briefing nicht erreichbar.'; }
+}
+
+async function eaJarvisCoach(force){
+  const box = document.getElementById('ea-jarvis-txt'); if(!box) return;
+  if (box.dataset.loaded && !force) return;
+  box.dataset.loaded = '1';
+  const me = (typeof _eaMe==='function') ? _eaMe() : (localStorage.getItem('crm_user')||'');
+  box.textContent = 'Jarvis schaut sich deine Woche an…';
+  try {
+    const b = await fetch('/api/jarvis/briefing?chatter='+encodeURIComponent(me)).then(r=>r.json());
+    box.textContent = (b.ok && b.reply) ? b.reply : ('⚠️ '+(b.error||'Coaching nicht verfügbar.'));
+  } catch(e){ box.textContent = 'Coaching nicht erreichbar.'; }
+}
+
+// Kompaktes Overlay für Antworten (Co-Pilot, Schicht-Briefing)
+function _jvToast(title, text, loading){
+  let el = document.getElementById('jvToast');
+  if(!el){
+    el = document.createElement('div'); el.id='jvToast';
+    el.style.cssText = 'position:fixed;right:22px;bottom:88px;width:360px;max-width:calc(100vw - 32px);z-index:10000;background:var(--bg2,#12151c);border:1px solid rgba(124,92,255,.35);border-radius:16px;box-shadow:0 24px 60px -12px rgba(0,0,0,.6);overflow:hidden;';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:9px;padding:12px 14px;background:linear-gradient(135deg,rgba(0,212,170,.15),rgba(124,92,255,.15));border-bottom:1px solid var(--border);">
+      <div style="width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#00d4aa,#7c5cff);display:grid;place-items:center;flex:none;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg></div>
+      <div style="font-weight:800;font-size:13px;">${_jvEsc(title)}</div>
+      <span style="flex:1"></span>
+      <button onclick="document.getElementById('jvToast').remove()" style="background:none;border:none;color:var(--text3);font-size:19px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div id="jvToastBody" style="padding:14px;font-size:13px;line-height:1.55;color:var(--text2);white-space:pre-wrap;max-height:300px;overflow-y:auto;">${loading?'<span style="opacity:.7">Jarvis denkt nach…</span>':_jvEsc(text)}</div>`;
+  return el;
+}
+
+async function jvCopilot(){
+  const tg = (typeof window._getCurrentTgId==='function') ? window._getCurrentTgId() : null;
+  if(!tg){ _jvToast('Jarvis Co-Pilot','Kein Kunde geöffnet.'); return; }
+  _jvToast('Jarvis · nächster Schritt','',true);
+  try {
+    const r = await fetch('/api/jarvis/copilot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tg_id:String(tg)})});
+    const d = await r.json();
+    const body = document.getElementById('jvToastBody');
+    if(body) body.textContent = (d.ok && d.reply) ? d.reply : ('⚠️ '+(d.error||'Jarvis nicht erreichbar.'));
+  } catch(e){ const body=document.getElementById('jvToastBody'); if(body) body.textContent='Fehler: '+(e.message||e); }
+}
+
+// Schicht-Briefing: einmal pro Browser-Session beim ersten Öffnen
+async function jvShiftBriefing(){
+  try {
+    if (sessionStorage.getItem('jv_shift_done')) return;
+    const me = localStorage.getItem('crm_user')||'';
+    if(!me) return;
+    sessionStorage.setItem('jv_shift_done','1');
+    const r = await fetch('/api/jarvis/briefing?chatter='+encodeURIComponent(me)).then(r=>r.json());
+    if(r.ok && r.reply){ _jvToast('👋 Schicht-Briefing', r.reply); setTimeout(()=>{ const e=document.getElementById('jvToast'); if(e) e.remove(); }, 22000); }
+  } catch(e){}
+}
+setTimeout(()=>{ try { if(localStorage.getItem('crm_user')) jvShiftBriefing(); } catch(e){} }, 4000);
+
 // ── TEAM: Schichten & Löhne ─────────────────────────────────────────────────
 let _tmPeriod = 'woche';
 let _tmStaff = [];
@@ -6242,6 +6343,7 @@ async function loadEarnings(){
       const dt = parseTs(r.created_at); const when = isNaN(dt.getTime())?'':dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'});
       return `<div class="ea-reqrow"><span>${when} · ${_tmEur(r.amount)}</span><span class="st ${r.status}">${r.status}</span></div>`;
     }).join('') : '<div class="empty">Noch keine Anfragen.</div>';
+    if (typeof eaJarvisCoach === 'function') eaJarvisCoach();
   } catch(e){ document.getElementById('ea-hero-val').textContent = 'Fehler: '+(e.message||e); }
 }
 function _eaRenderHero(){
@@ -6451,6 +6553,7 @@ function showPage(name) {
   if (name === 'team') { if (typeof loadTeam === 'function') loadTeam(); }
   if (name === 'earnings') { if (typeof loadEarnings === 'function') loadEarnings(); }
   if (name === 'jarvis') { if (typeof loadJarvis === 'function') loadJarvis(); }
+  if (name === 'dashboard') { if (typeof dxJarvisBrief === 'function') dxJarvisBrief(); }
   if (name === 'hotkeys') { if (typeof renderHotkeysPage === 'function') renderHotkeysPage(); }
   if (name === 'chat') {
     // Immediate load + retry after 500ms to handle timing issues
@@ -6894,6 +6997,8 @@ if (checkAuth()) {
     if (mediaBtn) mediaBtn.style.display = 'inline-flex';
     const unreadBtn = document.getElementById('mark-unread-btn');
     if (unreadBtn) unreadBtn.style.display = 'inline-flex';
+    const jvBtn = document.getElementById('jv-copilot-btn');
+    if (jvBtn) jvBtn.style.display = 'inline-flex';
     // Mute button — reflect current muted state
     updateMuteBtn(tgId);
     // Sync call bar with current active call state
@@ -12171,6 +12276,111 @@ window.renderCreatorsOverview = async function(){
   }
   setTimeout(window.renderCreatorsOverview, 1500);
   setInterval(() => { const p = document.getElementById('page-dashboard'); if (p && p.style.display !== 'none') window.renderCreatorsOverview(); }, 15000);
+})();
+</script>
+
+<!-- ═══ GLOBALER JARVIS-ORB (auf jeder Seite) ═══ -->
+<style>
+  #jvOrb{ position:fixed; right:22px; bottom:22px; width:56px; height:56px; border-radius:17px; z-index:9998;
+    background:linear-gradient(135deg,#00d4aa,#7c5cff); display:none; place-items:center; cursor:pointer;
+    box-shadow:0 12px 30px -8px rgba(124,92,255,.7); border:none; transition:transform .15s; }
+  #jvOrb:hover{ transform:scale(1.06); }
+  #jvOrb svg{ width:28px; height:28px; color:#fff; }
+  #jvOrb .badge{ position:absolute; top:-5px; right:-5px; min-width:20px; height:20px; border-radius:10px; background:#ff5c7a;
+    color:#fff; font-size:11px; font-weight:800; display:none; align-items:center; justify-content:center; padding:0 5px; }
+  #jvPanel{ position:fixed; right:22px; bottom:88px; width:380px; max-width:calc(100vw - 32px); height:520px; max-height:calc(100vh - 130px);
+    z-index:9999; display:none; flex-direction:column; background:var(--bg2,#12151c); border:1px solid rgba(124,92,255,.3);
+    border-radius:18px; overflow:hidden; box-shadow:0 24px 60px -12px rgba(0,0,0,.6); }
+  #jvPanel .jp-head{ display:flex; align-items:center; gap:10px; padding:13px 15px; background:linear-gradient(135deg,rgba(0,212,170,.15),rgba(124,92,255,.15)); border-bottom:1px solid var(--border); }
+  #jvPanel .jp-orb{ width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,#00d4aa,#7c5cff); display:grid; place-items:center; }
+  #jvPanel .jp-orb svg{ width:17px; height:17px; color:#fff; }
+  #jvPanel .jp-title{ font-weight:800; font-size:14px; }
+  #jvPanel .jp-sub{ font-size:10.5px; color:var(--text3); }
+  #jvPanel .jp-x{ margin-left:auto; background:none; border:none; color:var(--text3); font-size:20px; cursor:pointer; line-height:1; }
+  #jvPanel .jp-body{ flex:1; overflow-y:auto; padding:13px; display:flex; flex-direction:column; gap:9px; }
+  #jvPanel .jp-msg{ max-width:86%; padding:10px 13px; border-radius:13px; font-size:13px; line-height:1.5; white-space:pre-wrap; }
+  #jvPanel .jp-msg.u{ align-self:flex-end; background:linear-gradient(135deg,#00d4aa,#0bbf9c); color:#04231d; font-weight:600; border-bottom-right-radius:4px; }
+  #jvPanel .jp-msg.a{ align-self:flex-start; background:rgba(124,92,255,.12); border:1px solid rgba(124,92,255,.22); border-bottom-left-radius:4px; }
+  #jvPanel .jp-ins{ align-self:stretch; font-size:12px; color:var(--text2); border:1px solid var(--border); border-left:3px solid #00d4aa; border-radius:9px; padding:8px 11px; background:rgba(255,255,255,.02); }
+  #jvPanel .jp-ins.warn{ border-left-color:#ffb43c; }
+  #jvPanel .jp-quick{ display:flex; gap:6px; flex-wrap:wrap; padding:0 13px 8px; }
+  #jvPanel .jp-quick button{ background:rgba(255,255,255,.05); border:1px solid var(--border); color:var(--text2); font-size:11.5px; padding:6px 10px; border-radius:9px; cursor:pointer; }
+  #jvPanel .jp-foot{ display:flex; gap:7px; padding:11px 13px; border-top:1px solid var(--border); }
+  #jvPanel .jp-foot input{ flex:1; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:11px; color:var(--text); padding:10px 12px; font-size:13px; }
+  #jvPanel .jp-foot button{ background:linear-gradient(135deg,#00d4aa,#7c5cff); border:none; color:#fff; font-weight:800; border-radius:11px; padding:0 15px; cursor:pointer; }
+</style>
+<button id="jvOrb" onclick="jvOrbToggle()" title="Jarvis fragen">
+  <span class="badge" id="jvOrbBadge">0</span>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+</button>
+<div id="jvPanel">
+  <div class="jp-head">
+    <div class="jp-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg></div>
+    <div><div class="jp-title">Jarvis</div><div class="jp-sub">Fragt deine echten Zahlen ab</div></div>
+    <button class="jp-x" onclick="jvOrbToggle()">×</button>
+  </div>
+  <div class="jp-body" id="jvPanelBody"></div>
+  <div class="jp-quick" id="jvPanelQuick">
+    <button onclick="jvOrbQuick('Gib mir ein kurzes Briefing zu heute.')">📋 Briefing</button>
+    <button onclick="jvOrbQuick('Was sind die 3 wichtigsten Hebel gerade?')">🎯 Top-Hebel</button>
+    <button onclick="jvOrbQuick('Welcher Chatter ist gerade am stärksten?')">🏆 Chatter</button>
+  </div>
+  <div class="jp-foot">
+    <input id="jvOrbInput" placeholder="Frag Jarvis…" onkeydown="if(event.key==='Enter')jvOrbSend()">
+    <button onclick="jvOrbSend()">↑</button>
+  </div>
+</div>
+<script>
+(function(){
+  function loggedIn(){ try { return !!(localStorage.getItem('crm_user')); } catch(e){ return false; } }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  let orbOpen=false, orbSeeded=false;
+  window.jvOrbToggle=function(){
+    const p=document.getElementById('jvPanel'); orbOpen=!orbOpen;
+    p.style.display=orbOpen?'flex':'none';
+    if(orbOpen){ document.getElementById('jvOrbBadge').style.display='none'; if(!orbSeeded){ orbSeeded=true; jvOrbSeed(); } document.getElementById('jvOrbInput').focus(); }
+  };
+  async function jvOrbSeed(){
+    const body=document.getElementById('jvPanelBody');
+    body.innerHTML='<div class="jp-ins">Lade aktuelle Lage…</div>';
+    try{
+      const s=await fetch('/api/jarvis/snapshot').then(r=>r.json());
+      const ins=(s.insights||[]);
+      body.innerHTML = `<div class="jp-msg a">Hey! Umsatz heute: <b>${(typeof _tmEur==='function'?_tmEur(s.revenue_today):('€'+s.revenue_today))}</b> · ${s.sales_today} Sales. Frag mich was, oder nutz die Buttons unten.</div>`
+        + ins.map(i=>`<div class="jp-ins ${i.level==='warn'?'warn':''}">${esc(i.text)}</div>`).join('');
+      body.scrollTop=body.scrollHeight;
+    }catch(e){ body.innerHTML='<div class="jp-msg a">Bin da. Frag mich was zu deinen Zahlen.</div>'; }
+  }
+  function orbAppend(role,text){
+    const body=document.getElementById('jvPanelBody');
+    body.insertAdjacentHTML('beforeend',`<div class="jp-msg ${role==='user'?'u':'a'}">${esc(text)}</div>`);
+    body.scrollTop=body.scrollHeight; return body.lastElementChild;
+  }
+  window.jvOrbQuick=function(q){ jvOrbAsk(q); };
+  window.jvOrbSend=function(){ const i=document.getElementById('jvOrbInput'); const q=(i.value||'').trim(); if(!q)return; i.value=''; jvOrbAsk(q); };
+  async function jvOrbAsk(q){
+    orbAppend('user',q);
+    const t=orbAppend('assistant','Jarvis denkt nach…');
+    try{
+      const r=await fetch('/api/jarvis/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+      const d=await r.json();
+      t.textContent = (d.ok&&d.reply)? d.reply : ('⚠️ '+(d.error||'Jarvis nicht erreichbar.'));
+    }catch(e){ t.textContent='Fehler: '+(e.message||e); }
+  }
+  // Badge mit Insight-Anzahl aktualisieren
+  async function refreshBadge(){
+    if(!loggedIn()){ document.getElementById('jvOrb').style.display='none'; return; }
+    document.getElementById('jvOrb').style.display='grid';
+    try{
+      const s=await fetch('/api/jarvis/snapshot').then(r=>r.json());
+      const warn=(s.insights||[]).filter(i=>i.level==='warn').length;
+      const b=document.getElementById('jvOrbBadge');
+      if(warn>0 && !orbOpen){ b.textContent=warn; b.style.display='flex'; } else { b.style.display='none'; }
+    }catch(e){}
+  }
+  setTimeout(refreshBadge,2000);
+  setInterval(refreshBadge,120000);
+  window._jvRefreshBadge=refreshBadge;
 })();
 </script>
 </body>
