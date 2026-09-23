@@ -2746,8 +2746,17 @@
         <button class="jv-tab active" onclick="jarvisSaveGoals()" style="margin-top:8px;">Ziele speichern</button>
       </div>
       <div class="jv-char" style="margin-top:18px;">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin-bottom:6px;">📚 Zusatzwissen für Jarvis — wird gespeichert</div>
+        <textarea id="jv-extra" placeholder="Alles, was Jarvis dauerhaft über den Betrieb wissen soll: Regeln, Angebote, Besonderheiten der Models, No-Gos…"></textarea>
+        <button class="jv-tab active" onclick="jarvisSaveKnowledge()" style="margin-top:8px;">Wissen speichern</button>
+      </div>
+      <div class="jv-char" style="margin-top:18px;">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin-bottom:6px;">Charakter / Ton (optional) — wird gespeichert</div>
         <textarea id="jv-character" placeholder="z.B. Sprich mich mit 'Boss' an und sei extra motivierend."></textarea>
+      </div>
+      <div class="jv-card" style="margin-top:18px;">
+        <h4>🧩 Was Jarvis alles kennt (live)</h4>
+        <div id="jv-know" style="font-size:12.5px;color:var(--text2);line-height:1.6;">Lade Betriebswissen…</div>
       </div>
     </div>
     <audio id="jv-audio" style="display:none"></audio>
@@ -5982,6 +5991,7 @@ async function loadJarvis(){
     _jvLoaded = true;
     try { const c = await fetch('/api/jarvis/character').then(r=>r.json()); if (c && c.character){ const el=document.getElementById('jv-character'); if(el) el.value = c.character; } } catch(e){}
     try { const g = await fetch('/api/jarvis/memory').then(r=>r.json()); const el=document.getElementById('jv-goals'); if(el) el.value = g.goals||''; } catch(e){}
+    try { const k = await fetch('/api/jarvis/knowledge').then(r=>r.json()); const el=document.getElementById('jv-extra'); if(el) el.value = k.zusatzwissen||''; jvRenderKnowledge(k); } catch(e){}
     await jvLoadHistory();
   }
 }
@@ -6048,6 +6058,35 @@ async function jarvisReset(){
 async function jarvisSaveGoals(){
   const goals = document.getElementById('jv-goals').value.trim();
   try { await fetch('/api/jarvis/memory', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ goals }) }); alert('Ziele gespeichert — Jarvis bezieht sie ab jetzt ein.'); } catch(e){ alert('Fehler: '+(e.message||e)); }
+}
+async function jarvisSaveKnowledge(){
+  const knowledge = document.getElementById('jv-extra').value.trim();
+  try {
+    await fetch('/api/jarvis/knowledge', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ knowledge }) });
+    const k = await fetch('/api/jarvis/knowledge?force=1').then(r=>r.json()); jvRenderKnowledge(k);
+    alert('Wissen gespeichert — Jarvis liest es ab jetzt mit ein.');
+  } catch(e){ alert('Fehler: '+(e.message||e)); }
+}
+function jvRenderKnowledge(k){
+  const box = document.getElementById('jv-know'); if(!box||!k) return;
+  const eur = (typeof _tmEur==='function')?_tmEur:(v=>'€'+(v||0));
+  const g = k.gesamt||{};
+  const models = (k.models||[]).map(m=>_jvEsc(m.name)+(m.aktiv?'':' (inaktiv)')).join(', ') || '—';
+  const team = (k.team||[]).map(t=>_jvEsc(t.name)+' ('+_jvEsc(t.rolle||'')+')').join(', ') || '—';
+  const zw = k.zahlungswege_alltime||{};
+  const zwStr = Object.keys(zw).map(m=>_jvEsc(m)+': '+eur(zw[m])).join(' · ') || '—';
+  const tp = (k.top_produkte_alltime||[]).slice(0,5).map(p=>_jvEsc(p.produkt)+' ('+eur(p.umsatz)+')').join(', ') || '—';
+  const rows = [
+    ['Models', models],
+    ['Team', team],
+    ['Umsatz gesamt', eur(g.umsatz_gesamt||0)+' · '+(g.sales_gesamt||0)+' Sales · '+(g.kunden_gesamt||0)+' Kunden'],
+    ['Seit', g.erster_sale||'—'],
+    ['Zahlungswege (all-time)', zwStr],
+    ['Top-Produkte', tp],
+    ['Preisliste hinterlegt', k.preisliste? 'Ja' : 'Nein'],
+    ['Zusatzwissen', k.zusatzwissen? 'Ja' : 'Nein'],
+  ];
+  box.innerHTML = rows.map(r=>`<div style="display:flex;gap:8px;padding:3px 0;"><span style="color:var(--text3);min-width:150px;">${r[0]}</span><span style="color:var(--text);flex:1;">${r[1]}</span></div>`).join('');
 }
 // ---- Voice ----
 async function _jvPlay(text){
@@ -6182,18 +6221,8 @@ async function jvCopilot(){
   } catch(e){ const body=document.getElementById('jvToastBody'); if(body) body.textContent='Fehler: '+(e.message||e); }
 }
 
-// Schicht-Briefing: einmal pro Browser-Session beim ersten Öffnen
-async function jvShiftBriefing(){
-  try {
-    if (sessionStorage.getItem('jv_shift_done')) return;
-    const me = localStorage.getItem('crm_user')||'';
-    if(!me) return;
-    sessionStorage.setItem('jv_shift_done','1');
-    const r = await fetch('/api/jarvis/briefing?chatter='+encodeURIComponent(me)).then(r=>r.json());
-    if(r.ok && r.reply){ _jvToast('👋 Schicht-Briefing', r.reply); setTimeout(()=>{ const e=document.getElementById('jvToast'); if(e) e.remove(); }, 22000); }
-  } catch(e){}
-}
-setTimeout(()=>{ try { if(localStorage.getItem('crm_user')) jvShiftBriefing(); } catch(e){} }, 4000);
+// Persönlicher Verdienst/Coaching läuft ausschließlich im Chatter-Dashboard (My Earnings) via eaJarvisCoach().
+// Kein globales Schicht-Briefing-Popup — persönliche Verdienstdaten bleiben auf der Verdienst-Seite.
 
 // ── TEAM: Schichten & Löhne ─────────────────────────────────────────────────
 let _tmPeriod = 'woche';

@@ -4199,6 +4199,90 @@ def _jarvis_analytics():
 def jarvis_analytics():
     return _jarvis_analytics()
 
+# ── Jarvis Wissen: liest sich komplett in den Betrieb ein ────────────────────
+_JV_KNOW_CACHE = {'ts': 0, 'data': None}
+def _jarvis_knowledge(force=False):
+    """Vollständiges Betriebswissen: Models, Team, Preise/Regeln, Ziele, Gesamtzahlen.
+    Alles aus echten Daten. Keine Secrets (Keys/Tokens werden nie eingelesen).
+    5-Minuten-Cache, damit jede Frage nicht die ganze DB abfragt."""
+    import time as _t
+    now = _t.time()
+    if not force and _JV_KNOW_CACHE['data'] is not None and (now - _JV_KNOW_CACHE['ts'] < 300):
+        return _JV_KNOW_CACHE['data']
+    k = {}
+    try:
+        with db() as conn, conn.cursor() as c:
+            # Models / Creators
+            try:
+                c.execute("SELECT name, active FROM creators ORDER BY id")
+                k['models'] = [{'name': r['name'], 'aktiv': bool(r['active'])} for r in c.fetchall()]
+            except Exception:
+                k['models'] = []
+            # Team-Roster (ohne Geld-Details, nur Rollen & Schichten)
+            try:
+                c.execute("SELECT name, role, shift_start, shift_end, wage_type, active FROM staff ORDER BY name")
+                k['team'] = [{'name': r['name'], 'rolle': r['role'],
+                              'schicht': ((r['shift_start'] or '') + '-' + (r['shift_end'] or '')).strip('-'),
+                              'lohnmodell': r['wage_type'], 'aktiv': bool(r['active'])} for r in c.fetchall()]
+            except Exception:
+                k['team'] = []
+            # Gesamtzahlen (all-time)
+            try:
+                c.execute("SELECT COALESCE(SUM(amount),0) v, COUNT(*) n, MIN(timestamp) f FROM sales WHERE COALESCE(status,'')<>'rejected'")
+                r = c.fetchone()
+                k['gesamt'] = {'umsatz_gesamt': round(float(r['v'] or 0), 2), 'sales_gesamt': int(r['n'] or 0),
+                               'erster_sale': (r['f'] or '')[:10]}
+                c.execute("SELECT COUNT(*) n FROM conversations")
+                k['gesamt']['kunden_gesamt'] = int(c.fetchone()['n'] or 0)
+            except Exception:
+                k['gesamt'] = {}
+            # Top-Produkte all-time
+            try:
+                c.execute("SELECT COALESCE(NULLIF(product,''),'unbekannt') p, COALESCE(SUM(amount),0) v FROM sales WHERE COALESCE(status,'')<>'rejected' GROUP BY 1 ORDER BY v DESC LIMIT 10")
+                k['top_produkte_alltime'] = [{'produkt': r['p'], 'umsatz': round(float(r['v'] or 0), 2)} for r in c.fetchall()]
+            except Exception:
+                k['top_produkte_alltime'] = []
+            # Zahlungsweg-Split all-time
+            try:
+                c.execute("SELECT COALESCE(NULLIF(payment_method,''),'unbekannt') m, COALESCE(SUM(amount),0) v FROM sales WHERE COALESCE(status,'')<>'rejected' GROUP BY 1 ORDER BY v DESC")
+                k['zahlungswege_alltime'] = {r['m']: round(float(r['v'] or 0), 2) for r in c.fetchall()}
+            except Exception:
+                k['zahlungswege_alltime'] = {}
+    except Exception as e:
+        print(f'jarvis knowledge db: {e}')
+    # Ziele / Preise / Regeln aus Settings (keine Secrets)
+    try:
+        k['ziele'] = _jarvis_get_key('jarvis_goals', '')
+        k['schicht_ziel'] = get_setting('shift_goal', '')
+        pl = get_setting('price_list', '') or get_setting('preisliste', '')
+        if pl:
+            k['preisliste'] = pl[:2000]
+        kb = get_setting('jarvis_knowledge', '')
+        if kb:
+            k['zusatzwissen'] = kb[:3000]
+        k['schutz'] = {
+            'scam_guard': (get_setting('scam_guard_enabled', '') in ('1', 'true', 'True', 'on')),
+            'auto_online': (get_setting('auto_online_enabled', '') in ('1', 'true', 'True', 'on')),
+            'alerts': (get_setting('alerts_enabled', '') in ('1', 'true', 'True', 'on')),
+        }
+    except Exception as e:
+        print(f'jarvis knowledge settings: {e}')
+    _JV_KNOW_CACHE['ts'] = now; _JV_KNOW_CACHE['data'] = k
+    return k
+
+@app.get('/jarvis/knowledge')
+def jarvis_knowledge_ep(force: int = 0):
+    return _jarvis_knowledge(force=bool(force))
+
+class JarvisKnowledgeIn(BaseModel):
+    knowledge: str = ''
+
+@app.post('/jarvis/knowledge')
+def jarvis_knowledge_set(body: JarvisKnowledgeIn):
+    set_setting('jarvis_knowledge', (body.knowledge or '')[:3000])
+    _JV_KNOW_CACHE['ts'] = 0  # Cache invalidieren
+    return {'ok': True, 'knowledge': get_setting('jarvis_knowledge', '')}
+
 def _jarvis_insights(snap=None, an=None):
     """Proaktive, regelbasierte Hinweise aus echten Zahlen (keine Prognosen)."""
     snap = snap or _jarvis_snapshot()
@@ -4328,16 +4412,22 @@ def jarvis_ask(body: JarvisAsk):
     else:
         char = _jarvis_get_character()
     goals = _jarvis_get_key('jarvis_goals', '')
+    try:    know = _jarvis_knowledge()
+    except Exception as e:  print(f'jarvis ask knowledge: {e}'); know = {}
+    import json as _jj
     sys = ("Du bist Jarvis, der Operations-Assistent einer Agentur, die Adult-Content über Telegram vermarktet und verkauft "
-           "(Paid Calls, PPV, Content). Du analysierst NUR die echten Zahlen, die dir gegeben werden, und gibst konkrete, "
+           "(Paid Calls, PPV, Content). Du hast dich komplett in den Betrieb eingelesen: du kennst die Models, das Team, "
+           "die Preise/Regeln, die Ziele und alle Gesamtzahlen (siehe Betriebswissen). "
+           "Du analysierst NUR die echten Zahlen und Fakten, die dir gegeben werden, und gibst konkrete, "
            "umsetzbare, regelbasierte Empfehlungen — keine erfundenen Zahlen, keine Prognosen, keine Finanz- oder Rechtsberatung. "
            "Du hast Gedächtnis: beziehe dich auf den bisherigen Gesprächsverlauf und die gespeicherten Ziele. "
            "Antworte auf Deutsch, kurz und auf den Punkt, mit klaren Handlungsempfehlungen.")
+    if know:
+        sys += "\n\n=== BETRIEBSWISSEN (du kennst das) ===\n" + _jj.dumps(know, ensure_ascii=False)[:4000]
     if goals:
-        sys += "\n\nGespeicherte Ziele / Was du über den Betrieb weißt:\n" + goals[:1500]
+        sys += "\n\nGespeicherte Ziele:\n" + goals[:1500]
     if char:
         sys += "\n\nZusätzlicher Charakter/Ton (vom Nutzer): " + char[:500]
-    import json as _jj
     ctx = ("Aktuelle CRM-Zahlen (Stand " + snap.get('now', '') + "):\n" + _jj.dumps(snap, ensure_ascii=False)
            + "\n\nTiefe Analyse (30 Tage):\n" + _jj.dumps(an, ensure_ascii=False)[:6000])
     q = (body.question or '').strip() or ("Analysiere die aktuellen Zahlen und nenne mir die 3 wichtigsten Dinge, die ich ändern/verbessern sollte "
@@ -4415,6 +4505,15 @@ def jarvis_copilot(body: JarvisCopilot):
            "Antworte auf Deutsch, sehr kurz: 1 klare Empfehlung + optional 1 Beispiel-Satz zum Schreiben.")
     if goals:
         sys += "\n\nBetriebs-Ziele: " + goals[:600]
+    try:
+        know = _jarvis_knowledge()
+        pl = know.get('preisliste'); tp = know.get('top_produkte_alltime')
+        if pl:
+            sys += "\n\nPreisliste/Angebote (nutze echte Preise): " + str(pl)[:900]
+        if tp:
+            sys += "\n\nMeistverkaufte Produkte: " + _json.dumps(tp[:6], ensure_ascii=False)
+    except Exception:
+        pass
     q = (body.question or '').strip() or "Was ist der beste nächste Schritt bei diesem Kunden?"
     ctx_str = _json.dumps(ctx, ensure_ascii=False)[:5000]
     try:
@@ -4466,9 +4565,12 @@ def jarvis_briefing(chatter: str = ''):
         ctx = _json.dumps({'chatter': stats, 'wartende_kunden_gesamt': waiting, 'ziele': goals[:400]}, ensure_ascii=False)
     else:
         snap = _jarvis_snapshot()
-        sys = ("Du bist Jarvis. Gib ein kurzes Schicht-/Tagesbriefing in 2-4 Sätzen auf Deutsch, nur aus echten Zahlen. "
+        try:    know = _jarvis_knowledge()
+        except Exception: know = {}
+        sys = ("Du bist Jarvis und kennst den ganzen Betrieb (Models, Team, Ziele, Gesamtzahlen). "
+               "Gib ein kurzes Schicht-/Tagesbriefing in 2-4 Sätzen auf Deutsch, nur aus echten Zahlen. "
                "Nenne Umsatz heute, wichtigste Chance/Warnung und die beste Zeit heute. Seriös, kein Druck.")
-        ctx = _json.dumps({'snapshot': snap, 'analyse': an, 'ziele': goals[:400]}, ensure_ascii=False)[:5000]
+        ctx = _json.dumps({'snapshot': snap, 'analyse': an, 'betriebswissen': know, 'ziele': goals[:400]}, ensure_ascii=False)[:6000]
     try:
         reply = _openai_chat([{'role': 'system', 'content': sys},
                               {'role': 'user', 'content': ctx}], max_tokens=240, temperature=0.6)
