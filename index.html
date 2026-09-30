@@ -2713,6 +2713,7 @@
     <div class="jv-tabs">
       <button class="jv-tab active" id="jv-tab-chat" onclick="jvTab('chat')">💬 Chat</button>
       <button class="jv-tab" id="jv-tab-analyse" onclick="jvTab('analyse')">📊 Analyse</button>
+      <button class="jv-tab" id="jv-tab-verluste" onclick="jvTab('verluste')">🔍 Verluste</button>
       <button class="jv-tab" id="jv-tab-memory" onclick="jvTab('memory')">🧠 Gedächtnis</button>
     </div>
 
@@ -2738,6 +2739,20 @@
       <div id="jv-analytics" style="color:var(--text3);font-size:13px;">Lade Analyse…</div>
     </div>
 
+    <!-- VERLUSTE (Case-Review / QA) -->
+    <div id="jv-view-verluste" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+        <div style="font-size:12.5px;color:var(--text3);">Warum kam kein Kauf zustande? Alle Chats ohne Sale, kategorisiert.</div>
+        <span style="flex:1"></span>
+        <select id="jv-loss-days" onchange="loadLossReview(true)" style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:9px;color:var(--text);padding:6px 10px;font-size:12px;">
+          <option value="7">7 Tage</option><option value="14">14 Tage</option><option value="30" selected>30 Tage</option><option value="60">60 Tage</option>
+        </select>
+        <button class="jv-tab" onclick="loadLossReview(true)" style="font-size:12px;">↻ Neu analysieren</button>
+        <button class="jv-tab active" onclick="feedbackAll()" style="font-size:12px;">✍️ Feedback an alle</button>
+      </div>
+      <div id="jv-loss" style="color:var(--text3);font-size:13px;">Analyse noch nicht geladen.</div>
+    </div>
+
     <!-- GEDÄCHTNIS -->
     <div id="jv-view-memory" style="display:none">
       <div class="jv-char">
@@ -2757,6 +2772,16 @@
       <div class="jv-card" style="margin-top:18px;">
         <h4>🧩 Was Jarvis alles kennt (live)</h4>
         <div id="jv-know" style="font-size:12.5px;color:var(--text2);line-height:1.6;">Lade Betriebswissen…</div>
+      </div>
+      <div class="jv-card" style="margin-top:18px;border-color:rgba(255,180,60,.3);">
+        <h4>💾 Datenbank-Speicher</h4>
+        <div id="jv-dbsize" style="font-size:12.5px;color:var(--text2);line-height:1.7;">Noch nicht geladen.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
+          <button class="jv-tab" onclick="loadDbSize()" style="font-size:12px;">↻ Speicher prüfen</button>
+          <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px;">Belege älter als <input id="jv-clean-days" type="number" value="14" style="width:56px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 8px;font-size:12px;"> Tage</label>
+          <button class="jv-tab active" onclick="runDbCleanup()" style="font-size:12px;">🧹 Aufräumen + VACUUM</button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;">Wischt alte Zahlungs-Belege (Bilder) aus der DB — Sale &amp; Status bleiben erhalten. VACUUM gibt den Platz frei.</div>
       </div>
     </div>
     <audio id="jv-audio" style="display:none"></audio>
@@ -5996,11 +6021,12 @@ async function loadJarvis(){
   }
 }
 function jvTab(t){
-  ['chat','analyse','memory'].forEach(x=>{
+  ['chat','analyse','verluste','memory'].forEach(x=>{
     document.getElementById('jv-view-'+x).style.display = (x===t?'':'none');
     document.getElementById('jv-tab-'+x).classList.toggle('active', x===t);
   });
   if (t==='analyse' && !_jvAnalyticsLoaded) jvLoadAnalytics();
+  if (t==='verluste' && !_jvLossLoaded) loadLossReview(false);
 }
 // ---- Chat + Gedächtnis ----
 async function jvLoadHistory(){
@@ -6088,6 +6114,31 @@ function jvRenderKnowledge(k){
   ];
   box.innerHTML = rows.map(r=>`<div style="display:flex;gap:8px;padding:3px 0;"><span style="color:var(--text3);min-width:150px;">${r[0]}</span><span style="color:var(--text);flex:1;">${r[1]}</span></div>`).join('');
 }
+async function loadDbSize(){
+  const box = document.getElementById('jv-dbsize'); if(!box) return;
+  box.textContent = 'Lade…';
+  try {
+    const d = await fetch('/api/admin/db-size').then(r=>r.json());
+    if (d.error){ box.innerHTML='<span style="color:#ff5c7a">'+_jvEsc(d.error)+'</span>'; return; }
+    const tt = (d.top_tables||[]).slice(0,6).map(t=>`<div style="display:flex;gap:8px;"><span style="color:var(--text3);flex:1">${_jvEsc(t.tabelle)}</span><span>${_jvEsc(t.groesse)}</span></div>`).join('');
+    const sc = d.screenshots ? `${d.screenshots.anzahl} Belege · ${_jvEsc(d.screenshots.groesse)}` : '—';
+    box.innerHTML = `<div style="font-size:16px;font-weight:800;margin-bottom:8px;">DB gesamt: ${_jvEsc(d.db_size||'?')}</div>
+      <div style="color:var(--text3);margin-bottom:4px;">Gespeicherte Belege (Bilder): <b style="color:var(--text)">${sc}</b></div>
+      <div style="margin-top:8px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);">Größte Tabellen</div>${tt}`;
+  } catch(e){ box.innerHTML='<span style="color:#ff5c7a">Fehler: '+_jvEsc(e.message||e)+'</span>'; }
+}
+async function runDbCleanup(){
+  const days = parseInt(document.getElementById('jv-clean-days').value||'14',10);
+  if (!confirm('Belege älter als '+days+' Tagen aus der DB wischen und VACUUM ausführen? Sale-Datensätze bleiben erhalten, nur die Beleg-Bilder werden entfernt.')) return;
+  const box = document.getElementById('jv-dbsize'); box.textContent = 'Räume auf und gebe Speicher frei… (VACUUM kann 1-2 Min dauern)';
+  try {
+    const d = await fetch('/api/admin/db-cleanup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ days, vacuum_full: true }) }).then(r=>r.json());
+    if (!d.ok){ box.innerHTML='<span style="color:#ff5c7a">'+_jvEsc(d.detail||d.error||'Fehler')+'</span>'; return; }
+    const b = (d.before&&d.before.db_size)||'?', a = (d.after&&d.after.db_size)||'?';
+    alert('Fertig ✅\n'+d.screenshots_wiped+' Belege gewischt.\nDB vorher: '+b+' → nachher: '+a+(d.vacuum_error?('\n\n⚠️ VACUUM: '+d.vacuum_error):''));
+    loadDbSize();
+  } catch(e){ box.innerHTML='<span style="color:#ff5c7a">Fehler: '+_jvEsc(e.message||e)+'</span>'; }
+}
 // ---- Voice ----
 async function _jvPlay(text){
   try {
@@ -6156,6 +6207,72 @@ function _jvHeatmap(a){
   }
   t += '</table></div><div style="font-size:11px;color:var(--text3);margin-top:8px">Je kräftiger lila, desto mehr Umsatz in diesem Zeitfenster (letzte 30 Tage).</div></div>';
   return t;
+}
+
+// ---- Verluste (Case-Review / QA): warum kam kein Kauf? ----
+let _jvLossLoaded = false, _jvLossData = null;
+const _JV_LOSS_META = {
+  fakecheck:  {icon:'🕵️', color:'#ff5c7a', label:'Fakecheck / Verifizierung'},
+  reply_time: {icon:'🐌', color:'#ffb43c', label:'Antwortzeit zu langsam'},
+  payment:    {icon:'💳', color:'#4a9eff', label:'Zahlungsmethode / Preis'},
+  bad_sub:    {icon:'🥱', color:'#8a8f98', label:'Sub war einfach schlecht'}
+};
+async function loadLossReview(force){
+  const box = document.getElementById('jv-loss'); if(!box) return;
+  const days = document.getElementById('jv-loss-days').value || 30;
+  box.innerHTML = 'Jarvis liest alle Chats ohne Kauf… (das kann kurz dauern)';
+  try {
+    const a = await fetch('/api/jarvis/loss-review?days='+days+(force?'&force=1':'')).then(r=>r.json());
+    _jvLossLoaded = true; _jvLossData = a;
+    box.innerHTML = _jvRenderLoss(a);
+  } catch(e){ box.innerHTML = '<span style="color:#ff5c7a">Fehler: '+_jvEsc(e.message||e)+'</span>'; }
+}
+function _jvRenderLoss(a){
+  const cats = ['fakecheck','reply_time','payment','bad_sub'];
+  const bc = a.by_category||{};
+  const total = a.analyzed||0;
+  let html = `<div style="font-size:12.5px;color:var(--text3);margin-bottom:12px;">${total} Chats ohne Kauf analysiert (letzte ${a.window_days} Tage).</div>`;
+  // Kategorie-Kacheln
+  html += '<div class="jv-strip" style="margin-bottom:18px;">';
+  html += cats.map(c=>{
+    const m=_JV_LOSS_META[c], n=bc[c]||0, pct= total? Math.round(100*n/total):0;
+    return `<div class="jv-s" style="border-left:3px solid ${m.color}"><div class="l">${m.icon} ${m.label}</div><div class="v">${n}</div><div style="font-size:10.5px;color:var(--text3)">${pct}% der Verluste</div></div>`;
+  }).join('');
+  html += '</div>';
+  // Pro-Chatter Tabelle
+  html += '<div class="jv-card"><h4>👤 Verluste pro Chatter</h4>';
+  html += '<div style="display:flex;font-size:10.5px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:4px 0;border-bottom:1px solid var(--border);"><span style="flex:1">Chatter</span><span style="width:44px;text-align:center">Σ</span><span style="width:40px;text-align:center" title="Fakecheck">🕵️</span><span style="width:40px;text-align:center" title="Antwortzeit">🐌</span><span style="width:40px;text-align:center" title="Zahlung">💳</span><span style="width:40px;text-align:center" title="Schwacher Sub">🥱</span><span style="width:64px;text-align:right">Ø Antw.</span><span style="width:90px;text-align:right">Feedback</span></div>';
+  html += (a.by_chatter||[]).map(r=>{
+    const ar = (r.avg_reply_min!=null)? (r.avg_reply_min+'m') : '—';
+    return `<div style="display:flex;align-items:center;font-size:13px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+      <span style="flex:1;font-weight:600;">${_jvEsc(r.chatter)}</span>
+      <span style="width:44px;text-align:center;font-weight:800;">${r.lost}</span>
+      <span style="width:40px;text-align:center;color:#ff5c7a">${r.fakecheck||0}</span>
+      <span style="width:40px;text-align:center;color:#ffb43c">${r.reply_time||0}</span>
+      <span style="width:40px;text-align:center;color:#4a9eff">${r.payment||0}</span>
+      <span style="width:40px;text-align:center;color:#8a8f98">${r.bad_sub||0}</span>
+      <span style="width:64px;text-align:right;color:var(--text3)">${ar}</span>
+      <span style="width:90px;text-align:right"><button class="jv-tab" style="font-size:11px;padding:5px 10px;" onclick="chatterFeedback('${_jvEsc(r.chatter).replace(/'/g,"")}')">✍️ Schreiben</button></span>
+    </div>`;
+  }).join('') || '<div class="jv-row">Keine Verluste im Zeitraum 🎉</div>';
+  html += '</div>';
+  html += '<div id="jv-loss-feedback" style="margin-top:16px;"></div>';
+  return html;
+}
+async function chatterFeedback(name){
+  const days = document.getElementById('jv-loss-days').value || 30;
+  const box = document.getElementById('jv-loss-feedback');
+  box.insertAdjacentHTML('afterbegin', `<div class="jv-card" id="fb-${_jvEsc(name)}" style="border-color:rgba(124,92,255,.3);margin-bottom:12px;"><h4>✍️ Feedback für ${_jvEsc(name)}</h4><div class="tx" style="font-size:13px;line-height:1.6;color:var(--text2);white-space:pre-wrap;">Jarvis schreibt…</div></div>`);
+  try {
+    const d = await fetch('/api/jarvis/chatter-feedback?chatter='+encodeURIComponent(name)+'&days='+days).then(r=>r.json());
+    const card = document.getElementById('fb-'+name); if(!card) return;
+    card.querySelector('.tx').textContent = (d.ok && d.reply) ? d.reply : ('⚠️ '+(d.error||'nicht verfügbar'));
+  } catch(e){ const card=document.getElementById('fb-'+name); if(card) card.querySelector('.tx').textContent='Fehler: '+(e.message||e); }
+}
+async function feedbackAll(){
+  if (!_jvLossData || !(_jvLossData.by_chatter||[]).length){ alert('Erst Verluste analysieren.'); return; }
+  const box = document.getElementById('jv-loss-feedback'); box.innerHTML='';
+  for (const r of _jvLossData.by_chatter){ if(r.chatter && r.chatter!=='—') await chatterFeedback(r.chatter); }
 }
 
 // ── JARVIS-Integration: Dashboard-Karte, Chat-Co-Pilot, Earnings, Schicht-Briefing ──

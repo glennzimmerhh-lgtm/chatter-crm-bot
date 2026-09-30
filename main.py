@@ -4283,6 +4283,258 @@ def jarvis_knowledge_set(body: JarvisKnowledgeIn):
     _JV_KNOW_CACHE['ts'] = 0  # Cache invalidieren
     return {'ok': True, 'knowledge': get_setting('jarvis_knowledge', '')}
 
+# ── Jarvis Verlust-Analyse: warum kam der Sale NICHT? ───────────────────────
+_JV_LOSS_CACHE = {'ts': 0, 'data': None}
+_LOSS_LABELS = {'fakecheck': 'Fakecheck / Verifizierung',
+                'reply_time': 'Antwortzeit zu langsam',
+                'payment': 'Zahlungsmethode / Preis',
+                'bad_sub': 'Sub war einfach schlecht'}
+
+def _jv_categorize_lost(msgs, conv):
+    """Regelbasiert: warum kam es NICHT zum Kauf? Gibt (kategorie, avg_reply_min, chatter)."""
+    ins = [m for m in msgs if m['direction'] == 'in']
+    outs = [m for m in msgs if m['direction'] == 'out']
+    # Chatter = wer die meisten Out-Nachrichten geschickt hat
+    from collections import Counter
+    ch = Counter((m.get('chatter') or '') for m in outs if (m.get('chatter') or ''))
+    chatter = ch.most_common(1)[0][0] if ch else ''
+    # Antwortzeit: Zeit von Kunden-Nachricht bis nächste Chatter-Antwort
+    gaps = []
+    seq = sorted(msgs, key=lambda m: (m.get('_ts') or 0))
+    last_in = None
+    for m in seq:
+        if m['direction'] == 'in':
+            last_in = m.get('_ts')
+        elif m['direction'] == 'out' and last_in is not None:
+            dt = (m.get('_ts') or last_in) - last_in
+            if 0 <= dt <= 6 * 3600:
+                gaps.append(dt / 60.0)
+            last_in = None
+    avg_reply = round(sum(gaps) / len(gaps), 1) if gaps else None
+    txt = ' '.join((m.get('text') or '').lower() for m in msgs)
+    FAKE = ['fake', 'echt?', 'bist du echt', 'wirklich du', 'verifi', 'verify', 'beweis', 'beweise', 'fakecheck',
+            'fake check', 'betrug', 'scam', 'abzocke', 'kein bock abgezockt', 'trau dir nicht', 'vertrauen']
+    PAY = ['paypal', 'paysafe', 'überweis', 'iban', 'wie zahle', 'wie bezahl', 'zahlungs', 'amazon', 'krypto',
+           'bitcoin', 'zu teuer', 'kein geld', 'kann nicht zahl', 'zahlen wie', 'andere zahlung', 'nur bar']
+    low_engage = (len(ins) < 3) or bool(conv.get('time_waster'))
+    if any(t in txt for t in FAKE):
+        cat = 'fakecheck'
+    elif avg_reply is not None and avg_reply > 20:
+        cat = 'reply_time'
+    elif any(t in txt for t in PAY):
+        cat = 'payment'
+    elif low_engage:
+        cat = 'bad_sub'
+    else:
+        cat = 'bad_sub'
+    return cat, avg_reply, chatter
+
+def _jarvis_loss_analysis(days=30, max_chats=250, force=False):
+    import time as _t
+    now = _t.time()
+    if not force and _JV_LOSS_CACHE['data'] is not None and (now - _JV_LOSS_CACHE['ts'] < 600):
+        return _JV_LOSS_CACHE['data']
+    now_b = _team_berlin_now()
+    def loc(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    since = loc(now_b - timedelta(days=days))
+    out = {'window_days': days, 'analyzed': 0,
+           'by_category': {'fakecheck': 0, 'reply_time': 0, 'payment': 0, 'bad_sub': 0},
+           'by_chatter': [], 'samples': {'fakecheck': [], 'reply_time': [], 'payment': [], 'bad_sub': []},
+           'labels': _LOSS_LABELS}
+    with db() as conn, conn.cursor() as c:
+        # Käufer (mind. 1 genehmigter Sale) — die klammern wir aus
+        c.execute("SELECT DISTINCT tg_id FROM sales WHERE COALESCE(status,'')<>'rejected'")
+        buyers = set(r['tg_id'] for r in c.fetchall())
+        # Kandidaten: echte Konversationen ohne Kauf, mit Engagement, im Fenster
+        c.execute("""SELECT tg_id, internal_name, anon_id, msg_count, last_msg, time_waster
+                     FROM conversations
+                     WHERE COALESCE(msg_count,0)>=4 AND last_time>=%s
+                     ORDER BY last_time DESC LIMIT %s""", (since, max_chats * 2))
+        cands = [dict(r) for r in c.fetchall() if r['tg_id'] not in buyers][:max_chats]
+        if not cands:
+            _JV_LOSS_CACHE['ts'] = now; _JV_LOSS_CACHE['data'] = out
+            return out
+        ids = [x['tg_id'] for x in cands]
+        # Letzte 30 Nachrichten je Chat in EINER Query (Fenster)
+        c.execute("""SELECT tg_id, text, direction, timestamp, chatter FROM (
+                       SELECT tg_id, text, direction, timestamp, chatter,
+                              row_number() OVER (PARTITION BY tg_id ORDER BY id DESC) rn
+                       FROM messages WHERE tg_id = ANY(%s)
+                     ) t WHERE rn<=30""", (ids,))
+        msgs_by = {}
+        for r in c.fetchall():
+            m = dict(r); m['_ts'] = 0
+            dt = _jv_parse_ts(m['timestamp'])
+            if dt: m['_ts'] = dt.timestamp()
+            msgs_by.setdefault(r['tg_id'], []).append(m)
+    from collections import defaultdict
+    per_ch = defaultdict(lambda: {'chatter': '', 'lost': 0, 'fakecheck': 0, 'reply_time': 0,
+                                  'payment': 0, 'bad_sub': 0, '_reply_sum': 0.0, '_reply_n': 0})
+    for conv in cands:
+        msgs = msgs_by.get(conv['tg_id'], [])
+        if not msgs:
+            continue
+        cat, avg_reply, chatter = _jv_categorize_lost(msgs, conv)
+        out['analyzed'] += 1
+        out['by_category'][cat] += 1
+        who = chatter or '—'
+        p = per_ch[who]; p['chatter'] = who; p['lost'] += 1; p[cat] += 1
+        if avg_reply is not None:
+            p['_reply_sum'] += avg_reply; p['_reply_n'] += 1
+        if len(out['samples'][cat]) < 6:
+            out['samples'][cat].append({
+                'name': conv.get('internal_name') or conv.get('anon_id') or '?',
+                'chatter': who, 'avg_reply_min': avg_reply,
+                'snippet': (conv.get('last_msg') or '')[:80]})
+    rows = []
+    for who, p in per_ch.items():
+        p['avg_reply_min'] = round(p['_reply_sum'] / p['_reply_n'], 1) if p['_reply_n'] else None
+        p.pop('_reply_sum', None); p.pop('_reply_n', None)
+        rows.append(p)
+    rows.sort(key=lambda x: -x['lost'])
+    out['by_chatter'] = rows
+    _JV_LOSS_CACHE['ts'] = now; _JV_LOSS_CACHE['data'] = out
+    return out
+
+# ── DB-SPEICHER: Cleanup + Report (gegen volllaufendes Volume) ──────────────
+def _db_size_report():
+    rep = {}
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT pg_size_pretty(pg_database_size(current_database())) s, pg_database_size(current_database()) b")
+            r = c.fetchone(); rep['db_size'] = r['s']; rep['db_bytes'] = int(r['b'] or 0)
+            c.execute("""SELECT relname, pg_total_relation_size(relid) b
+                         FROM pg_stat_user_tables ORDER BY b DESC LIMIT 8""")
+            rep['top_tables'] = [{'tabelle': x['relname'], 'bytes': int(x['b'] or 0),
+                                  'groesse': _bytes_h(int(x['b'] or 0))} for x in c.fetchall()]
+            try:
+                c.execute("SELECT COUNT(*) FILTER (WHERE COALESCE(screenshot,'')<>'') n, COALESCE(SUM(length(screenshot)),0) b FROM sales")
+                r = c.fetchone(); rep['screenshots'] = {'anzahl': int(r['n'] or 0), 'bytes': int(r['b'] or 0), 'groesse': _bytes_h(int(r['b'] or 0))}
+            except Exception:
+                rep['screenshots'] = None
+    except Exception as e:
+        rep['error'] = str(e)
+    return rep
+
+def _bytes_h(n):
+    n = float(n or 0)
+    for u in ('B', 'KB', 'MB', 'GB', 'TB'):
+        if n < 1024:
+            return f'{n:.1f} {u}'
+        n /= 1024
+    return f'{n:.1f} PB'
+
+def _db_purge_screenshots(days=14):
+    """Wischt alte Beleg-Bilder (base64) aus der DB — Sale + Status bleiben erhalten."""
+    now_b = _team_berlin_now()
+    def loc(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    cutoff = loc(now_b - timedelta(days=days))
+    wiped = 0
+    with db() as conn, conn.cursor() as c:
+        # Nur bereits geprüfte Sales (nicht 'pending') und älter als cutoff
+        c.execute("""UPDATE sales SET screenshot=''
+                     WHERE COALESCE(screenshot,'')<>'' AND COALESCE(status,'')<>'pending' AND timestamp < %s""", (cutoff,))
+        wiped = c.rowcount or 0
+    return wiped
+
+def _db_vacuum(full=False):
+    """VACUUM in eigener Autocommit-Verbindung (läuft nicht in Transaktion)."""
+    if USE_SQLITE:
+        return
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        conn.autocommit = True
+        with conn.cursor() as c:
+            c.execute("VACUUM FULL sales" if full else "VACUUM sales")
+    finally:
+        conn.close()
+
+@app.get('/admin/db-size')
+def admin_db_size(request: Request):
+    u = _session_user(request.headers.get('x-session-token', '')) or {}
+    if u.get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    return _db_size_report()
+
+class DbCleanupIn(BaseModel):
+    days: int = 14
+    vacuum_full: bool = False
+
+@app.post('/admin/db-cleanup')
+def admin_db_cleanup(body: DbCleanupIn, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    before = _db_size_report()
+    wiped = _db_purge_screenshots(days=max(1, body.days))
+    vac_err = ''
+    try:
+        _db_vacuum(full=bool(body.vacuum_full))
+    except Exception as e:
+        vac_err = str(e); print(f'db-cleanup vacuum error: {e}')
+    after = _db_size_report()
+    return {'ok': True, 'screenshots_wiped': wiped, 'vacuum_full': bool(body.vacuum_full),
+            'vacuum_error': vac_err, 'before': before, 'after': after}
+
+# Täglicher Auto-Purge: Belege älter als 30 Tage automatisch aus der DB wischen
+_DB_AUTOPURGE_DAYS = int(os.environ.get('SCREENSHOT_KEEP_DAYS', '30'))
+def _db_autopurge_loop():
+    import time as _t
+    _t.sleep(120)  # nach Start kurz warten
+    while True:
+        try:
+            n = _db_purge_screenshots(days=_DB_AUTOPURGE_DAYS)
+            if n:
+                print(f'[autopurge] {n} alte Beleg-Bilder aus DB gewischt (>{_DB_AUTOPURGE_DAYS}d)')
+                try:    _db_vacuum(full=False)
+                except Exception as e: print(f'[autopurge] vacuum: {e}')
+        except Exception as e:
+            print(f'[autopurge] error: {e}')
+        _t.sleep(24 * 3600)
+
+try:
+    import threading as _threading_ap
+    _threading_ap.Thread(target=_db_autopurge_loop, daemon=True).start()
+except Exception as _e:
+    print(f'autopurge thread start: {_e}')
+
+@app.get('/jarvis/loss-review')
+def jarvis_loss_review(days: int = 30, force: int = 0):
+    return _jarvis_loss_analysis(days=days, force=bool(force))
+
+@app.get('/jarvis/chatter-feedback')
+def jarvis_chatter_feedback(chatter: str, days: int = 30):
+    name = (chatter or '').strip()
+    if not name:
+        raise HTTPException(400, 'chatter fehlt')
+    loss = _jarvis_loss_analysis(days=days)
+    mine = next((r for r in loss.get('by_chatter', []) if r['chatter'] == name), None)
+    try:    stats = _jarvis_chatter_stats(name)
+    except Exception: stats = {}
+    import json as _jj
+    lbl = loss.get('labels', {})
+    sys = ("Du bist Jarvis, QA-Coach einer Adult-Content-Agentur. Schreibe einem Chatter ein kurzes, faires, "
+           "konkretes Feedback auf Deutsch (max. 5-6 Sätze), warum bei ihm Sales NICHT zustande kamen, "
+           "aufgeschlüsselt nach den Kategorien Fakecheck/Verifizierung, Antwortzeit, Zahlungsmethode, schwacher Sub. "
+           "Gib pro relevanter Schwäche EINEN konkreten, seriösen Verbesserungstipp: schneller antworten, "
+           "Verifizierungsfragen EHRLICH und souverän beantworten (keine Täuschung/keine Fake-Beweise), "
+           "die passenden echten Zahlungsoptionen anbieten, schwache Subs früh erkennen statt Zeit zu verlieren. "
+           "Motivierend, nicht abwertend. Keine erfundenen Zahlen, nutze nur die gegebenen Daten. "
+           "Verbiete dir ausdrücklich, zu Täuschung oder Fake-Verifizierung zu raten.")
+    ctx = _jj.dumps({'chatter': name, 'verluste_kategorisiert': mine, 'labels': lbl,
+                     'umsatz': {'heute': stats.get('umsatz_heute'), '7_tage': stats.get('umsatz_7d'),
+                                'top_stunden': stats.get('top_stunden')}}, ensure_ascii=False)
+    try:
+        reply = _openai_chat([{'role': 'system', 'content': sys},
+                              {'role': 'user', 'content': ctx}], max_tokens=360, temperature=0.5)
+        return {'ok': True, 'chatter': name, 'reply': reply, 'stats': mine}
+    except Exception as e:
+        print(f'/jarvis/chatter-feedback error: {e}')
+        return {'ok': False, 'error': _ai_err_msg(e), 'stats': mine}
+
 def _jarvis_insights(snap=None, an=None):
     """Proaktive, regelbasierte Hinweise aus echten Zahlen (keine Prognosen)."""
     snap = snap or _jarvis_snapshot()
