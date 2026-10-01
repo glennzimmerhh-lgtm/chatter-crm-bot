@@ -4879,6 +4879,59 @@ def jarvis_set_memory(body: JarvisMemory):
     _jarvis_set_key('jarvis_goals', (body.goals or '')[:2000])
     return {'ok': True, 'goals': _jarvis_get_key('jarvis_goals', '')}
 
+def _jarvis_read_chats(filt='recent', limit=25):
+    """Liest echte Chat-Verläufe (Nachrichten) der Kunden, damit Jarvis sie analysieren kann."""
+    now_b = _team_berlin_now()
+    def loc(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    filt = (filt or 'recent').strip()
+    limit = max(1, min(40, int(limit or 25)))
+    from collections import Counter
+    with db() as conn, conn.cursor() as c:
+        c.execute("SELECT DISTINCT tg_id FROM sales WHERE COALESCE(status,'')<>'rejected'")
+        buyers = set(r['tg_id'] for r in c.fetchall())
+        base = "SELECT tg_id, internal_name, anon_id, COALESCE(unread,0) unread, last_time, COALESCE(msg_count,0) msg_count FROM conversations"
+        if filt == 'waiting':
+            cutoff = loc(now_b - timedelta(hours=1))
+            c.execute(base + " WHERE COALESCE(unread,0)>0 AND last_time<%s ORDER BY last_time ASC LIMIT %s", (cutoff, limit))
+            convs = [dict(r) for r in c.fetchall()]
+        elif filt == 'non_buyers':
+            c.execute(base + " WHERE COALESCE(msg_count,0)>=4 ORDER BY last_time DESC LIMIT %s", (limit * 3,))
+            convs = [dict(r) for r in c.fetchall() if r['tg_id'] not in buyers][:limit]
+        else:
+            c.execute(base + " ORDER BY last_time DESC LIMIT %s", (limit,))
+            convs = [dict(r) for r in c.fetchall()]
+        ids = [x['tg_id'] for x in convs]
+        msgs_by = {}
+        if ids:
+            c.execute("""SELECT tg_id, text, direction, chatter FROM (
+                           SELECT tg_id, text, direction, chatter,
+                                  row_number() OVER (PARTITION BY tg_id ORDER BY id DESC) rn
+                           FROM messages WHERE tg_id = ANY(%s)
+                         ) t WHERE rn<=12 ORDER BY tg_id""", (ids,))
+            for r in c.fetchall():
+                msgs_by.setdefault(r['tg_id'], []).append(r)
+    out = []
+    for cv in convs:
+        ms = list(msgs_by.get(cv['tg_id'], []))[::-1]
+        ch = Counter((m['chatter'] or '') for m in ms if m['direction'] == 'out' and (m['chatter'] or ''))
+        out.append({'kunde': cv['internal_name'] or cv['anon_id'] or '?',
+                    'chatter': (ch.most_common(1)[0][0] if ch else '—'),
+                    'gekauft': cv['tg_id'] in buyers, 'unread': cv['unread'],
+                    'verlauf': [{'von': ('Kunde' if m['direction'] == 'in' else 'Chatter'),
+                                 'text': (m['text'] or '')[:140]} for m in ms]})
+    return {'filter': filt, 'count': len(out), 'chats': out}
+
+_JARVIS_READ_TOOL = [{'type': 'function', 'function': {
+    'name': 'read_chats',
+    'description': 'Liest echte Telegram-Chatverläufe (die Nachrichten) der Kunden, um sie inhaltlich zu analysieren. '
+                   'Nutze das, wenn der Nutzer dich bittet, Chats zu lesen/durchzugehen oder zu analysieren warum kein Sale kam.',
+    'parameters': {'type': 'object', 'properties': {
+        'filter': {'type': 'string', 'enum': ['waiting', 'non_buyers', 'recent'],
+                   'description': 'waiting=Kunden die auf Antwort warten; non_buyers=engagierte Chats ohne Kauf; recent=neueste Chats'},
+        'limit': {'type': 'integer', 'description': 'Anzahl Chats (max 40)'}}}}}]
+
 class JarvisAsk(BaseModel):
     question: str = ''
     character: str = ''
@@ -4904,6 +4957,9 @@ def jarvis_ask(body: JarvisAsk):
            "Du analysierst NUR die echten Zahlen und Fakten, die dir gegeben werden, und gibst konkrete, "
            "umsetzbare, regelbasierte Empfehlungen — keine erfundenen Zahlen, keine Prognosen, keine Finanz- oder Rechtsberatung. "
            "Du hast Gedächtnis: beziehe dich auf den bisherigen Gesprächsverlauf und die gespeicherten Ziele. "
+           "WICHTIG: Du HAST Lesezugriff auf die echten Chatverläufe — wenn der Nutzer dich bittet, die Chats zu lesen/durchzugehen "
+           "oder zu analysieren warum kein Sale kam, rufe das Tool read_chats auf (filter waiting/non_buyers/recent) und analysiere die echten Nachrichten. "
+           "Sag NIEMALS, dass du Chats nicht lesen kannst. "
            "Antworte in DERSELBEN Sprache wie die letzte Frage des Nutzers (Deutsch oder Englisch — bei Englisch antworte komplett auf Englisch), kurz und auf den Punkt, mit klaren Handlungsempfehlungen.")
     if know:
         sys += "\n\n=== BETRIEBSWISSEN (du kennst das) ===\n" + _jj.dumps(know, ensure_ascii=False)[:4000]
@@ -4921,7 +4977,28 @@ def jarvis_ask(body: JarvisAsk):
             msgs.append({'role': h['role'], 'content': h['content']})
     msgs.append({'role': 'user', 'content': ctx + "\n\nFrage: " + q})
     try:
-        reply = _openai_chat(msgs, max_tokens=560, temperature=0.5)
+        reply = ''
+        try:
+            first = _openai_chat_tools(msgs, _JARVIS_READ_TOOL, max_tokens=640, temperature=0.45)
+            tcs = first.get('tool_calls') or []
+            if tcs:
+                msgs.append({'role': 'assistant', 'content': first.get('content') or '', 'tool_calls': tcs})
+                for tc in tcs[:3]:
+                    try:    args = _jj.loads(tc['function'].get('arguments') or '{}')
+                    except Exception: args = {}
+                    if tc['function']['name'] == 'read_chats':
+                        data = _jarvis_read_chats(args.get('filter', 'recent'), args.get('limit', 25))
+                    else:
+                        data = {'error': 'unknown tool'}
+                    msgs.append({'role': 'tool', 'tool_call_id': tc['id'],
+                                 'content': _jj.dumps(data, ensure_ascii=False)[:14000]})
+                reply = _openai_chat(msgs, max_tokens=760, temperature=0.45)
+            else:
+                reply = (first.get('content') or '').strip()
+        except Exception as e_tool:
+            print(f'/jarvis/ask tool path: {e_tool}')
+        if not reply:
+            reply = _openai_chat(msgs, max_tokens=640, temperature=0.5)
         _jarvis_log('user', q)
         _jarvis_log('assistant', reply)
         return {'ok': True, 'reply': reply, 'snapshot': snap}
