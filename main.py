@@ -5209,6 +5209,180 @@ def jarvis_copilot(body: JarvisCopilot):
         print(f'/jarvis/copilot error: {e}')
         return {'ok': False, 'error': _ai_err_msg(e)}
 
+# ── Jarvis LIVE-CO-PILOT (flüstert im offenen Chat den nächsten Zug) ─────────
+class JarvisLiveHint(BaseModel):
+    tg_id: str = ''
+
+@app.post('/jarvis/live-hint')
+def jarvis_live_hint(body: JarvisLiveHint):
+    tg_id = (body.tg_id or '').strip()
+    if not tg_id:
+        raise HTTPException(400, 'tg_id fehlt')
+    import time as _t
+    with db() as conn, conn.cursor() as c:
+        c.execute("SELECT internal_name, anon_id FROM conversations WHERE tg_id=%s", (tg_id,))
+        cv = c.fetchone(); name = (cv['internal_name'] or cv['anon_id'] or 'Kunde') if cv else 'Kunde'
+        c.execute("SELECT text, direction, timestamp FROM messages WHERE tg_id=%s ORDER BY id DESC LIMIT 16", (tg_id,))
+        msgs = list(c.fetchall())[::-1]
+        c.execute("SELECT COUNT(*) n FROM sales WHERE tg_id=%s AND COALESCE(status,'')<>'rejected'", (tg_id,))
+        bought = int((c.fetchone() or {}).get('n') or 0)
+    if not msgs:
+        return {'ok': True, 'level': 'info', 'hint': 'Noch keine Nachrichten.', 'suggestion': ''}
+    ins = [m for m in msgs if m['direction'] == 'in']
+    outs = [m for m in msgs if m['direction'] == 'out']
+    in_txt = ' '.join((m.get('text') or '').lower() for m in ins)
+    out_txt = ' '.join((m.get('text') or '').lower() for m in outs)
+    last = msgs[-1]
+    OFFER = ['€', 'eur', 'ppv', 'call', 'preis', 'kostet', 'angebot', 'biete', 'video', 'content']
+    BUY = ['wie zahl', 'wie kann ich', 'ich will', 'ich möchte', 'schick', 'preis', 'kostet', 'kaufen', 'zahlen',
+           'bin bereit', 'machen wir', 'gerne', 'wie viel', 'wie teuer', 'zeig']
+    offer_made = any(t in out_txt for t in OFFER)
+    buy_signal = any(t in in_txt for t in BUY)
+    # Wartezeit seit letzter Kundennachricht
+    wait_min = None
+    if last['direction'] == 'in':
+        dt = _jv_parse_ts(last['timestamp'])
+        if dt:
+            try:    wait_min = max(0, (_t.time() - dt.timestamp()) / 60.0)
+            except Exception: wait_min = None
+    # Regelbasierte Dringlichkeit
+    level, rule = 'info', ''
+    if last['direction'] == 'in' and wait_min is not None and wait_min > 3:
+        level, rule = 'warn', f'Kunde wartet seit {int(wait_min)} min auf deine Antwort.'
+    if buy_signal and not offer_made:
+        level, rule = 'hot', 'KAUFSIGNAL! Kunde will kaufen — jetzt ein konkretes Angebot mit Preis machen.'
+    elif buy_signal:
+        level, rule = 'hot', 'Kaufsignal erkannt — jetzt zum Abschluss führen.'
+    elif not offer_made and len(ins) >= 3:
+        level, rule = 'warn', 'Noch kein Angebot gemacht — bring ein konkretes Angebot ins Spiel.'
+    # LLM: konkreter Vorschlagssatz zum Einfügen
+    suggestion = ''
+    try:
+        know = _jarvis_knowledge(); pl = know.get('preisliste'); tp = know.get('top_produkte_alltime')
+        sys = ("Du bist Jarvis, Live-Co-Pilot für einen Chatter (Adult-Content, Telegram). Lies den aktuellen Chatverlauf und "
+               "schreibe EINEN einzigen, sofort sendbaren Antwort-Satz für den Chatter, der den Verkauf voranbringt — "
+               "natürlich, flirty-locker, mit konkretem Angebot/Preis wenn passend. KEINE Täuschung, keine Fake-Verifizierung, "
+               "kein unseriöser Druck. Nur den Satz ausgeben, nichts drumherum. Sprache = Sprache des Kunden.")
+        if pl: sys += "\n\nEchte Preisliste: " + str(pl)[:700]
+        if tp: sys += "\n\nTop-Produkte: " + _json.dumps(tp[:5], ensure_ascii=False)
+        conv = '\n'.join((('Kunde: ' if m['direction'] == 'in' else 'Chatter: ') + (m.get('text') or '')[:200]) for m in msgs[-10:])
+        suggestion = _openai_chat([{'role': 'system', 'content': sys},
+                                   {'role': 'user', 'content': 'Verlauf:\n' + conv + '\n\nSchreibe den nächsten Satz für den Chatter:'}],
+                                  max_tokens=120, temperature=0.6).strip().strip('"')
+    except Exception as e:
+        print(f'/jarvis/live-hint llm: {e}')
+    if not rule:
+        rule = 'Dranbleiben — nächsten Schritt setzen.' if not suggestion else 'Vorschlag für den nächsten Zug:'
+    return {'ok': True, 'level': level, 'hint': rule, 'suggestion': suggestion,
+            'buy_signal': buy_signal, 'offer_made': offer_made, 'is_buyer': bought > 0}
+
+# ── Jarvis AKTIONEN (Tool-Use mit Freigabe: schlägt vor → du bestätigst → führt aus) ──
+def _openai_chat_tools(messages, tools, max_tokens=400, temperature=0.3):
+    if not OPENAI_API_KEY:
+        raise HTTPException(503, 'OPENAI_API_KEY nicht gesetzt')
+    payload = _json.dumps({'model': 'gpt-4o-mini', 'messages': messages, 'tools': tools,
+                           'tool_choice': 'auto', 'max_tokens': max_tokens, 'temperature': temperature}).encode()
+    req = _urllib_req.Request('https://api.openai.com/v1/chat/completions', data=payload,
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {OPENAI_API_KEY}'})
+    with _urllib_req.urlopen(req, timeout=20) as resp:
+        data = _json.loads(resp.read())
+    return data['choices'][0]['message']
+
+_JARVIS_TOOLS = [
+    {'type': 'function', 'function': {'name': 'create_note', 'description': 'Lege eine geteilte Notiz im CRM an.',
+        'parameters': {'type': 'object', 'properties': {'text': {'type': 'string'}}, 'required': ['text']}}},
+    {'type': 'function', 'function': {'name': 'create_todo', 'description': 'Lege ein To-do/Aufgabe im CRM an (als Notiz mit [TODO]).',
+        'parameters': {'type': 'object', 'properties': {'text': {'type': 'string'}, 'assignee': {'type': 'string', 'description': 'optionaler Chatter-Name'}}, 'required': ['text']}}},
+    {'type': 'function', 'function': {'name': 'draft_broadcast', 'description': 'Entwirf einen Broadcast-Text (wird NICHT automatisch gesendet, nur Entwurf).',
+        'parameters': {'type': 'object', 'properties': {'ziel': {'type': 'string', 'description': 'Zielgruppe/Anlass'}, 'kernbotschaft': {'type': 'string'}}, 'required': ['ziel']}}},
+    {'type': 'function', 'function': {'name': 'draft_winback', 'description': 'Entwirf eine persönliche Winback-Nachricht für einen Kunden (Entwurf, wird NICHT automatisch gesendet).',
+        'parameters': {'type': 'object', 'properties': {'kunde': {'type': 'string', 'description': 'Name oder tg_id des Kunden'}, 'anlass': {'type': 'string'}}, 'required': ['kunde']}}},
+    {'type': 'function', 'function': {'name': 'flag_review', 'description': 'Markiere einen Chat/Chatter für die QA-Review.',
+        'parameters': {'type': 'object', 'properties': {'ziel': {'type': 'string', 'description': 'Kunde oder Chatter'}, 'grund': {'type': 'string'}}, 'required': ['ziel', 'grund']}}},
+]
+_ACT_LABELS = {'create_note': '📝 Notiz anlegen', 'create_todo': '✅ To-do anlegen',
+               'draft_broadcast': '📣 Broadcast-Entwurf', 'draft_winback': '💌 Winback-Entwurf', 'flag_review': '🚩 Zur Review flaggen'}
+
+class JarvisActIn(BaseModel):
+    instruction: str = ''
+
+@app.post('/jarvis/act')
+def jarvis_act(body: JarvisActIn, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    instr = (body.instruction or '').strip()
+    if not instr:
+        raise HTTPException(400, 'instruction fehlt')
+    try:    snap = _jarvis_snapshot()
+    except Exception: snap = {}
+    sys = ("Du bist Jarvis, der handelnde Operations-Agent des CRM. Der Nutzer gibt dir einen Auftrag. "
+           "Nutze die verfügbaren Tools, um die passende(n) Aktion(en) VORZUSCHLAGEN (sie werden erst nach Bestätigung ausgeführt). "
+           "Wenn kein Tool passt, antworte einfach als Text. Keine Täuschung, keine Fake-Verifizierung, kein unseriöser Druck. "
+           "Antworte auf Deutsch.")
+    try:
+        msg = _openai_chat_tools([{'role': 'system', 'content': sys},
+                                  {'role': 'user', 'content': instr}], _JARVIS_TOOLS)
+    except Exception as e:
+        print(f'/jarvis/act error: {e}')
+        return {'ok': False, 'error': _ai_err_msg(e)}
+    actions = []
+    for tc in (msg.get('tool_calls') or []):
+        try:
+            fn = tc['function']['name']
+            args = _json.loads(tc['function'].get('arguments') or '{}')
+            actions.append({'type': fn, 'label': _ACT_LABELS.get(fn, fn), 'params': args})
+        except Exception as e:
+            print(f'act parse: {e}')
+    return {'ok': True, 'reply': (msg.get('content') or '').strip(), 'actions': actions}
+
+class JarvisActExec(BaseModel):
+    type: str = ''
+    params: dict = {}
+
+@app.post('/jarvis/act/execute')
+def jarvis_act_execute(body: JarvisActExec, request: Request):
+    user = getattr(request.state, 'user', {}) or {}
+    if user.get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    t = (body.type or '').strip(); p = body.params or {}
+    try:
+        if t == 'create_note':
+            with db() as conn, conn.cursor() as c:
+                c.execute('INSERT INTO shared_notes (author, text, pinned, created_at) VALUES (%s,%s,0,%s)',
+                          ('Jarvis', (p.get('text') or '')[:5000], datetime.now().isoformat()))
+            return {'ok': True, 'result': 'Notiz angelegt.'}
+        if t == 'create_todo':
+            txt = '[TODO' + ((' @' + p['assignee']) if p.get('assignee') else '') + '] ' + (p.get('text') or '')
+            with db() as conn, conn.cursor() as c:
+                c.execute('INSERT INTO shared_notes (author, text, pinned, created_at) VALUES (%s,%s,1,%s)',
+                          ('Jarvis', txt[:5000], datetime.now().isoformat()))
+            return {'ok': True, 'result': 'To-do angelegt.'}
+        if t == 'flag_review':
+            note = '🚩 REVIEW: ' + (p.get('ziel') or '?') + ' — ' + (p.get('grund') or '')
+            with db() as conn, conn.cursor() as c:
+                c.execute('INSERT INTO shared_notes (author, text, pinned, created_at) VALUES (%s,%s,1,%s)',
+                          ('Jarvis', note[:5000], datetime.now().isoformat()))
+            return {'ok': True, 'result': 'Zur Review geflaggt (als angepinnte Notiz).'}
+        if t in ('draft_broadcast', 'draft_winback'):
+            try:    know = _jarvis_knowledge()
+            except Exception: know = {}
+            pl = know.get('preisliste', '')
+            if t == 'draft_broadcast':
+                sysm = ("Du bist Jarvis. Schreibe einen fertigen, sendbaren Broadcast-Text an Abonnenten "
+                        "(flirty-locker, kurz, mit klarem Angebot/CTA). Keine Täuschung/kein Druck. Nur den Text ausgeben.")
+                um = 'Ziel/Anlass: ' + (p.get('ziel') or '') + '\nKernbotschaft: ' + (p.get('kernbotschaft') or '')
+            else:
+                sysm = ("Du bist Jarvis. Schreibe eine persönliche, warme Winback-Nachricht an einen inaktiven Kunden "
+                        "(locker, anknüpfend, mit sanftem Angebot). Keine Täuschung/kein Druck. Nur den Text ausgeben.")
+                um = 'Kunde: ' + (p.get('kunde') or '') + '\nAnlass: ' + (p.get('anlass') or '')
+            if pl: um += '\nEchte Preise: ' + str(pl)[:600]
+            text = _openai_chat([{'role': 'system', 'content': sysm}, {'role': 'user', 'content': um}], max_tokens=320, temperature=0.6)
+            return {'ok': True, 'result': 'Entwurf erstellt (noch NICHT gesendet):', 'draft': text}
+        return {'ok': False, 'error': 'Unbekannte Aktion.'}
+    except Exception as e:
+        print(f'/jarvis/act/execute error: {e}')
+        return {'ok': False, 'error': str(e)}
+
 # ── Jarvis Briefing (Schichtstart / pro Chatter) ────────────────────────────
 def _jarvis_chatter_stats(name):
     now_b = _team_berlin_now()

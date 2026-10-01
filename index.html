@@ -2777,8 +2777,9 @@
       <div class="jv-chat" id="jv-chat"></div>
       <div class="jv-out" id="jv-out" style="display:none"></div>
       <div class="jv-ask">
-        <input id="jv-q" placeholder="Frag Jarvis… (z.B. „Welcher Chatter ist am stärksten?")" onkeydown="if(event.key==='Enter')jarvisAsk()">
+        <input id="jv-q" placeholder="Frag Jarvis… (oder gib ⚡ einen Auftrag, z.B. „schreib einen Broadcast für das Wochenende")" onkeydown="if(event.key==='Enter')jarvisAsk()">
         <button class="jv-send" onclick="jarvisAsk()">Fragen ↑</button>
+        <button class="jv-send" onclick="jarvisActFromInput()" style="background:linear-gradient(135deg,#7c5cff,#a78bfa);color:#fff;" title="Jarvis eine Aktion ausführen lassen (mit Bestätigung)">⚡ Handeln</button>
       </div>
     </div>
 
@@ -3251,7 +3252,18 @@
           </div>
           <div id="ai-suggest-chips" style="display:flex;flex-direction:column;gap:5px;"></div>
         </div>
+        <!-- JARVIS LIVE-CO-PILOT -->
+        <div id="jvlive-bar" style="display:none;align-items:flex-start;gap:9px;padding:9px 12px;border-top:1px solid rgba(124,92,255,.25);background:linear-gradient(90deg,rgba(0,212,170,.07),rgba(124,92,255,.07));flex-shrink:0;">
+          <div style="width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#00d4aa,#7c5cff);display:grid;place-items:center;flex:none;margin-top:1px;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg></div>
+          <div style="flex:1;min-width:0;">
+            <div id="jvlive-hint" style="font-size:12.5px;font-weight:700;color:var(--text);line-height:1.4;">Jarvis beobachtet…</div>
+            <div id="jvlive-sugg" style="font-size:12.5px;color:var(--text2);line-height:1.45;margin-top:3px;white-space:pre-wrap;"></div>
+          </div>
+          <button id="jvlive-insert" onclick="jvLiveInsert()" style="display:none;background:linear-gradient(135deg,#00d4aa,#0bbf9c);border:none;color:#04231d;font-weight:800;font-size:11.5px;padding:7px 11px;border-radius:9px;cursor:pointer;flex:none;">✍️ Einfügen</button>
+          <button onclick="jvLiveToggle(false)" title="Live-Co-Pilot aus" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;flex:none;line-height:1;">×</button>
+        </div>
         <div class="reply-bar">
+          <button onclick="jvLiveToggle()" id="jvlive-btn" title="Jarvis Live-Co-Pilot an/aus" style="background:rgba(124,92,255,.12);border:1px solid rgba(124,92,255,.3);color:#cabcff;border-radius:10px;padding:11px 12px;font-size:15px;cursor:pointer;flex-shrink:0;">✨</button>
           <textarea id="chat-input" rows="1" placeholder="Write a message..." onkeydown="onChatKeydown(event)" oninput="onChatInput();this.style.height='auto';this.style.height=Math.min(this.scrollHeight,160)+'px';"></textarea>
           <button onclick="openVaultPicker()" title="Send file from Vault" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:var(--text2);border-radius:10px;padding:11px 12px;font-size:15px;cursor:pointer;flex-shrink:0;">📁</button>
           <button onclick="sendChatReply()">Send ↑</button>
@@ -6191,6 +6203,54 @@ function jarvisAsk(){
   document.getElementById('jv-q').value = '';
   _jvRun(q);
 }
+// ── Jarvis AKTIONEN (Handeln mit Freigabe) ──
+async function jarvisActFromInput(){
+  const q = document.getElementById('jv-q').value.trim();
+  if(!q){ alert('Sag Jarvis, was er tun soll — z.B. „Notiz: Whale #123 morgen nachfassen" oder „entwirf einen Broadcast fürs Wochenende".'); return; }
+  document.getElementById('jv-q').value='';
+  _jvAppend('user','⚡ '+q);
+  const t=_jvAppend('assistant','Jarvis überlegt, welche Aktion passt…');
+  try{
+    const d=await fetch('/api/jarvis/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instruction:q})}).then(r=>r.json());
+    if(!d.ok){ t.querySelector('.tx').textContent='⚠️ '+(d.detail||d.error||'nicht möglich'); return; }
+    if((d.actions||[]).length){
+      t.querySelector('.tx').textContent = d.reply || 'Vorschlag — bitte bestätigen:';
+      d.actions.forEach(a=>_jvRenderActionCard(a));
+    } else {
+      t.querySelector('.tx').textContent = d.reply || 'Dafür habe ich keine passende Aktion.';
+    }
+  }catch(e){ t.querySelector('.tx').textContent='Fehler: '+(e.message||e); }
+}
+function _jvRenderActionCard(a){
+  const box=document.getElementById('jv-chat');
+  const id='act-'+Math.random().toString(36).slice(2,8);
+  const params=Object.entries(a.params||{}).map(([k,v])=>`<div style="font-size:12px;color:var(--text3)"><b style="color:var(--text2)">${_jvEsc(k)}:</b> ${_jvEsc(String(v))}</div>`).join('');
+  box.insertAdjacentHTML('beforeend',`<div class="jv-msg a" id="${id}" style="max-width:92%;border-color:rgba(124,92,255,.5)">
+    <div style="font-weight:800;margin-bottom:6px;">${_jvEsc(a.label||a.type)}</div>
+    ${params}
+    <div class="tx" style="margin-top:8px;color:var(--text2)"></div>
+    <div class="act-ctrls" style="display:flex;gap:7px;margin-top:10px;">
+      <button class="jv-tab active" style="font-size:12px;" onclick='jvActExec(${JSON.stringify(JSON.stringify(a))},"${id}")'>✓ Ausführen</button>
+      <button class="jv-tab" style="font-size:12px;" onclick="document.getElementById('${id}').querySelector('.act-ctrls').innerHTML='<span style=color:var(--text3);font-size:12px>Verworfen.</span>'">✗ Verwerfen</button>
+    </div></div>`);
+  box.scrollTop=box.scrollHeight;
+}
+async function jvActExec(aJson, id){
+  let a; try{ a=JSON.parse(aJson); }catch(e){ return; }
+  const card=document.getElementById(id); if(!card) return;
+  const ctrls=card.querySelector('.act-ctrls'); if(ctrls) ctrls.innerHTML='<span style="color:var(--text3);font-size:12px">Führe aus…</span>';
+  try{
+    const d=await fetch('/api/jarvis/act/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:a.type,params:a.params})}).then(r=>r.json());
+    const tx=card.querySelector('.tx');
+    if(d.ok){
+      if(ctrls) ctrls.innerHTML='<span style="color:#22c55e;font-size:12px;font-weight:700">✓ '+_jvEsc(d.result||'erledigt')+'</span>';
+      if(d.draft && tx){ tx.textContent=d.draft; tx.style.color='var(--text)';
+        ctrls.insertAdjacentHTML('beforeend',' <button class="jv-tab" style="font-size:11px;margin-left:6px;" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest(\'.jv-msg\').querySelector(\'.tx\').textContent)">📋 Kopieren</button>'); }
+    } else {
+      if(ctrls) ctrls.innerHTML='<span style="color:#ff5c7a;font-size:12px">⚠️ '+_jvEsc(d.detail||d.error||'Fehler')+'</span>';
+    }
+  }catch(e){ if(ctrls) ctrls.innerHTML='<span style="color:#ff5c7a;font-size:12px">Fehler: '+_jvEsc(e.message||e)+'</span>'; }
+}
 async function jarvisReset(){
   if (!confirm('Gesprächsverlauf von Jarvis löschen?')) return;
   try { await fetch('/api/jarvis/reset', { method:'POST' }); document.getElementById('jv-chat').innerHTML=''; jvLoadHistory(); } catch(e){ alert('Fehler: '+(e.message||e)); }
@@ -6543,6 +6603,47 @@ async function jvCopilot(){
     const body = document.getElementById('jvToastBody');
     if(body) body.textContent = (d.ok && d.reply) ? d.reply : ('⚠️ '+(d.error||'Jarvis nicht erreichbar.'));
   } catch(e){ const body=document.getElementById('jvToastBody'); if(body) body.textContent='Fehler: '+(e.message||e); }
+}
+
+// ── JARVIS LIVE-CO-PILOT (flüstert im offenen Chat) ──────────────────────────
+let _jvLiveOn=false, _jvLiveTimer=null, _jvLiveTgLast=null, _jvLiveSugg='';
+function jvLiveToggle(force){
+  _jvLiveOn = (force===undefined) ? !_jvLiveOn : !!force;
+  const bar=document.getElementById('jvlive-bar'), btn=document.getElementById('jvlive-btn');
+  if(btn) btn.style.background = _jvLiveOn ? 'linear-gradient(135deg,#00d4aa,#7c5cff)' : 'rgba(124,92,255,.12)';
+  if(btn) btn.style.color = _jvLiveOn ? '#fff' : '#cabcff';
+  if(_jvLiveOn){
+    if(bar) bar.style.display='flex';
+    jvLivePoll();
+    if(_jvLiveTimer) clearInterval(_jvLiveTimer);
+    _jvLiveTimer=setInterval(jvLivePoll, 25000);
+  } else {
+    if(bar) bar.style.display='none';
+    if(_jvLiveTimer){ clearInterval(_jvLiveTimer); _jvLiveTimer=null; }
+  }
+}
+async function jvLivePoll(){
+  if(!_jvLiveOn) return;
+  const tg = (typeof window._getCurrentTgId==='function') ? window._getCurrentTgId() : null;
+  const hintEl=document.getElementById('jvlive-hint'), sugEl=document.getElementById('jvlive-sugg'), insBtn=document.getElementById('jvlive-insert'), bar=document.getElementById('jvlive-bar');
+  if(!tg){ if(hintEl) hintEl.textContent='Kein Kunde geöffnet.'; if(sugEl) sugEl.textContent=''; if(insBtn) insBtn.style.display='none'; return; }
+  if(hintEl && tg!==_jvLiveTgLast){ hintEl.textContent='Jarvis schaut sich den Chat an…'; sugEl.textContent=''; }
+  _jvLiveTgLast=tg;
+  try{
+    const d=await fetch('/api/jarvis/live-hint',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tg_id:String(tg)})}).then(r=>r.json());
+    if(!d.ok){ if(hintEl) hintEl.textContent='⚠️ '+(d.error||'nicht erreichbar'); return; }
+    const colors={hot:'#ff5c7a',warn:'#ffb43c',info:'#00d4aa'};
+    if(bar) bar.style.borderTopColor = (colors[d.level]||'#00d4aa');
+    if(hintEl){ hintEl.textContent=(d.level==='hot'?'🔥 ':d.level==='warn'?'⚠️ ':'💡 ')+(d.hint||''); hintEl.style.color=colors[d.level]||'var(--text)'; }
+    _jvLiveSugg=d.suggestion||'';
+    if(sugEl) sugEl.textContent=_jvLiveSugg?('„'+_jvLiveSugg+'"'):'';
+    if(insBtn) insBtn.style.display=_jvLiveSugg?'inline-block':'none';
+  }catch(e){ if(hintEl) hintEl.textContent='Fehler: '+(e.message||e); }
+}
+function jvLiveInsert(){
+  const inp=document.getElementById('chat-input'); if(!inp||!_jvLiveSugg) return;
+  inp.value=_jvLiveSugg; inp.focus();
+  try{ inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,160)+'px'; }catch(e){}
 }
 
 // Persönlicher Verdienst/Coaching läuft ausschließlich im Chatter-Dashboard (My Earnings) via eaJarvisCoach().
