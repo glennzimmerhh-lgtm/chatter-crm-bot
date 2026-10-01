@@ -2706,6 +2706,8 @@
       <div class="jv-head">
         <div class="jv-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg></div>
         <div><h1 class="page-title" style="margin:0">Jarvis</h1><div style="font-size:12.5px;color:var(--text3)">Operations · analysiert deine echten Zahlen</div></div>
+        <span style="flex:1"></span>
+        <button onclick="jvCallStart()" title="Jarvis anrufen" style="background:linear-gradient(135deg,#00d4aa,#7c5cff);border:none;color:#fff;font-weight:800;font-size:14px;padding:11px 18px;border-radius:12px;cursor:pointer;box-shadow:0 6px 18px -8px rgba(124,92,255,.7);">📞 Jarvis anrufen</button>
       </div>
     </div>
     <div class="jv-strip" id="jv-strip"></div>
@@ -12463,7 +12465,8 @@ window.renderCreatorsOverview = async function(){
   <div class="jp-head">
     <div class="jp-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg></div>
     <div><div class="jp-title">Jarvis</div><div class="jp-sub">Fragt deine echten Zahlen ab</div></div>
-    <button class="jp-x" onclick="jvOrbToggle()">×</button>
+    <button class="jp-x" onclick="jvCallStart()" title="Jarvis anrufen" style="font-size:18px;margin-left:auto;">📞</button>
+    <button class="jp-x" onclick="jvOrbToggle()" style="margin-left:4px;">×</button>
   </div>
   <div class="jp-body" id="jvPanelBody"></div>
   <div class="jp-quick" id="jvPanelQuick">
@@ -12527,6 +12530,160 @@ window.renderCreatorsOverview = async function(){
   setTimeout(refreshBadge,2000);
   setInterval(refreshBadge,120000);
   window._jvRefreshBadge=refreshBadge;
+})();
+</script>
+
+<!-- ═══ JARVIS ANRUFEN (Voice-Call: zuhören → denken → sprechen) ═══ -->
+<style>
+  #jvCall{ position:fixed; inset:0; z-index:10001; display:none; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(1200px 700px at 50% 20%, rgba(124,92,255,.18), rgba(8,10,14,.96)); backdrop-filter:blur(8px); }
+  #jvCall .jc-orb{ width:150px; height:150px; border-radius:50%; background:linear-gradient(135deg,#00d4aa,#7c5cff);
+    display:grid; place-items:center; box-shadow:0 0 0 0 rgba(124,92,255,.6); position:relative; }
+  #jvCall .jc-orb svg{ width:64px; height:64px; color:#fff; }
+  #jvCall .jc-orb.listening{ animation:jcPulse 1.3s infinite; }
+  #jvCall .jc-orb.speaking{ animation:jcPulse .7s infinite; }
+  #jvCall .jc-orb.thinking{ opacity:.8; animation:jcSpin 1.2s linear infinite; }
+  @keyframes jcPulse{ 0%{box-shadow:0 0 0 0 rgba(124,92,255,.55)} 70%{box-shadow:0 0 0 38px rgba(124,92,255,0)} 100%{box-shadow:0 0 0 0 rgba(124,92,255,0)} }
+  @keyframes jcSpin{ to{ transform:rotate(360deg) } }
+  #jvCall .jc-status{ margin-top:28px; font-size:17px; font-weight:800; color:#fff; letter-spacing:.3px; }
+  #jvCall .jc-sub{ margin-top:6px; font-size:13px; color:rgba(255,255,255,.6); }
+  #jvCall .jc-transcript{ margin-top:26px; width:min(560px,90vw); max-height:34vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:0 10px; }
+  #jvCall .jc-line{ font-size:14px; line-height:1.5; padding:9px 13px; border-radius:13px; max-width:85%; white-space:pre-wrap; }
+  #jvCall .jc-line.u{ align-self:flex-end; background:rgba(255,255,255,.12); color:#fff; }
+  #jvCall .jc-line.a{ align-self:flex-start; background:rgba(124,92,255,.22); color:#fff; border:1px solid rgba(124,92,255,.4); }
+  #jvCall .jc-controls{ margin-top:32px; display:flex; gap:18px; align-items:center; }
+  #jvCall .jc-btn{ border:none; cursor:pointer; border-radius:50%; width:62px; height:62px; display:grid; place-items:center; font-size:24px; }
+  #jvCall .jc-hang{ background:#ff3b5c; color:#fff; box-shadow:0 10px 30px -8px rgba(255,59,92,.7); }
+  #jvCall .jc-mute{ background:rgba(255,255,255,.14); color:#fff; }
+  #jvCall .jc-err{ margin-top:18px; color:#ff8da3; font-size:13px; max-width:560px; text-align:center; }
+</style>
+<div id="jvCall">
+  <div class="jc-orb" id="jcOrb">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+  </div>
+  <div class="jc-status" id="jcStatus">Verbinde…</div>
+  <div class="jc-sub" id="jcSub">Sprich einfach los — Jarvis hört zu.</div>
+  <div class="jc-transcript" id="jcTranscript"></div>
+  <div class="jc-err" id="jcErr"></div>
+  <div class="jc-controls">
+    <button class="jc-btn jc-mute" id="jcMute" onclick="jvCallToggleMute()" title="Mikro pausieren">⏸️</button>
+    <button class="jc-btn jc-hang" onclick="jvCallEnd()" title="Auflegen">📴</button>
+  </div>
+</div>
+<script>
+(function(){
+  let stream=null, ac=null, analyser=null, rec=null, chunks=[], running=false, paused=false, speaking=false, mime='audio/webm';
+  const orb=()=>document.getElementById('jcOrb');
+  function setState(cls, status, sub){
+    const o=orb(); if(o) o.className='jc-orb '+(cls||'');
+    const s=document.getElementById('jcStatus'); if(s&&status!=null) s.textContent=status;
+    const sb=document.getElementById('jcSub'); if(sb&&sub!=null) sb.textContent=sub;
+  }
+  function addLine(role,text){
+    const box=document.getElementById('jcTranscript'); if(!box) return;
+    const d=document.createElement('div'); d.className='jc-line '+(role==='user'?'u':'a'); d.textContent=text;
+    box.appendChild(d); box.scrollTop=box.scrollHeight;
+  }
+  function showErr(t){ const e=document.getElementById('jcErr'); if(e) e.textContent=t||''; }
+
+  window.jvCallStart=async function(){
+    const panel=document.getElementById('jvCall'); panel.style.display='flex';
+    document.getElementById('jcTranscript').innerHTML=''; showErr('');
+    setState('', 'Verbinde…', 'Mikrofon-Zugriff erlauben, dann einfach sprechen.');
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    }catch(e){ showErr('Kein Mikrofon-Zugriff. Bitte in den Browser-Einstellungen erlauben.'); setState('','Kein Mikro',''); return; }
+    // passende MIME finden (Safari = mp4, Chrome = webm)
+    mime = (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/webm')) ? 'audio/webm'
+         : (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/mp4')) ? 'audio/mp4' : '';
+    try{ ac=new (window.AudioContext||window.webkitAudioContext)(); analyser=ac.createAnalyser(); analyser.fftSize=2048;
+      ac.createMediaStreamSource(stream).connect(analyser); }catch(e){}
+    running=true; paused=false;
+    // Begrüßung von Jarvis
+    await jarvisSay('Hey, ich bin Jarvis. Frag mich was zu deinen Zahlen.');
+    if(running) listenLoop();
+  };
+
+  function listenLoop(){
+    if(!running||paused||speaking) return;
+    setState('listening','Ich höre zu…','Sprich jetzt. Nach einer Sprechpause antworte ich.');
+    chunks=[];
+    try{ rec=new MediaRecorder(stream, mime?{mimeType:mime}:undefined); }
+    catch(e){ rec=new MediaRecorder(stream); }
+    rec.ondataavailable=e=>{ if(e.data&&e.data.size>0) chunks.push(e.data); };
+    rec.onstop=onRecStop;
+    rec.start();
+    // Stille-Erkennung: stoppt die Aufnahme nach ~1.4s Ruhe (sobald überhaupt gesprochen wurde)
+    const buf=new Uint8Array(analyser? analyser.fftSize : 2048);
+    let spoke=false, silenceStart=performance.now(), started=performance.now();
+    (function tick(){
+      if(!running||paused||!rec||rec.state!=='recording') return;
+      let level=0;
+      if(analyser){ analyser.getByteTimeDomainData(buf); let sum=0; for(let i=0;i<buf.length;i++){ const v=(buf[i]-128)/128; sum+=v*v; } level=Math.sqrt(sum/buf.length); }
+      const now=performance.now();
+      if(level>0.04){ spoke=true; silenceStart=now; }
+      const maxLen = now-started>14000;           // Sicherheits-Stopp nach 14s
+      const silentEnough = spoke && (now-silenceStart>1400);
+      const noSpeechTimeout = !spoke && (now-started>6000); // 6s nichts gesagt → neu lauschen
+      if(silentEnough||maxLen){ try{rec.stop();}catch(e){} return; }
+      if(noSpeechTimeout){ try{rec.stop();}catch(e){} return; }
+      requestAnimationFrame(tick);
+    })();
+  }
+
+  async function onRecStop(){
+    if(!running) return;
+    const blob=new Blob(chunks,{type:mime||'audio/webm'});
+    if(!blob.size || blob.size<1200){ if(running&&!paused) listenLoop(); return; } // zu kurz → wieder lauschen
+    setState('thinking','Verstehe…','');
+    try{
+      const b64=await blobToB64(blob);
+      const tr=await fetch('/api/jarvis/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({audio_b64:b64, mime:(mime||'audio/webm'), filename:'audio.'+((mime||'webm').indexOf('mp4')>=0?'mp4':'webm')})}).then(r=>r.json());
+      const text=(tr.text||'').trim();
+      if(!tr.ok){ showErr(tr.error||'Spracherkennung fehlgeschlagen'); if(running&&!paused) listenLoop(); return; }
+      if(!text){ if(running&&!paused) listenLoop(); return; }
+      addLine('user',text);
+      setState('thinking','Jarvis denkt nach…','');
+      const d=await fetch('/api/jarvis/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text})}).then(r=>r.json());
+      const reply=(d.ok&&d.reply)?d.reply:('Entschuldige, '+(d.error||'ich komme gerade nicht an die Daten.'));
+      addLine('assistant',reply);
+      await jarvisSay(reply);
+    }catch(e){ showErr('Fehler: '+(e.message||e)); }
+    if(running&&!paused) listenLoop();
+  }
+
+  async function jarvisSay(text){
+    speaking=true; setState('speaking','Jarvis spricht…','');
+    try{
+      const r=await fetch('/api/jarvis/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(r=>r.json());
+      if(r.ok&&r.audio_b64){
+        await new Promise(res=>{
+          const a=new Audio('data:'+(r.mime||'audio/mpeg')+';base64,'+r.audio_b64);
+          a.onended=res; a.onerror=res; a.play().catch(res);
+        });
+      }
+    }catch(e){}
+    speaking=false;
+  }
+
+  function blobToB64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onloadend=()=>res(r.result); r.onerror=rej; r.readAsDataURL(blob); }); }
+
+  window.jvCallToggleMute=function(){
+    paused=!paused;
+    document.getElementById('jcMute').textContent=paused?'▶️':'⏸️';
+    if(paused){ setState('','Pausiert','Tippe ▶️ um weiterzusprechen.'); try{ if(rec&&rec.state==='recording') rec.stop(); }catch(e){} }
+    else { listenLoop(); }
+  };
+
+  window.jvCallEnd=function(){
+    running=false; speaking=false; paused=false;
+    try{ if(rec&&rec.state==='recording') rec.stop(); }catch(e){}
+    try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    try{ if(ac) ac.close(); }catch(e){}
+    stream=null; ac=null; analyser=null; rec=null; chunks=[];
+    const panel=document.getElementById('jvCall'); if(panel) panel.style.display='none';
+  };
 })();
 </script>
 </body>

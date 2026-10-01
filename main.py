@@ -4725,6 +4725,43 @@ def jarvis_speak(body: JarvisSpeak):
         print(f'/jarvis/speak error: {e}')
         return {'ok': False, 'error': _ai_err_msg(e)}
 
+# ── Jarvis Spracherkennung (OpenAI Whisper) — fürs "Anrufen" ────────────────
+class JarvisTranscribe(BaseModel):
+    audio_b64: str = ''
+    mime: str = 'audio/webm'
+    filename: str = 'audio.webm'
+
+@app.post('/jarvis/transcribe')
+def jarvis_transcribe(body: JarvisTranscribe):
+    if not OPENAI_API_KEY:
+        return {'ok': False, 'error': _ai_err_msg(Exception('OPENAI_API_KEY fehlt'))}
+    import base64 as _b64
+    try:
+        audio = _b64.b64decode((body.audio_b64 or '').split(',')[-1])
+    except Exception as e:
+        return {'ok': False, 'error': f'Audio ungültig: {e}'}
+    if not audio:
+        return {'ok': False, 'error': 'Kein Audio empfangen'}
+    mime = (body.mime or 'audio/webm').split(';')[0].strip() or 'audio/webm'
+    fname = (body.filename or 'audio.webm').strip() or 'audio.webm'
+    import uuid as _uuid
+    boundary = '----jarvisAudio' + _uuid.uuid4().hex
+    pre = (f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n'
+           f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{fname}"\r\n'
+           f'Content-Type: {mime}\r\n\r\n').encode()
+    post = (f'\r\n--{boundary}--\r\n').encode()
+    data = pre + audio + post
+    req = _urllib_req.Request('https://api.openai.com/v1/audio/transcriptions', data=data,
+        headers={'Authorization': f'Bearer {OPENAI_API_KEY}',
+                 'Content-Type': f'multipart/form-data; boundary={boundary}'})
+    try:
+        with _urllib_req.urlopen(req, timeout=40) as resp:
+            out = _json.loads(resp.read())
+        return {'ok': True, 'text': (out.get('text') or '').strip()}
+    except Exception as e:
+        print(f'/jarvis/transcribe error: {e}')
+        return {'ok': False, 'error': _ai_err_msg(e)}
+
 # ── Jarvis Co-Pilot (pro Kunde) ─────────────────────────────────────────────
 class JarvisCopilot(BaseModel):
     tg_id: str = ''
