@@ -2750,7 +2750,16 @@
           <option value="7">7 Tage</option><option value="14">14 Tage</option><option value="30" selected>30 Tage</option><option value="60">60 Tage</option>
         </select>
         <button class="jv-tab" onclick="loadLossReview(true)" style="font-size:12px;">↻ Neu analysieren</button>
-        <button class="jv-tab active" onclick="feedbackAll()" style="font-size:12px;">✍️ Feedback an alle</button>
+        <button class="jv-tab" onclick="feedbackAll()" style="font-size:12px;">✍️ Vorschau alle</button>
+        <button class="jv-tab active" onclick="sendFeedbackAll()" style="font-size:12px;">📨 Feedback an alle senden</button>
+      </div>
+      <div id="jv-daily-cfg" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid rgba(124,92,255,.3);border-radius:12px;padding:11px 14px;margin-bottom:14px;background:linear-gradient(160deg,rgba(0,212,170,.05),rgba(124,92,255,.06));">
+        <span style="font-size:13px;font-weight:700;">📅 Tägliches Auto-Feedback</span>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text2);cursor:pointer;"><input type="checkbox" id="jv-daily-on" onchange="jvDailySave()"> aktiv</label>
+        <label style="font-size:12.5px;color:var(--text2);">um <select id="jv-daily-hour" onchange="jvDailySave()" style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 8px;font-size:12px;"></select> Uhr</label>
+        <span style="flex:1"></span>
+        <span id="jv-daily-info" style="font-size:11.5px;color:var(--text3);"></span>
+        <button class="jv-tab active" onclick="jvDailyRunNow()" style="font-size:12px;">📨 Jetzt Tages-Feedback senden</button>
       </div>
       <div id="jv-loss" style="color:var(--text3);font-size:13px;">Analyse noch nicht geladen.</div>
     </div>
@@ -2784,6 +2793,31 @@
           <button class="jv-tab active" onclick="runDbCleanup()" style="font-size:12px;">🧹 Aufräumen + VACUUM</button>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:8px;">Wischt alte Zahlungs-Belege (Bilder) aus der DB — Sale &amp; Status bleiben erhalten. VACUUM gibt den Platz frei.</div>
+      </div>
+      <div class="jv-card" style="margin-top:18px;">
+        <h4>🗣️ Jarvis Stimme (Vorlesen & Anruf)</h4>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <select id="jv-voice" style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:9px;color:var(--text);padding:8px 11px;font-size:13px;"></select>
+          <button class="jv-tab" onclick="jvVoiceTest()" style="font-size:12px;">▶︎ Testen</button>
+          <button class="jv-tab active" onclick="jvVoiceSave()" style="font-size:12px;">Speichern</button>
+        </div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin:12px 0 6px;">Charakter der Stimme</div>
+        <textarea id="jv-voice-style" placeholder="z.B. Selbstbewusst, locker, lebendige Betonung, moderates Tempo — wie ein cooler Operations-Partner."></textarea>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">Natürliche KI-Stimme (gpt-4o-mini-tts). „ash", „onyx", „sage" klingen männlich/ruhig; „nova", „coral", „shimmer" heller.</div>
+      </div>
+      <div class="jv-card" style="margin-top:18px;border-color:rgba(0,212,170,.3);">
+        <h4>🤖 Jarvis Telegram-Bot</h4>
+        <div id="jv-bot-status" style="font-size:12.5px;color:var(--text2);line-height:1.6;">Lade Status…</div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);font-weight:700;margin:12px 0 6px;">Freigeschaltete Chat-IDs (Team)</div>
+        <textarea id="jv-bot-ids" placeholder="z.B. 123456789, 987654321 — die IDs, die der Bot bei /start anzeigt"></textarea>
+        <button class="jv-tab active" onclick="jvBotSave()" style="margin-top:8px;">IDs speichern</button>
+        <div style="font-size:11.5px;color:var(--text3);margin-top:12px;line-height:1.6;">
+          <b>Einrichten (einmalig):</b><br>
+          1. In Telegram <b>@BotFather</b> → <code>/newbot</code> → Namen vergeben → du bekommst einen <b>Bot-Token</b>.<br>
+          2. In Railway beim <b>worker</b> die Variable <code>JARVIS_BOT_TOKEN</code> = dieser Token setzen → Redeploy.<br>
+          3. Dein Team schreibt dem Bot <code>/start</code> — der Bot nennt jedem seine Chat-ID.<br>
+          4. Diese IDs hier oben eintragen &amp; speichern → ab dann antwortet Jarvis nur diesen Leuten.
+        </div>
       </div>
     </div>
     <audio id="jv-audio" style="display:none"></audio>
@@ -6029,6 +6063,7 @@ function jvTab(t){
   });
   if (t==='analyse' && !_jvAnalyticsLoaded) jvLoadAnalytics();
   if (t==='verluste' && !_jvLossLoaded) loadLossReview(false);
+  if (t==='memory'){ if(typeof loadJvBot==='function') loadJvBot(); if(typeof loadJvVoice==='function') loadJvVoice(); }
 }
 // ---- Chat + Gedächtnis ----
 async function jvLoadHistory(){
@@ -6093,6 +6128,48 @@ async function jarvisSaveKnowledge(){
     await fetch('/api/jarvis/knowledge', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ knowledge }) });
     const k = await fetch('/api/jarvis/knowledge?force=1').then(r=>r.json()); jvRenderKnowledge(k);
     alert('Wissen gespeichert — Jarvis liest es ab jetzt mit ein.');
+  } catch(e){ alert('Fehler: '+(e.message||e)); }
+}
+let _jvVoiceLoaded=false;
+async function loadJvVoice(){
+  const sel=document.getElementById('jv-voice'); if(!sel) return;
+  try{
+    const d=await fetch('/api/jarvis/voice').then(r=>r.json());
+    sel.innerHTML=(d.voices||['ash']).map(v=>`<option value="${v}" ${v===d.voice?'selected':''}>${v}</option>`).join('');
+    const st=document.getElementById('jv-voice-style'); if(st && !st.dataset.loaded){ st.value=d.style||''; st.dataset.loaded='1'; }
+    _jvVoiceLoaded=true;
+  }catch(e){}
+}
+async function jvVoiceSave(){
+  const voice=document.getElementById('jv-voice').value;
+  const style=document.getElementById('jv-voice-style').value.trim();
+  try{ await fetch('/api/jarvis/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({voice,style})}); alert('Stimme gespeichert.'); }
+  catch(e){ alert('Fehler: '+(e.message||e)); }
+}
+async function jvVoiceTest(){
+  const voice=document.getElementById('jv-voice').value;
+  try{
+    const r=await fetch('/api/jarvis/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Hey, ich bin Jarvis. So klinge ich jetzt.', voice})}).then(r=>r.json());
+    if(r.ok&&r.audio_b64){ const a=new Audio('data:'+(r.mime||'audio/mpeg')+';base64,'+r.audio_b64); a.play().catch(()=>{}); }
+    else alert('⚠️ '+(r.error||'Konnte nicht abspielen'));
+  }catch(e){ alert('Fehler: '+(e.message||e)); }
+}
+async function loadJvBot(){
+  const s = document.getElementById('jv-bot-status'); if(!s) return;
+  try {
+    const d = await fetch('/api/jarvis/bot/status').then(r=>r.json());
+    if (d.detail){ s.innerHTML='<span style="color:#ff5c7a">'+_jvEsc(d.detail)+'</span>'; return; }
+    const tok = d.token_set ? '<b style="color:#22c55e">✓ Token gesetzt — Bot aktiv</b>' : '<b style="color:#ffb43c">✗ Kein Token — Bot aus (siehe Anleitung unten)</b>';
+    s.innerHTML = tok + '<br>Freigeschaltet: <b>'+((d.allowed||[]).length)+'</b> Chat-ID(s)';
+    const ta = document.getElementById('jv-bot-ids'); if(ta && !ta.dataset.loaded){ ta.value=(d.allowed||[]).join(', '); ta.dataset.loaded='1'; }
+  } catch(e){ s.innerHTML='<span style="color:#ff5c7a">Fehler: '+_jvEsc(e.message||e)+'</span>'; }
+}
+async function jvBotSave(){
+  const ids = document.getElementById('jv-bot-ids').value.trim();
+  try {
+    const d = await fetch('/api/jarvis/bot/allow', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) }).then(r=>r.json());
+    if (d.ok){ alert('Gespeichert — '+(d.allowed||[]).length+' Chat-ID(s) freigeschaltet.'); loadJvBot(); }
+    else alert(d.detail||'Fehler');
   } catch(e){ alert('Fehler: '+(e.message||e)); }
 }
 function jvRenderKnowledge(k){
@@ -6219,8 +6296,34 @@ const _JV_LOSS_META = {
   payment:    {icon:'💳', color:'#4a9eff', label:'Zahlungsmethode / Preis'},
   bad_sub:    {icon:'🥱', color:'#8a8f98', label:'Sub war einfach schlecht'}
 };
+let _jvDailyLoaded=false;
+async function loadJvDaily(){
+  const hs=document.getElementById('jv-daily-hour'); if(hs && !hs.options.length){ for(let h=0;h<24;h++){ const o=document.createElement('option'); o.value=h; o.textContent=(h<10?'0':'')+h+':00'; hs.appendChild(o);} }
+  try{
+    const d=await fetch('/api/jarvis/daily-feedback/config').then(r=>r.json());
+    if(d.detail) return;
+    document.getElementById('jv-daily-on').checked=!!d.enabled;
+    if(hs) hs.value=d.hour;
+    const info=document.getElementById('jv-daily-info'); if(info) info.textContent = d.last_run? ('Zuletzt: '+d.last_run) : 'Noch nicht gelaufen';
+    _jvDailyLoaded=true;
+  }catch(e){}
+}
+async function jvDailySave(){
+  const enabled=document.getElementById('jv-daily-on').checked;
+  const hour=parseInt(document.getElementById('jv-daily-hour').value||'9',10);
+  try{ await fetch('/api/jarvis/daily-feedback/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled,hour})}); }catch(e){}
+}
+async function jvDailyRunNow(){
+  if(!confirm('Jarvis jetzt das Tages-Feedback an alle Chatter mit Verlusten senden? Jeder bekommt es direkt im CRM.')) return;
+  try{
+    const d=await fetch('/api/jarvis/daily-feedback/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json());
+    if(d.ok) alert('📨 Tages-Feedback an '+(d.count||0)+' Chatter gesendet: '+((d.sent||[]).join(', ')||'—'));
+    else alert(d.detail||d.error||'Fehler');
+  }catch(e){ alert('Fehler: '+(e.message||e)); }
+}
 async function loadLossReview(force){
   const box = document.getElementById('jv-loss'); if(!box) return;
+  if(!_jvDailyLoaded) loadJvDaily();
   const days = document.getElementById('jv-loss-days').value || 30;
   box.innerHTML = 'Jarvis liest alle Chats ohne Kauf… (das kann kurz dauern)';
   try {
@@ -6243,18 +6346,26 @@ function _jvRenderLoss(a){
   html += '</div>';
   // Pro-Chatter Tabelle
   html += '<div class="jv-card"><h4>👤 Verluste pro Chatter</h4>';
-  html += '<div style="display:flex;font-size:10.5px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:4px 0;border-bottom:1px solid var(--border);"><span style="flex:1">Chatter</span><span style="width:44px;text-align:center">Σ</span><span style="width:40px;text-align:center" title="Fakecheck">🕵️</span><span style="width:40px;text-align:center" title="Antwortzeit">🐌</span><span style="width:40px;text-align:center" title="Zahlung">💳</span><span style="width:40px;text-align:center" title="Schwacher Sub">🥱</span><span style="width:64px;text-align:right">Ø Antw.</span><span style="width:90px;text-align:right">Feedback</span></div>';
+  html += '<div style="display:flex;font-size:10.5px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:4px 0;border-bottom:1px solid var(--border);"><span style="flex:1">Chatter</span><span style="width:44px;text-align:center">Σ</span><span style="width:40px;text-align:center" title="Fakecheck">🕵️</span><span style="width:40px;text-align:center" title="Antwortzeit">🐌</span><span style="width:40px;text-align:center" title="Zahlung">💳</span><span style="width:40px;text-align:center" title="Schwacher Sub">🥱</span><span style="width:64px;text-align:right">Ø Antw.</span><span style="width:160px;text-align:right">Feedback</span></div>';
   html += (a.by_chatter||[]).map(r=>{
     const ar = (r.avg_reply_min!=null)? (r.avg_reply_min+'m') : '—';
-    return `<div style="display:flex;align-items:center;font-size:13px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);">
-      <span style="flex:1;font-weight:600;">${_jvEsc(r.chatter)}</span>
-      <span style="width:44px;text-align:center;font-weight:800;">${r.lost}</span>
-      <span style="width:40px;text-align:center;color:#ff5c7a">${r.fakecheck||0}</span>
-      <span style="width:40px;text-align:center;color:#ffb43c">${r.reply_time||0}</span>
-      <span style="width:40px;text-align:center;color:#4a9eff">${r.payment||0}</span>
-      <span style="width:40px;text-align:center;color:#8a8f98">${r.bad_sub||0}</span>
-      <span style="width:64px;text-align:right;color:var(--text3)">${ar}</span>
-      <span style="width:90px;text-align:right"><button class="jv-tab" style="font-size:11px;padding:5px 10px;" onclick="chatterFeedback('${_jvEsc(r.chatter).replace(/'/g,"")}')">✍️ Schreiben</button></span>
+    const fails = (r.top_fehler||[]).map(f=>`<span style="display:inline-block;background:rgba(255,92,122,.12);border:1px solid rgba(255,92,122,.3);color:#ff8da3;font-size:10.5px;padding:2px 7px;border-radius:7px;margin:2px 4px 0 0;">${_jvEsc(f.fehler)} ×${f.anzahl}</span>`).join('');
+    const nm = _jvEsc(r.chatter).replace(/'/g,"");
+    return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+      <div style="display:flex;align-items:center;font-size:13px;">
+        <span style="flex:1;font-weight:600;">${_jvEsc(r.chatter)}</span>
+        <span style="width:44px;text-align:center;font-weight:800;" title="verlorene potenzielle Käufer">${r.lost}</span>
+        <span style="width:40px;text-align:center;color:#ff5c7a">${r.fakecheck||0}</span>
+        <span style="width:40px;text-align:center;color:#ffb43c">${r.reply_time||0}</span>
+        <span style="width:40px;text-align:center;color:#4a9eff">${r.payment||0}</span>
+        <span style="width:40px;text-align:center;color:#8a8f98">${r.bad_sub||0}</span>
+        <span style="width:64px;text-align:right;color:var(--text3)">${ar}</span>
+        <span style="width:160px;text-align:right;display:flex;gap:5px;justify-content:flex-end">
+          <button class="jv-tab" style="font-size:11px;padding:5px 9px;" onclick="chatterFeedback('${nm}')" title="Feedback erzeugen (Vorschau)">✍️</button>
+          <button class="jv-tab active" style="font-size:11px;padding:5px 9px;" onclick="sendChatterFeedback('${nm}')" title="Feedback an Chatter senden">📨</button>
+        </span>
+      </div>
+      ${fails?`<div style="margin-top:4px;padding-left:2px;">${fails}</div>`:''}
     </div>`;
   }).join('') || '<div class="jv-row">Keine Verluste im Zeitraum 🎉</div>';
   html += '</div>';
@@ -6275,6 +6386,23 @@ async function feedbackAll(){
   if (!_jvLossData || !(_jvLossData.by_chatter||[]).length){ alert('Erst Verluste analysieren.'); return; }
   const box = document.getElementById('jv-loss-feedback'); box.innerHTML='';
   for (const r of _jvLossData.by_chatter){ if(r.chatter && r.chatter!=='—') await chatterFeedback(r.chatter); }
+}
+async function sendChatterFeedback(name){
+  if (!confirm('Jarvis-Feedback an '+name+' senden? Es erscheint bei '+name+' direkt im CRM (Postfach).')) return;
+  const days = document.getElementById('jv-loss-days').value || 30;
+  try {
+    const d = await fetch('/api/jarvis/send-feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ chatter:name, days: parseInt(days,10) }) }).then(r=>r.json());
+    if (d.ok) alert('📨 Gesendet an '+name+' — erscheint bei ihm im CRM-Postfach.');
+    else alert(d.detail||d.error||'Fehler');
+  } catch(e){ alert('Fehler: '+(e.message||e)); }
+}
+async function sendFeedbackAll(){
+  if (!confirm('Jarvis-Feedback an ALLE Chatter mit Verlusten senden? Jeder bekommt sein persönliches Feedback direkt im CRM.')) return;
+  try {
+    const d = await fetch('/api/jarvis/send-feedback-all', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) }).then(r=>r.json());
+    if (d.ok) alert('📨 Feedback an '+(d.count||0)+' Chatter gesendet: '+((d.sent||[]).join(', ')||'—'));
+    else alert(d.detail||d.error||'Fehler');
+  } catch(e){ alert('Fehler: '+(e.message||e)); }
 }
 
 // ── JARVIS-Integration: Dashboard-Karte, Chat-Co-Pilot, Earnings, Schicht-Briefing ──
@@ -12684,6 +12812,51 @@ window.renderCreatorsOverview = async function(){
     stream=null; ac=null; analyser=null; rec=null; chunks=[];
     const panel=document.getElementById('jvCall'); if(panel) panel.style.display='none';
   };
+})();
+</script>
+
+<!-- ═══ JARVIS POSTFACH (Nachrichten von Jarvis an den eingeloggten Chatter) ═══ -->
+<style>
+  #jvInbox{ position:fixed; left:22px; bottom:22px; width:360px; max-width:calc(100vw - 32px); z-index:9997; display:none; flex-direction:column; gap:10px; }
+  #jvInbox .ji-card{ background:var(--bg2,#12151c); border:1px solid rgba(124,92,255,.35); border-radius:15px; overflow:hidden; box-shadow:0 18px 44px -14px rgba(0,0,0,.6); }
+  #jvInbox .ji-head{ display:flex; align-items:center; gap:9px; padding:11px 13px; background:linear-gradient(135deg,rgba(0,212,170,.15),rgba(124,92,255,.15)); border-bottom:1px solid var(--border); }
+  #jvInbox .ji-orb{ width:26px; height:26px; border-radius:8px; background:linear-gradient(135deg,#00d4aa,#7c5cff); display:grid; place-items:center; flex:none; }
+  #jvInbox .ji-orb svg{ width:15px; height:15px; color:#fff; }
+  #jvInbox .ji-title{ font-weight:800; font-size:13px; }
+  #jvInbox .ji-body{ padding:13px; font-size:13.5px; line-height:1.55; color:var(--text2); white-space:pre-wrap; max-height:40vh; overflow-y:auto; }
+  #jvInbox .ji-ok{ display:block; width:100%; border:none; border-top:1px solid var(--border); background:rgba(255,255,255,.04); color:var(--text); font-weight:700; font-size:13px; padding:11px; cursor:pointer; }
+  #jvInbox .ji-ok:hover{ background:rgba(0,212,170,.12); }
+</style>
+<div id="jvInbox"></div>
+<script>
+(function(){
+  function me(){ try { return localStorage.getItem('crm_user')||''; } catch(e){ return ''; } }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  let shown={};
+  async function check(){
+    const u=me(); if(!u){ return; }
+    try{
+      const d=await fetch('/api/me/jarvis-messages?chatter='+encodeURIComponent(u)).then(r=>r.json());
+      const unread=(d.messages||[]).filter(m=>!m.read && !shown[m.id]);
+      if(!unread.length) return;
+      const box=document.getElementById('jvInbox'); box.style.display='flex'; box.innerHTML='';
+      unread.slice(0,3).forEach(m=>{
+        shown[m.id]=1;
+        const kindLbl = m.kind==='feedback' ? 'Jarvis · Dein Coaching' : 'Jarvis';
+        const el=document.createElement('div'); el.className='ji-card'; el.id='ji-'+m.id;
+        el.innerHTML=`<div class="ji-head"><div class="ji-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg></div><div class="ji-title">${esc(kindLbl)}</div></div><div class="ji-body">${esc(m.text)}</div><button class="ji-ok" onclick="jvInboxRead(${m.id})">Verstanden ✓</button>`;
+        box.appendChild(el);
+      });
+    }catch(e){}
+  }
+  window.jvInboxRead=async function(id){
+    try{ await fetch('/api/me/jarvis-messages/'+id+'/read',{method:'POST'}); }catch(e){}
+    const el=document.getElementById('ji-'+id); if(el) el.remove();
+    const box=document.getElementById('jvInbox'); if(box && !box.children.length) box.style.display='none';
+  };
+  setTimeout(check, 3500);
+  setInterval(check, 60000);
+  window._jvInboxCheck=check;
 })();
 </script>
 </body>

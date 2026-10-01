@@ -4267,6 +4267,10 @@ def _jarvis_knowledge(force=False):
         }
     except Exception as e:
         print(f'jarvis knowledge settings: {e}')
+    k['geschaeftslogik'] = ("Traffic wird bezahlt (eingekaufte Werbung). Jeder Sub kommt bewusst, um zu kaufen — "
+                            "jeder Sub ist ein potenzieller zahlender Kunde. Jeder Nicht-Kauf ist eine verlorene, bezahlte Chance "
+                            "und ist in der Regel ein Fehler im Chat (zu langsam, kein Angebot, Kaufsignal verpasst, Einwand nicht gelöst), "
+                            "nicht einfach 'Pech'. Entsprechend streng bewerten.")
     _JV_KNOW_CACHE['ts'] = now; _JV_KNOW_CACHE['data'] = k
     return k
 
@@ -4311,23 +4315,55 @@ def _jv_categorize_lost(msgs, conv):
                 gaps.append(dt / 60.0)
             last_in = None
     avg_reply = round(sum(gaps) / len(gaps), 1) if gaps else None
-    txt = ' '.join((m.get('text') or '').lower() for m in msgs)
+    # Erste Antwortzeit (erste Kunden-Nachricht → erste Chatter-Antwort)
+    first_in_ts = next((m.get('_ts') for m in seq if m['direction'] == 'in' and m.get('_ts')), None)
+    first_out_ts = next((m.get('_ts') for m in seq if m['direction'] == 'out' and m.get('_ts') and first_in_ts and m.get('_ts') >= first_in_ts), None)
+    first_resp_min = round((first_out_ts - first_in_ts) / 60.0, 1) if (first_in_ts and first_out_ts) else None
+    last_dir = seq[-1]['direction'] if seq else ''
+    out_txt = ' '.join((m.get('text') or '').lower() for m in outs)
+    in_txt = ' '.join((m.get('text') or '').lower() for m in ins)
+    txt = out_txt + ' ' + in_txt
     FAKE = ['fake', 'echt?', 'bist du echt', 'wirklich du', 'verifi', 'verify', 'beweis', 'beweise', 'fakecheck',
             'fake check', 'betrug', 'scam', 'abzocke', 'kein bock abgezockt', 'trau dir nicht', 'vertrauen']
     PAY = ['paypal', 'paysafe', 'überweis', 'iban', 'wie zahle', 'wie bezahl', 'zahlungs', 'amazon', 'krypto',
            'bitcoin', 'zu teuer', 'kein geld', 'kann nicht zahl', 'zahlen wie', 'andere zahlung', 'nur bar']
+    OFFER = ['€', 'eur', 'ppv', 'call', 'video', 'content', 'preis', 'kostet', 'angebot', 'biete', 'dreißig', 'fünfzig', 'zwanzig']
+    BUY = ['wie zahl', 'wie kann ich', 'ich will', 'ich möchte', 'schick mir', 'preis', 'kostet', 'kaufen', 'zahlen',
+           'bin bereit', 'machen wir', 'ok ich', 'gerne', 'wie viel', 'wie teuer', 'zeig mir']
+    offer_made = any(t in out_txt for t in OFFER)
+    buy_signal = any(t in in_txt for t in BUY)
     low_engage = (len(ins) < 3) or bool(conv.get('time_waster'))
-    if any(t in txt for t in FAKE):
+    # Konkrete Sollbruchstellen (was hat der Chatter verkackt?)
+    fails = []
+    if last_dir == 'in':
+        fails.append('Kunde zuletzt NICHT beantwortet (auf gelesen gelassen)')
+    if first_resp_min is not None and first_resp_min > 10:
+        fails.append(f'Erste Antwort erst nach {int(first_resp_min)} min')
+    if avg_reply is not None and avg_reply > 20:
+        fails.append(f'Im Schnitt {int(avg_reply)} min pro Antwort (zu langsam)')
+    if not offer_made and len(ins) >= 3:
+        fails.append('Nie ein konkretes Angebot/Preis gemacht')
+    if buy_signal:
+        fails.append('Kaufsignal des Kunden nicht zum Abschluss genutzt')
+    if any(t in in_txt for t in FAKE):
+        fails.append('Verifizierungs-/Vertrauensfrage nicht souverän geklärt')
+    if any(t in in_txt for t in PAY):
+        fails.append('Zahlungsfrage/Einwand nicht gelöst')
+    # Kategorie (Hauptgrund)
+    if any(t in in_txt for t in FAKE):
         cat = 'fakecheck'
-    elif avg_reply is not None and avg_reply > 20:
+    elif (first_resp_min is not None and first_resp_min > 15) or (avg_reply is not None and avg_reply > 20):
         cat = 'reply_time'
-    elif any(t in txt for t in PAY):
+    elif any(t in in_txt for t in PAY):
         cat = 'payment'
+    elif buy_signal and not offer_made:
+        cat = 'reply_time' if (avg_reply and avg_reply > 20) else 'bad_sub'
     elif low_engage:
         cat = 'bad_sub'
     else:
         cat = 'bad_sub'
-    return cat, avg_reply, chatter
+    return cat, avg_reply, chatter, {'fails': fails, 'first_resp_min': first_resp_min,
+                                     'offer_made': offer_made, 'buy_signal': buy_signal}
 
 def _jarvis_loss_analysis(days=30, max_chats=250, force=False):
     import time as _t
@@ -4369,20 +4405,33 @@ def _jarvis_loss_analysis(days=30, max_chats=250, force=False):
             dt = _jv_parse_ts(m['timestamp'])
             if dt: m['_ts'] = dt.timestamp()
             msgs_by.setdefault(r['tg_id'], []).append(m)
-    from collections import defaultdict
+    from collections import defaultdict, Counter
     per_ch = defaultdict(lambda: {'chatter': '', 'lost': 0, 'fakecheck': 0, 'reply_time': 0,
-                                  'payment': 0, 'bad_sub': 0, '_reply_sum': 0.0, '_reply_n': 0})
+                                  'payment': 0, 'bad_sub': 0, '_reply_sum': 0.0, '_reply_n': 0,
+                                  '_fails': Counter(), 'no_offer': 0, 'ignored_buy': 0, 'left_on_read': 0, '_examples': []})
     for conv in cands:
         msgs = msgs_by.get(conv['tg_id'], [])
         if not msgs:
             continue
-        cat, avg_reply, chatter = _jv_categorize_lost(msgs, conv)
+        cat, avg_reply, chatter, extra = _jv_categorize_lost(msgs, conv)
         out['analyzed'] += 1
         out['by_category'][cat] += 1
         who = chatter or '—'
         p = per_ch[who]; p['chatter'] = who; p['lost'] += 1; p[cat] += 1
         if avg_reply is not None:
             p['_reply_sum'] += avg_reply; p['_reply_n'] += 1
+        fails = (extra or {}).get('fails') or []
+        for f in fails:
+            p['_fails'][f] += 1
+        if not (extra or {}).get('offer_made') and any('Angebot' in f for f in fails):
+            p['no_offer'] += 1
+        if (extra or {}).get('buy_signal'):
+            p['ignored_buy'] += 1
+        if any('gelesen' in f for f in fails):
+            p['left_on_read'] += 1
+        if len(p['_examples']) < 4 and fails:
+            p['_examples'].append({'kunde': (conv.get('internal_name') or conv.get('anon_id') or '?'),
+                                   'fehler': fails[:3], 'letzte_nachricht': (conv.get('last_msg') or '')[:70]})
         if len(out['samples'][cat]) < 6:
             out['samples'][cat].append({
                 'name': conv.get('internal_name') or conv.get('anon_id') or '?',
@@ -4391,7 +4440,10 @@ def _jarvis_loss_analysis(days=30, max_chats=250, force=False):
     rows = []
     for who, p in per_ch.items():
         p['avg_reply_min'] = round(p['_reply_sum'] / p['_reply_n'], 1) if p['_reply_n'] else None
-        p.pop('_reply_sum', None); p.pop('_reply_n', None)
+        p['top_fehler'] = [{'fehler': k, 'anzahl': v} for k, v in p['_fails'].most_common(5)]
+        p['beispiele'] = p['_examples']
+        for k in ('_reply_sum', '_reply_n', '_fails', '_examples'):
+            p.pop(k, None)
         rows.append(p)
     rows.sort(key=lambda x: -x['lost'])
     out['by_chatter'] = rows
@@ -4505,35 +4557,214 @@ except Exception as _e:
 def jarvis_loss_review(days: int = 30, force: int = 0):
     return _jarvis_loss_analysis(days=days, force=bool(force))
 
-@app.get('/jarvis/chatter-feedback')
-def jarvis_chatter_feedback(chatter: str, days: int = 30):
-    name = (chatter or '').strip()
-    if not name:
-        raise HTTPException(400, 'chatter fehlt')
+def _jarvis_feedback_text(name, days=30):
+    """Erzeugt Jarvis' strenges QA-Feedback für einen Chatter. Gibt (text, stats) zurück."""
     loss = _jarvis_loss_analysis(days=days)
     mine = next((r for r in loss.get('by_chatter', []) if r['chatter'] == name), None)
     try:    stats = _jarvis_chatter_stats(name)
     except Exception: stats = {}
     import json as _jj
     lbl = loss.get('labels', {})
-    sys = ("Du bist Jarvis, QA-Coach einer Adult-Content-Agentur. Schreibe einem Chatter ein kurzes, faires, "
-           "konkretes Feedback auf Deutsch (max. 5-6 Sätze), warum bei ihm Sales NICHT zustande kamen, "
-           "aufgeschlüsselt nach den Kategorien Fakecheck/Verifizierung, Antwortzeit, Zahlungsmethode, schwacher Sub. "
-           "Gib pro relevanter Schwäche EINEN konkreten, seriösen Verbesserungstipp: schneller antworten, "
-           "Verifizierungsfragen EHRLICH und souverän beantworten (keine Täuschung/keine Fake-Beweise), "
-           "die passenden echten Zahlungsoptionen anbieten, schwache Subs früh erkennen statt Zeit zu verlieren. "
-           "Motivierend, nicht abwertend. Keine erfundenen Zahlen, nutze nur die gegebenen Daten. "
-           "Verbiete dir ausdrücklich, zu Täuschung oder Fake-Verifizierung zu raten.")
-    ctx = _jj.dumps({'chatter': name, 'verluste_kategorisiert': mine, 'labels': lbl,
+    sys = ("Du bist Jarvis, der strenge aber faire QA-Coach einer Adult-Content-Agentur. "
+           "WICHTIGE GESCHÄFTSLOGIK: Der Traffic ist BEZAHLT (eingekaufte Werbung). Jeder Sub, der reinkommt, kommt BEWUSST, "
+           "um zu kaufen — jeder Sub ist ein potenzieller zahlender Kunde. Deshalb ist JEDER Nicht-Kauf eine verlorene, "
+           "bezahlte Chance und muss als Fehler des Chatters behandelt werden (außer der Kunde war klar nur Time-Waster). "
+           "Schreibe dem Chatter ein klares, direktes Tages-Feedback (6-9 Sätze): sage ihm SCHWARZ AUF WEISS, bei wie vielen "
+           "potenziellen Käufern er den Sale NICHT geholt hat und WO genau die Sollbruchstellen lagen — nutze dafür die konkreten "
+           "Fehlerpunkte und Beispiele aus den Daten (zu langsame Erstantwort, Kunde auf gelesen gelassen, nie ein Angebot gemacht, "
+           "Kaufsignal ignoriert, Verifizierungs-/Zahlungsfrage nicht gelöst). "
+           "Gib pro Hauptschwäche EINEN konkreten, umsetzbaren Fix für morgen: schneller antworten, immer ein klares Angebot machen, "
+           "bei Kaufsignal sofort abschließen, Verifizierungsfragen EHRLICH und souverän klären (keine Täuschung/keine Fake-Beweise), "
+           "passende echte Zahlungswege anbieten. Sei fordernd und ehrlich, aber nicht beleidigend — Ziel ist, dass er morgen mehr schließt. "
+           "Keine erfundenen Zahlen. Verbiete dir ausdrücklich, zu Täuschung oder Fake-Verifizierung zu raten. Antworte auf Deutsch.")
+    ctx = _jj.dumps({'chatter': name, 'zeitraum_tage': days,
+                     'verlorene_potenzielle_kaeufer': (mine or {}).get('lost'),
+                     'aufschluesselung': mine, 'labels': lbl,
                      'umsatz': {'heute': stats.get('umsatz_heute'), '7_tage': stats.get('umsatz_7d'),
                                 'top_stunden': stats.get('top_stunden')}}, ensure_ascii=False)
+    reply = _openai_chat([{'role': 'system', 'content': sys},
+                          {'role': 'user', 'content': ctx}], max_tokens=480, temperature=0.5)
+    return reply, mine
+
+@app.get('/jarvis/chatter-feedback')
+def jarvis_chatter_feedback(chatter: str, days: int = 30):
+    name = (chatter or '').strip()
+    if not name:
+        raise HTTPException(400, 'chatter fehlt')
     try:
-        reply = _openai_chat([{'role': 'system', 'content': sys},
-                              {'role': 'user', 'content': ctx}], max_tokens=360, temperature=0.5)
+        reply, mine = _jarvis_feedback_text(name, days)
         return {'ok': True, 'chatter': name, 'reply': reply, 'stats': mine}
     except Exception as e:
         print(f'/jarvis/chatter-feedback error: {e}')
-        return {'ok': False, 'error': _ai_err_msg(e), 'stats': mine}
+        return {'ok': False, 'error': _ai_err_msg(e)}
+
+# ── JARVIS → CHATTER: internes Postfach im CRM ──────────────────────────────
+def _jv_staff_msg_table():
+    with db() as conn, conn.cursor() as c:
+        c.execute('''CREATE TABLE IF NOT EXISTS jarvis_staff_messages (
+            id BIGSERIAL PRIMARY KEY, chatter TEXT NOT NULL, text TEXT NOT NULL,
+            kind TEXT DEFAULT 'message', created_at TIMESTAMPTZ DEFAULT now(), read_at TIMESTAMPTZ)''')
+        c.execute("CREATE INDEX IF NOT EXISTS idx_jsm_chatter ON jarvis_staff_messages(chatter, id DESC)")
+
+def _jarvis_notify(chatter, text, kind='message'):
+    name = (chatter or '').strip()
+    if not name or not (text or '').strip():
+        return False
+    try:
+        _jv_staff_msg_table()
+        with db() as conn, conn.cursor() as c:
+            c.execute("INSERT INTO jarvis_staff_messages (chatter,text,kind) VALUES (%s,%s,%s)", (name, text[:4000], kind))
+        return True
+    except Exception as e:
+        print(f'jarvis notify: {e}'); return False
+
+class JarvisNotify(BaseModel):
+    chatter: str = ''
+    text: str = ''
+    kind: str = 'message'
+
+@app.post('/jarvis/notify')
+def jarvis_notify_ep(body: JarvisNotify, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    ok = _jarvis_notify(body.chatter, body.text, body.kind or 'message')
+    return {'ok': ok}
+
+class JarvisSendFeedback(BaseModel):
+    chatter: str = ''
+    days: int = 30
+
+@app.post('/jarvis/send-feedback')
+def jarvis_send_feedback(body: JarvisSendFeedback, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    name = (body.chatter or '').strip()
+    if not name:
+        raise HTTPException(400, 'chatter fehlt')
+    try:
+        text, _ = _jarvis_feedback_text(name, body.days or 30)
+        _jarvis_notify(name, text, 'feedback')
+        return {'ok': True, 'chatter': name, 'text': text}
+    except Exception as e:
+        print(f'/jarvis/send-feedback error: {e}')
+        return {'ok': False, 'error': _ai_err_msg(e)}
+
+@app.post('/jarvis/send-feedback-all')
+def jarvis_send_feedback_all(request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    loss = _jarvis_loss_analysis()
+    sent = []
+    for r in loss.get('by_chatter', []):
+        name = (r.get('chatter') or '').strip()
+        if not name or name == '—':
+            continue
+        try:
+            text, _ = _jarvis_feedback_text(name)
+            if _jarvis_notify(name, text, 'feedback'):
+                sent.append(name)
+        except Exception as e:
+            print(f'send-feedback-all {name}: {e}')
+    return {'ok': True, 'sent': sent, 'count': len(sent)}
+
+# ── TÄGLICHES automatisches Chatter-Feedback (jeder Sub = bezahlter Kaufinteressent) ──
+def _jarvis_run_daily_feedback(days=1):
+    loss = _jarvis_loss_analysis(days=days, force=True)
+    sent = []
+    for r in loss.get('by_chatter', []):
+        name = (r.get('chatter') or '').strip()
+        if not name or name == '—' or (r.get('lost') or 0) < 1:
+            continue
+        try:
+            text, _ = _jarvis_feedback_text(name, days)
+            if _jarvis_notify(name, text, 'daily'):
+                sent.append(name)
+        except Exception as e:
+            print(f'[jarvis-daily] {name}: {e}')
+    return sent
+
+def _jarvis_daily_loop():
+    import time as _t
+    _t.sleep(90)
+    while True:
+        try:
+            if get_setting('jarvis_daily_feedback', '1') in ('1', 'true', 'True', 'on'):
+                try:    hour = int(get_setting('jarvis_feedback_hour', '9') or 9)
+                except Exception: hour = 9
+                now_b = _team_berlin_now()
+                today = now_b.strftime('%Y-%m-%d')
+                if now_b.hour == hour and get_setting('jarvis_feedback_lastrun', '') != today:
+                    sent = _jarvis_run_daily_feedback(days=1)
+                    set_setting('jarvis_feedback_lastrun', today)
+                    print(f'[jarvis-daily] Tages-Feedback an {len(sent)} Chatter gesendet')
+        except Exception as e:
+            print(f'[jarvis-daily] loop: {e}')
+        _t.sleep(600)
+
+try:
+    import threading as _th_jvdaily
+    _th_jvdaily.Thread(target=_jarvis_daily_loop, daemon=True).start()
+except Exception as _e:
+    print(f'[jarvis-daily] start: {_e}')
+
+@app.post('/jarvis/daily-feedback/run')
+def jarvis_daily_run(request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    sent = _jarvis_run_daily_feedback(days=1)
+    return {'ok': True, 'sent': sent, 'count': len(sent)}
+
+@app.get('/jarvis/daily-feedback/config')
+def jarvis_daily_cfg(request: Request):
+    u = _session_user(request.headers.get('x-session-token', '')) or {}
+    if u.get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    return {'enabled': get_setting('jarvis_daily_feedback', '1') in ('1', 'true', 'True', 'on'),
+            'hour': int(get_setting('jarvis_feedback_hour', '9') or 9),
+            'last_run': get_setting('jarvis_feedback_lastrun', '')}
+
+class JarvisDailyCfg(BaseModel):
+    enabled: Optional[bool] = None
+    hour: Optional[int] = None
+
+@app.post('/jarvis/daily-feedback/config')
+def jarvis_daily_cfg_set(body: JarvisDailyCfg, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    if body.enabled is not None:
+        set_setting('jarvis_daily_feedback', '1' if body.enabled else '0')
+    if body.hour is not None:
+        set_setting('jarvis_feedback_hour', str(max(0, min(23, int(body.hour)))))
+    return {'ok': True, 'enabled': get_setting('jarvis_daily_feedback', '1') in ('1', 'true', 'True', 'on'),
+            'hour': int(get_setting('jarvis_feedback_hour', '9') or 9)}
+
+@app.get('/me/jarvis-messages')
+def me_jarvis_messages(chatter: str):
+    name = (chatter or '').strip()
+    if not name:
+        raise HTTPException(400, 'chatter fehlt')
+    try:
+        _jv_staff_msg_table()
+        with db() as conn, conn.cursor() as c:
+            c.execute("""SELECT id, text, kind, created_at, read_at FROM jarvis_staff_messages
+                         WHERE chatter=%s ORDER BY id DESC LIMIT 40""", (name,))
+            rows = [{'id': r['id'], 'text': r['text'], 'kind': r['kind'],
+                     'created_at': (r['created_at'].isoformat() if r['created_at'] else ''),
+                     'read': bool(r['read_at'])} for r in c.fetchall()]
+        return {'messages': rows, 'unread': sum(1 for x in rows if not x['read'])}
+    except Exception as e:
+        print(f'/me/jarvis-messages error: {e}')
+        return {'messages': [], 'unread': 0}
+
+@app.post('/me/jarvis-messages/{mid}/read')
+def me_jarvis_message_read(mid: int):
+    try:
+        _jv_staff_msg_table()
+        with db() as conn, conn.cursor() as c:
+            c.execute("UPDATE jarvis_staff_messages SET read_at=now() WHERE id=%s AND read_at IS NULL", (mid,))
+        return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
 
 def _jarvis_insights(snap=None, an=None):
     """Proaktive, regelbasierte Hinweise aus echten Zahlen (keine Prognosen)."""
@@ -4673,7 +4904,7 @@ def jarvis_ask(body: JarvisAsk):
            "Du analysierst NUR die echten Zahlen und Fakten, die dir gegeben werden, und gibst konkrete, "
            "umsetzbare, regelbasierte Empfehlungen — keine erfundenen Zahlen, keine Prognosen, keine Finanz- oder Rechtsberatung. "
            "Du hast Gedächtnis: beziehe dich auf den bisherigen Gesprächsverlauf und die gespeicherten Ziele. "
-           "Antworte auf Deutsch, kurz und auf den Punkt, mit klaren Handlungsempfehlungen.")
+           "Antworte in DERSELBEN Sprache wie die letzte Frage des Nutzers (Deutsch oder Englisch — bei Englisch antworte komplett auf Englisch), kurz und auf den Punkt, mit klaren Handlungsempfehlungen.")
     if know:
         sys += "\n\n=== BETRIEBSWISSEN (du kennst das) ===\n" + _jj.dumps(know, ensure_ascii=False)[:4000]
     if goals:
@@ -4703,6 +4934,20 @@ class JarvisSpeak(BaseModel):
     text: str = ''
     voice: str = 'onyx'
 
+_JV_VOICES = ('alloy', 'ash', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer')
+_JV_VOICE_STYLE_DEFAULT = ("Sprich selbstbewusst, locker und natürlich — wie ein cooler, kompetenter Operations-Partner. "
+                           "Lebendige Betonung, keine monotone Roboterstimme, moderates Tempo.")
+
+def _jv_tts_call(model, voice, text, instructions=None):
+    body = {'model': model, 'voice': voice, 'input': text[:1500], 'response_format': 'mp3'}
+    if instructions and model != 'tts-1':
+        body['instructions'] = instructions[:600]
+    payload = _json.dumps(body).encode()
+    req = _urllib_req.Request('https://api.openai.com/v1/audio/speech', data=payload,
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {OPENAI_API_KEY}'})
+    with _urllib_req.urlopen(req, timeout=30) as resp:
+        return resp.read()
+
 @app.post('/jarvis/speak')
 def jarvis_speak(body: JarvisSpeak):
     text = (body.text or '').strip()
@@ -4710,20 +4955,40 @@ def jarvis_speak(body: JarvisSpeak):
         raise HTTPException(400, 'text fehlt')
     if not OPENAI_API_KEY:
         return {'ok': False, 'error': _ai_err_msg(Exception('OPENAI_API_KEY fehlt'))}
-    voice = (body.voice or 'onyx').strip() or 'onyx'
-    if voice not in ('alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'):
-        voice = 'onyx'
-    payload = _json.dumps({'model': 'tts-1', 'voice': voice, 'input': text[:1200], 'response_format': 'mp3'}).encode()
-    req = _urllib_req.Request('https://api.openai.com/v1/audio/speech', data=payload,
-        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {OPENAI_API_KEY}'})
-    try:
-        import base64 as _b64
-        with _urllib_req.urlopen(req, timeout=25) as resp:
-            audio = resp.read()
-        return {'ok': True, 'audio_b64': _b64.b64encode(audio).decode(), 'mime': 'audio/mpeg'}
-    except Exception as e:
-        print(f'/jarvis/speak error: {e}')
-        return {'ok': False, 'error': _ai_err_msg(e)}
+    voice = (body.voice or '').strip() or _jarvis_get_key('jarvis_voice', 'ash')
+    if voice not in _JV_VOICES:
+        voice = 'ash'
+    style = _jarvis_get_key('jarvis_voice_style', '') or _JV_VOICE_STYLE_DEFAULT
+    import base64 as _b64
+    # Erst natürliche Stimme (gpt-4o-mini-tts mit Stil), Fallback auf tts-1
+    for model in ('gpt-4o-mini-tts', 'tts-1'):
+        try:
+            audio = _jv_tts_call(model, voice, text, style)
+            return {'ok': True, 'audio_b64': _b64.b64encode(audio).decode(), 'mime': 'audio/mpeg', 'voice': voice, 'model': model}
+        except Exception as e:
+            print(f'/jarvis/speak {model} error: {e}')
+            last = e
+    return {'ok': False, 'error': _ai_err_msg(last)}
+
+class JarvisVoice(BaseModel):
+    voice: str = ''
+    style: str = ''
+
+@app.get('/jarvis/voice')
+def jarvis_get_voice():
+    return {'voice': _jarvis_get_key('jarvis_voice', 'ash'),
+            'style': _jarvis_get_key('jarvis_voice_style', '') or _JV_VOICE_STYLE_DEFAULT,
+            'voices': list(_JV_VOICES)}
+
+@app.post('/jarvis/voice')
+def jarvis_set_voice(body: JarvisVoice):
+    v = (body.voice or '').strip()
+    if v and v in _JV_VOICES:
+        _jarvis_set_key('jarvis_voice', v)
+    if (body.style or '').strip():
+        _jarvis_set_key('jarvis_voice_style', body.style.strip()[:600])
+    return {'ok': True, 'voice': _jarvis_get_key('jarvis_voice', 'ash'),
+            'style': _jarvis_get_key('jarvis_voice_style', '') or _JV_VOICE_STYLE_DEFAULT}
 
 # ── Jarvis Spracherkennung (OpenAI Whisper) — fürs "Anrufen" ────────────────
 class JarvisTranscribe(BaseModel):
@@ -4762,6 +5027,137 @@ def jarvis_transcribe(body: JarvisTranscribe):
         print(f'/jarvis/transcribe error: {e}')
         return {'ok': False, 'error': _ai_err_msg(e)}
 
+# ── JARVIS TELEGRAM-BOT (Team kann Jarvis direkt anschreiben) ───────────────
+_JV_BOT_HIST = {}
+
+def _jarvis_bot_allowed_ids():
+    ids = set()
+    for src in (os.environ.get('JARVIS_BOT_ALLOWED', ''), _jarvis_get_key('jarvis_bot_allowed', '')):
+        for x in (src or '').replace(';', ',').replace('\n', ',').split(','):
+            x = x.strip()
+            if x:
+                ids.add(x)
+    return ids
+
+def _jarvis_bot_answer(chat_id, text):
+    snap = _jarvis_snapshot()
+    try:    an = _jarvis_analytics()
+    except Exception: an = {}
+    snap['insights'] = _jarvis_insights(snap, an)
+    try:    know = _jarvis_knowledge()
+    except Exception: know = {}
+    goals = _jarvis_get_key('jarvis_goals', '')
+    char = _jarvis_get_character()
+    import json as _jj
+    sys = ("Du bist Jarvis, der Operations-Assistent einer Agentur, die Adult-Content über Telegram vermarktet und verkauft. "
+           "Du schreibst hier direkt mit einem Team-Mitglied (Chatter/Admin) über Telegram. "
+           "Du kennst den ganzen Betrieb (Models, Team, Ziele, Gesamtzahlen). Du analysierst NUR echte Zahlen/Fakten, "
+           "keine erfundenen Zahlen, keine Finanz-/Rechtsberatung, keine Täuschungs- oder Druck-Taktiken. "
+           "Antworte in derselben Sprache wie die Frage (Deutsch oder Englisch), kurz und auf den Punkt — Telegram-tauglich (keine langen Blöcke).")
+    if know:
+        sys += "\n\n=== BETRIEBSWISSEN ===\n" + _jj.dumps(know, ensure_ascii=False)[:3500]
+    if goals:
+        sys += "\n\nZiele:\n" + goals[:1200]
+    if char:
+        sys += "\n\nTon/Charakter: " + char[:400]
+    ctx = ("Aktuelle Zahlen (Stand " + snap.get('now', '') + "):\n" + _jj.dumps(snap, ensure_ascii=False)
+           + "\n\nAnalyse (30 Tage):\n" + _jj.dumps(an, ensure_ascii=False)[:4000])
+    msgs = [{'role': 'system', 'content': sys}]
+    for h in (_JV_BOT_HIST.get(chat_id) or [])[-8:]:
+        msgs.append(h)
+    msgs.append({'role': 'user', 'content': ctx + "\n\nFrage: " + text})
+    reply = _openai_chat(msgs, max_tokens=500, temperature=0.5)
+    hist = _JV_BOT_HIST.setdefault(chat_id, [])
+    hist.append({'role': 'user', 'content': text[:1500]})
+    hist.append({'role': 'assistant', 'content': reply[:1500]})
+    if len(hist) > 16:
+        del hist[:len(hist) - 16]
+    return reply
+
+def _jarvis_bot_send(base, chat_id, text):
+    try:
+        payload = _json.dumps({'chat_id': chat_id, 'text': (text or '')[:4000]}).encode()
+        req = _urllib_req.Request(base + '/sendMessage', data=payload, headers={'Content-Type': 'application/json'})
+        _urllib_req.urlopen(req, timeout=20).read()
+    except Exception as e:
+        print(f'[jarvis-bot] send: {e}')
+
+def _jarvis_bot_handle(base, chat_id, text):
+    allowed = _jarvis_bot_allowed_ids()
+    low = text.lower().strip()
+    if low in ('/start', '/help', '/hilfe'):
+        if chat_id in allowed:
+            _jarvis_bot_send(base, chat_id, 'Hey, ich bin Jarvis 🤖 — frag mich was zu den Zahlen (z.B. „Umsatz heute?", „Welcher Chatter ist am stärksten?", „Warum kamen gestern wenig Sales?"). /reset löscht unser Gespräch.')
+        else:
+            _jarvis_bot_send(base, chat_id, f'Hi! Du bist noch nicht freigeschaltet. Gib dem Admin diese Chat-ID: {chat_id}')
+        return
+    if low == '/reset':
+        _JV_BOT_HIST.pop(chat_id, None)
+        _jarvis_bot_send(base, chat_id, 'Alles klar, Gespräch zurückgesetzt. 🧹')
+        return
+    if chat_id not in allowed:
+        _jarvis_bot_send(base, chat_id, f'Du bist nicht freigeschaltet — gib dem Admin deine Chat-ID: {chat_id}')
+        return
+    try:
+        reply = _jarvis_bot_answer(chat_id, text)
+    except Exception as e:
+        print(f'[jarvis-bot] answer: {e}')
+        reply = '⚠️ ' + _ai_err_msg(e)
+    _jarvis_bot_send(base, chat_id, reply)
+
+def _jarvis_bot_loop():
+    token = os.environ.get('JARVIS_BOT_TOKEN', '').strip()
+    if not token:
+        return
+    import time as _t
+    _t.sleep(12)
+    base = f'https://api.telegram.org/bot{token}'
+    offset = 0
+    print('[jarvis-bot] läuft')
+    while True:
+        try:
+            url = base + '/getUpdates?timeout=50' + (f'&offset={offset}' if offset else '')
+            with _urllib_req.urlopen(url, timeout=65) as r:
+                data = _json.loads(r.read())
+            for upd in data.get('result', []):
+                offset = upd['update_id'] + 1
+                msg = upd.get('message') or upd.get('edited_message')
+                if not msg:
+                    continue
+                chat_id = str((msg.get('chat') or {}).get('id') or '')
+                text = (msg.get('text') or '').strip()
+                if chat_id and text:
+                    _jarvis_bot_handle(base, chat_id, text)
+        except Exception as e:
+            print(f'[jarvis-bot] loop: {e}')
+            _t.sleep(5)
+
+try:
+    if os.environ.get('JARVIS_BOT_TOKEN', '').strip():
+        import threading as _th_jvbot
+        _th_jvbot.Thread(target=_jarvis_bot_loop, daemon=True).start()
+except Exception as _e:
+    print(f'[jarvis-bot] start: {_e}')
+
+@app.get('/jarvis/bot/status')
+def jarvis_bot_status(request: Request):
+    u = _session_user(request.headers.get('x-session-token', '')) or {}
+    if u.get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    return {'token_set': bool(os.environ.get('JARVIS_BOT_TOKEN', '').strip()),
+            'allowed': sorted(_jarvis_bot_allowed_ids())}
+
+class JarvisBotAllow(BaseModel):
+    ids: str = ''
+
+@app.post('/jarvis/bot/allow')
+def jarvis_bot_allow(body: JarvisBotAllow, request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    cleaned = ','.join(sorted({x.strip() for x in (body.ids or '').replace(';', ',').replace('\n', ',').split(',') if x.strip()}))
+    set_setting('jarvis_bot_allowed', cleaned)
+    return {'ok': True, 'allowed': sorted(_jarvis_bot_allowed_ids())}
+
 # ── Jarvis Co-Pilot (pro Kunde) ─────────────────────────────────────────────
 class JarvisCopilot(BaseModel):
     tg_id: str = ''
@@ -4791,7 +5187,7 @@ def jarvis_copilot(body: JarvisCopilot):
            "Du bekommst den Verlauf und die Kaufhistorie EINES Kunden. Empfiehl den nächsten sinnvollen, seriösen Schritt "
            "(z.B. passendes PPV/Content anbieten, Call vorschlagen, freundlich nachfassen). "
            "KEINE Täuschung, keine Fake-Verifizierung, kein Zahlungsdruck, keine erfundenen Fakten. "
-           "Antworte auf Deutsch, sehr kurz: 1 klare Empfehlung + optional 1 Beispiel-Satz zum Schreiben.")
+           "Antworte in derselben Sprache wie die Frage (Deutsch oder Englisch), sehr kurz: 1 klare Empfehlung + optional 1 Beispiel-Satz zum Schreiben.")
     if goals:
         sys += "\n\nBetriebs-Ziele: " + goals[:600]
     try:
