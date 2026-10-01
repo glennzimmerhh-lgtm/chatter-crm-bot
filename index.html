@@ -1451,8 +1451,8 @@
       </div>
     </div>
 
-    <!-- JARVIS BRIEFING-KARTE -->
-    <div id="dx-jarvis-card" style="display:none;margin-bottom:20px;border:1px solid rgba(124,92,255,.3);border-radius:16px;padding:16px 18px;background:linear-gradient(160deg,rgba(0,212,170,.06),rgba(124,92,255,.06));">
+    <!-- JARVIS SECTION (direkt unter dem Umsatz-Hero) -->
+    <div id="dx-jarvis-card" style="margin-bottom:20px;border:1px solid rgba(124,92,255,.3);border-radius:16px;padding:16px 18px;background:linear-gradient(160deg,rgba(0,212,170,.06),rgba(124,92,255,.06));">
       <div style="display:flex;align-items:center;gap:11px;margin-bottom:10px;">
         <div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#00d4aa,#7c5cff);display:grid;place-items:center;flex:none;">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg>
@@ -4927,6 +4927,7 @@ function renderDashboard() {
 
   // ── NEUER UMSATZ-HERO (Tagesziel 1.000 €/Tag, nach Periode skaliert) ──
   try { dxRenderHero(totalRevenue, totalSalesCount, newSubs, arppu, convPct, p); } catch(e) {}
+  try { if (typeof dxJarvisBrief === 'function') dxJarvisBrief(); } catch(e) {}
 
   // Shifts "heute" panel always shows current day
   const todayShifts = shiftsData.filter(r => r['Datum'] === tod);
