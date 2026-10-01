@@ -1405,6 +1405,52 @@
       <button id="btn-range" onclick="setCustomRange()" style="display:none;"></button>
     </div>
 
+    <!-- ═══ NEUER UMSATZ-HERO (Tagesziel 1.000 €) ═══ -->
+    <style>
+      #dx-hero{ display:grid; grid-template-columns:1.35fr 1fr; gap:18px; margin-bottom:20px; }
+      #dx-hero .dxh-main{ position:relative; overflow:hidden; border-radius:20px; padding:22px 26px;
+        background:linear-gradient(135deg, rgba(0,212,170,.16), rgba(124,92,255,.16)); border:1px solid rgba(124,92,255,.32);
+        box-shadow:0 20px 50px -24px rgba(124,92,255,.7); }
+      #dx-hero .dxh-main::after{ content:''; position:absolute; right:-60px; top:-60px; width:220px; height:220px; border-radius:50%;
+        background:radial-gradient(circle, rgba(0,212,170,.25), transparent 70%); pointer-events:none; }
+      #dx-hero .dxh-top{ display:flex; align-items:center; gap:10px; position:relative; z-index:1; }
+      #dx-hero .dxh-label{ font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--text2); font-weight:800; }
+      #dx-hero .dxh-badge{ margin-left:auto; font-size:11.5px; font-weight:800; color:#cabcff; background:rgba(124,92,255,.18);
+        border:1px solid rgba(124,92,255,.4); padding:4px 11px; border-radius:999px; }
+      #dx-hero .dxh-amount{ font-size:52px; font-weight:900; letter-spacing:-.03em; line-height:1.05; margin:10px 0 4px;
+        background:linear-gradient(120deg,#ffffff,#bfeee3 45%,#cabcff); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; position:relative; z-index:1; }
+      #dx-hero .dxh-barwrap{ height:12px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; margin:14px 0 8px; position:relative; z-index:1; }
+      #dx-hero .dxh-bar{ height:100%; width:0%; border-radius:999px; background:linear-gradient(90deg,#00d4aa,#7c5cff); transition:width .7s cubic-bezier(.2,.8,.2,1); box-shadow:0 0 14px rgba(124,92,255,.6); }
+      #dx-hero .dxh-sub{ font-size:13px; color:var(--text2); position:relative; z-index:1; }
+      #dx-hero .dxh-sub b{ color:#fff; }
+      #dx-hero .dxh-kpis{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+      #dx-hero .dxh-kpi{ border:1px solid var(--border); border-radius:15px; padding:15px 16px; position:relative; overflow:hidden;
+        background:linear-gradient(160deg, rgba(255,255,255,.04), rgba(255,255,255,.01)); }
+      #dx-hero .dxh-kpi::before{ content:''; position:absolute; left:0; top:0; right:0; height:3px; background:linear-gradient(90deg,var(--acc,#00d4aa),transparent 80%); }
+      #dx-hero .dxh-kpi:nth-child(1){ --acc:#4a9eff; } #dx-hero .dxh-kpi:nth-child(2){ --acc:#a78bfa; }
+      #dx-hero .dxh-kpi:nth-child(3){ --acc:#22c55e; } #dx-hero .dxh-kpi:nth-child(4){ --acc:#ffd166; }
+      #dx-hero .dxh-kpi .l{ font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--text3); font-weight:800; }
+      #dx-hero .dxh-kpi .v{ font-size:25px; font-weight:850; margin-top:5px; letter-spacing:-.02em; }
+      @media(max-width:900px){ #dx-hero{ grid-template-columns:1fr; } }
+    </style>
+    <div id="dx-hero">
+      <div class="dxh-main">
+        <div class="dxh-top">
+          <span class="dxh-label" id="dxh-label">Umsatz heute</span>
+          <span class="dxh-badge" id="dxh-goal">Tagesziel 1.000 €</span>
+        </div>
+        <div class="dxh-amount" id="dxh-amount">€0</div>
+        <div class="dxh-barwrap"><div class="dxh-bar" id="dxh-bar"></div></div>
+        <div class="dxh-sub"><b id="dxh-pct">0%</b> vom Ziel · <span id="dxh-remaining">noch 1.000 €</span></div>
+      </div>
+      <div class="dxh-kpis">
+        <div class="dxh-kpi"><div class="l">Sales</div><div class="v" id="dxh-sales" style="color:#4a9eff;">0</div></div>
+        <div class="dxh-kpi"><div class="l">New Subs</div><div class="v" id="dxh-subs" style="color:#a78bfa;">0</div></div>
+        <div class="dxh-kpi"><div class="l">Ø / Käufer</div><div class="v" id="dxh-arppu" style="color:#22c55e;">€0</div></div>
+        <div class="dxh-kpi"><div class="l">Conversion</div><div class="v" id="dxh-conv" style="color:#ffd166;">0%</div></div>
+      </div>
+    </div>
+
     <!-- JARVIS BRIEFING-KARTE -->
     <div id="dx-jarvis-card" style="display:none;margin-bottom:20px;border:1px solid rgba(124,92,255,.3);border-radius:16px;padding:16px 18px;background:linear-gradient(160deg,rgba(0,212,170,.06),rgba(124,92,255,.06));">
       <div style="display:flex;align-items:center;gap:11px;margin-bottom:10px;">
@@ -1439,8 +1485,8 @@
       </div>
     </div>
 
-    <!-- KPI CARDS (redesigned hero row) -->
-    <div class="cards-grid" style="grid-template-columns:repeat(5,1fr);">
+    <!-- KPI CARDS (jetzt im Hero oben; hier versteckt, JS füllt sie weiter) -->
+    <div class="cards-grid" style="grid-template-columns:repeat(5,1fr);display:none;">
       <div class="kpi-card kpi-hero">
         <div class="kpi-label" id="kpi-rev-label">Umsatz heute</div>
         <div class="kpi-val" id="kpi-today-rev" style="color:var(--dx-teal);">€0</div>
@@ -1471,9 +1517,9 @@
       </div>
     </div>
 
-    <!-- NEW ROW: Shift goal ring + Live activity -->
-    <div class="dx-newrow">
-      <div class="panel" style="padding:16px 18px;">
+    <!-- LIVE-FEED (Schichtziel-Ring jetzt im Hero; versteckt, JS füllt ihn weiter) -->
+    <div class="dx-newrow" style="grid-template-columns:1fr;">
+      <div class="panel" style="padding:16px 18px;display:none;">
         <div class="panel-hd" style="border:none;padding:0;margin-bottom:6px;">
           <div class="panel-title">🎯 Schichtziel</div>
           <span class="panel-tag" id="dx-shift-name">Shift</span>
@@ -4742,6 +4788,33 @@ window.loadMediaPool = async function() {
   }
 };
 
+const DX_DAILY_GOAL = 1000; // Tagesziel fix 1.000 €
+function _dxGoalForPeriod(p){
+  if (p === 'woche') return DX_DAILY_GOAL * 7;
+  if (p === 'monat'){ const n=new Date(); return DX_DAILY_GOAL * new Date(n.getFullYear(), n.getMonth()+1, 0).getDate(); }
+  if (p === 'range' && typeof customRangeFrom==='string' && typeof customRangeTo==='string' && customRangeFrom && customRangeTo){
+    const d=Math.max(1, Math.round((new Date(customRangeTo)-new Date(customRangeFrom))/86400000)+1); return DX_DAILY_GOAL * d;
+  }
+  return DX_DAILY_GOAL; // heute / gestern
+}
+function dxRenderHero(rev, sales, subs, arppu, convPct, p){
+  const eur = (typeof fmt==='function') ? fmt : (v=>'€'+Math.round(v||0));
+  const goal = _dxGoalForPeriod(p);
+  const pct = goal>0 ? Math.min(100, (rev/goal)*100) : 0;
+  const lbl = {heute:'Umsatz heute', gestern:'Umsatz gestern', woche:'Umsatz Woche', monat:'Umsatz Monat', range:'Umsatz Zeitraum'}[p] || 'Umsatz';
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+  set('dxh-label', lbl);
+  set('dxh-goal', 'Ziel '+eur(goal)+(p==='heute'||p==='gestern'?' / Tag':''));
+  set('dxh-amount', eur(rev));
+  const bar=document.getElementById('dxh-bar'); if(bar) bar.style.width = pct.toFixed(1)+'%';
+  set('dxh-pct', Math.round(pct)+'%');
+  const remain = Math.max(0, goal - rev);
+  set('dxh-remaining', remain<=0 ? '🎉 Ziel erreicht!' : ('noch '+eur(remain)));
+  set('dxh-sales', String(Math.round(sales||0)));
+  set('dxh-subs', String(Math.round(subs||0)));
+  set('dxh-arppu', eur(arppu||0));
+  set('dxh-conv', Math.round(convPct||0)+'%');
+}
 function renderDashboard() {
   if (window.loadSourceStats) window.loadSourceStats();
   if (window.loadRevenueBreakdown) window.loadRevenueBreakdown();
@@ -4851,6 +4924,9 @@ function renderDashboard() {
     _subEl.title = _subParts.join(' · ');
   }
   document.getElementById('sales-count-tag').textContent  = filteredSales.length + ' ' + label.toLowerCase();
+
+  // ── NEUER UMSATZ-HERO (Tagesziel 1.000 €/Tag, nach Periode skaliert) ──
+  try { dxRenderHero(totalRevenue, totalSalesCount, newSubs, arppu, convPct, p); } catch(e) {}
 
   // Shifts "heute" panel always shows current day
   const todayShifts = shiftsData.filter(r => r['Datum'] === tod);
@@ -9255,21 +9331,17 @@ if (checkAuth()) {
 
 <script>
 // ── SHIFT GOAL ───────────────────────────────────────────────────────────────
-let SHIFT_GOAL = parseInt(localStorage.getItem('crm_shift_goal') || '300');
+let SHIFT_GOAL = parseInt(localStorage.getItem('crm_shift_goal') || '1000');
 
 function _getSalesData() {
   // Access crmSalesData across script blocks
   return window._getCrmSalesData ? window._getCrmSalesData() : [];
 }
 
-// Load goal from backend settings on startup
-fetch('/api/settings/crm').then(r => r.json()).then(d => {
-  if (d.shift_goal) {
-    SHIFT_GOAL = parseInt(d.shift_goal) || 300;
-    localStorage.setItem('crm_shift_goal', SHIFT_GOAL);
-    updateShiftGoal();
-  }
-}).catch(() => {});
+// Tagesziel ist fix 1.000 € — unabhängig von alten Server-Einstellungen
+SHIFT_GOAL = 1000;
+localStorage.setItem('crm_shift_goal', '1000');
+try { updateShiftGoal(); } catch(e) {}
 
 function editShiftGoal() {
   if (!isAdmin()) return; // only admins can change goal
@@ -10750,7 +10822,7 @@ async function loadMyStats(period = 'heute') {
     set('ms-resp', d.avg_response_sec ? d.avg_response_sec + 's' : '—');
 
     // Shift goal
-    const goal = parseInt(localStorage.getItem('crm_shift_goal') || '300');
+    const goal = parseInt(localStorage.getItem('crm_shift_goal') || '1000');
     const todayRev = period === 'heute' ? (d.revenue || 0) : 0;
     const pct = Math.min(100, Math.round((todayRev / goal) * 100));
     set('ms-goal-text', `${todayRev.toFixed(0)}€ / ${goal}€`);
