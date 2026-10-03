@@ -12871,10 +12871,12 @@ window.renderCreatorsOverview = async function(){
     <button class="jc-btn jc-mute" id="jcMute" onclick="jvCallToggleMute()" title="Mikro pausieren">⏸️</button>
     <button class="jc-btn jc-hang" onclick="jvCallEnd()" title="Auflegen">📴</button>
   </div>
+  <audio id="jcAudio" playsinline style="display:none"></audio>
 </div>
 <script>
 (function(){
   let stream=null, ac=null, analyser=null, rec=null, chunks=[], running=false, paused=false, speaking=false, mime='audio/webm';
+  const SILENT_MP3='data:audio/mpeg;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA';
   const orb=()=>document.getElementById('jcOrb');
   function setState(cls, status, sub){
     const o=orb(); if(o) o.className='jc-orb '+(cls||'');
@@ -12891,6 +12893,8 @@ window.renderCreatorsOverview = async function(){
   window.jvCallStart=async function(){
     const panel=document.getElementById('jvCall'); panel.style.display='flex';
     document.getElementById('jcTranscript').innerHTML=''; showErr('');
+    // Audio-Element JETZT (im Klick-Gesture) freischalten, sonst blockt Safari spätere Antworten
+    try{ const a=document.getElementById('jcAudio'); a.src=SILENT_MP3; const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{}); }catch(e){}
     setState('', 'Verbinde…', 'Mikrofon-Zugriff erlauben, dann einfach sprechen.');
     try{
       stream=await navigator.mediaDevices.getUserMedia({audio:true});
@@ -12961,10 +12965,15 @@ window.renderCreatorsOverview = async function(){
       const r=await fetch('/api/jarvis/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(r=>r.json());
       if(r.ok&&r.audio_b64){
         await new Promise(res=>{
-          const a=new Audio('data:'+(r.mime||'audio/mpeg')+';base64,'+r.audio_b64);
-          a.onended=res; a.onerror=res; a.play().catch(res);
+          const a=document.getElementById('jcAudio') || new Audio();
+          let done=false; const fin=()=>{ if(done) return; done=true; res(); };
+          a.onended=fin; a.onerror=fin;
+          a.src='data:'+(r.mime||'audio/mpeg')+';base64,'+r.audio_b64;
+          const pr=a.play();
+          if(pr&&pr.catch) pr.catch(()=>{ showErr('Ton blockiert — tippe einmal auf den Bildschirm.'); fin(); });
+          setTimeout(fin, 30000); // Sicherheitsnetz
         });
-      }
+      } else if(r.error){ showErr('Stimme: '+r.error); }
     }catch(e){}
     speaking=false;
   }
