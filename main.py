@@ -7539,8 +7539,9 @@ def push_subscribe(body: PushSub):
         print(f'/push/subscribe error: {e}')
         return {'ok': False, 'error': str(e)}
 
-def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en=None):
-    """Sendet an alle. title_en/body_en = englische Version für Chatter-Geräte (lang='en')."""
+def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en=None, _ONLY_LANG=None):
+    """Sendet an alle. title_en/body_en = englische Version für Chatter-Geräte (lang='en').
+    _ONLY_LANG='en' → nur an Chatter-Geräte senden (z.B. Wartende-Chats-Alarme)."""
     if not VAPID_PRIVATE:
         return
     try:
@@ -7559,8 +7560,11 @@ def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en
     dead = []
     for r in rows:
         try:
+            lang = r.get('lang') or 'de'
+            if _ONLY_LANG and lang != _ONLY_LANG:
+                continue
             sub = _json.loads(r['sub'])
-            payload = payload_en if (r.get('lang') == 'en') else payload_de
+            payload = payload_en if (lang == 'en') else payload_de
             webpush(sub, payload, vapid_private_key=VAPID_PRIVATE, vapid_claims={'sub': VAPID_SUBJECT})
         except Exception as e:
             es = str(e)
@@ -7575,10 +7579,10 @@ def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en
         except Exception:
             pass
 
-def _push_async(title, body_text, url='/', tag='sale', title_en=None, body_en=None):
+def _push_async(title, body_text, url='/', tag='sale', title_en=None, body_en=None, only_lang=None):
     try:
         import threading as _th_push
-        _th_push.Thread(target=_send_push_all, args=(title, body_text, url, tag, title_en, body_en), daemon=True).start()
+        _th_push.Thread(target=_send_push_all, args=(title, body_text, url, tag, title_en, body_en, only_lang), daemon=True).start()
     except Exception as e:
         print(f'push async: {e}')
 
@@ -7644,8 +7648,8 @@ def _push_monitor_loop():
                     c.execute("SELECT COUNT(*) n FROM conversations WHERE COALESCE(unread,0)>0")
                     openn = int((c.fetchone() or {}).get('n') or 0)
                 if openn >= THRESH and not open_alerted:
-                    _send_push_all(f'🚨💬 {openn} offene Chats!', '⏳ Kunden warten auf Antwort — ran da! 🏃‍♀️💨', '/', 'openchats',
-                                   f'🚨💬 {openn} open chats!', '⏳ Customers are waiting — jump in! 🏃💨')
+                    _send_push_all(f'🚨💬 {openn} open chats!', '⏳ Customers are waiting — jump in! 🏃💨', '/', 'openchats',
+                                   f'🚨💬 {openn} open chats!', '⏳ Customers are waiting — jump in! 🏃💨', _ONLY_LANG='en')
                     open_alerted = True
                 elif openn <= max(1, THRESH - 2):
                     open_alerted = False  # Hysterese: erst zurücksetzen wenn deutlich drunter
@@ -7714,26 +7718,60 @@ def _waiting_subs(min_minutes=None, max_minutes=120, limit=30):
 def chats_waiting():
     return {'waiting': _waiting_subs()}
 
+# Eskalationsstufen: (ab Minute, Titel DE, Body DE, Titel EN, Body EN)
+_WAIT_TIERS = [
+    (3,  '⏳ {nm} wartet {m} Min',          'Antworte JETZT — Kunde wartet! 💬',
+         '⏳ {nm} waiting {m} min',          'Reply NOW — customer is waiting! 💬'),
+    (7,  '⚠️ {nm} wartet schon {m} Min',     'Du verlierst den Sale — beweg dich! 🏃‍♂️💨',
+         '⚠️ {nm} waiting {m} min already',   "You're losing the sale — move it! 🏃💨"),
+    (15, '🚨 {nm} seit {m} Min ignoriert',   'Bezahlter Traffic verbrennt gerade. SOFORT ran!! 🔥',
+         '🚨 {nm} ignored {m} min',           'Paid traffic is burning. MOVE IT NOW!! 🔥'),
+    (30, '💀 {nm} seit {m} Min offen',        'Sale quasi verbrannt. Das geht gar nicht.',
+         '💀 {nm} open {m} min',              'Sale basically burned. Not acceptable.'),
+]
+def _wait_tier(m):
+    t = None
+    for idx, row in enumerate(_WAIT_TIERS):
+        if m >= row[0]:
+            t = idx
+    return t
+
 def _waiting_monitor_loop():
     import time as _t
     _t.sleep(45)
-    alerted = {}
+    state = {}  # tg_id -> {'lt': last_time, 'sent': set(tier_idx)}
+    firstpass = True
     while True:
         try:
             if VAPID_PRIVATE:
-                for w in _waiting_subs():
-                    key = w['tg_id']
-                    if alerted.get(key) == w['last_time']:
+                active = set()
+                for w in _waiting_subs(max_minutes=240):
+                    key = w['tg_id']; active.add(key)
+                    mins = w['minutes'] or WAIT_MIN
+                    tier = _wait_tier(mins)
+                    if tier is None:
                         continue
-                    alerted[key] = w['last_time']
-                    nm = w['name']; mins = w['minutes'] or WAIT_MIN
-                    _push_async(f'⏳ {nm} wartet seit {mins} Min', 'Kunde wartet auf Antwort — jetzt ran! 💬', '/', 'wait_' + str(key),
-                                f'⏳ {nm} waiting {mins} min', 'Customer is waiting — reply now! 💬')
-                if len(alerted) > 800:
-                    alerted.clear()
+                    st = state.get(key)
+                    if not st or st['lt'] != w['last_time']:
+                        st = {'lt': w['last_time'], 'sent': set()}
+                        state[key] = st
+                    if firstpass:
+                        # Beim Start den Rückstand NICHT pushen — nur merken (sonst Flut alter Chats)
+                        st['sent'] = set(range(tier + 1))
+                        continue
+                    if tier in st['sent']:
+                        continue
+                    st['sent'].add(tier)
+                    nm = w['name']; row = _WAIT_TIERS[tier]
+                    # NUR an Chatter (lang='en'), auf Englisch
+                    _push_async(row[3].format(nm=nm, m=mins), row[4], '/', 'wait_' + str(key),
+                                row[3].format(nm=nm, m=mins), row[4], only_lang='en')
+                for k in [k for k in state if k not in active]:
+                    del state[k]
+                firstpass = False
         except Exception as e:
             print(f'[waiting-monitor] {e}')
-        _t.sleep(60)
+        _t.sleep(45)
 
 try:
     import threading as _th_wm
