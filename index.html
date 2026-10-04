@@ -3104,6 +3104,41 @@
         #page-chat .cr-name{ display:none; }
       }
     </style>
+    <!-- ═══ CHAT REDESIGN v2 — ruhiger, aufgeräumter, lesbarer ═══ -->
+    <style>
+      /* — Nachrichten-Bubbles: mehr Luft, ruhigere Farben, klare Zeitstempel — */
+      #page-chat .msg-row{ margin-bottom:9px; }
+      #page-chat .msg-bubble{ max-width:74% !important; padding:10px 14px !important; border-radius:18px !important;
+        font-size:14px !important; line-height:1.5 !important; box-shadow:none !important; }
+      #page-chat .msg-in{ background:rgba(255,255,255,.05) !important; border:1px solid rgba(255,255,255,.07) !important;
+        border-bottom-left-radius:6px !important; color:var(--text) !important; }
+      #page-chat .msg-out{ background:linear-gradient(135deg,#00cfa6,#00a88a) !important; color:#042a22 !important;
+        font-weight:600 !important; border-bottom-right-radius:6px !important;
+        box-shadow:0 3px 14px -6px rgba(0,207,166,.55) !important; }
+      #page-chat .msg-out .msg-meta{ color:rgba(4,42,34,.6) !important; }
+      #page-chat .msg-meta{ font-size:10.5px !important; margin-top:5px !important; opacity:.7 !important; font-weight:600; }
+      /* — Action-Bar: kompakter, ruhiger, klare Hierarchie (Call bleibt stark) — */
+      #page-chat .mt-btn{ height:32px !important; padding:0 11px !important; font-size:12px !important; border-radius:10px !important;
+        background:rgba(255,255,255,.035) !important; border-color:rgba(255,255,255,.08) !important; box-shadow:none !important; }
+      #page-chat .mt-btn:hover{ transform:none !important; background:rgba(255,255,255,.08) !important; box-shadow:none !important; }
+      #page-chat .mt-btn.mt-icon{ width:32px !important; padding:0 !important; font-size:13.5px !important; opacity:.82; }
+      #page-chat .mt-btn.mt-icon:hover{ opacity:1; }
+      #page-chat .mt-btn.mt-call{ height:34px !important; background:linear-gradient(135deg,#00d4aa,#0bbf9c) !important; color:#04231d !important;
+        box-shadow:0 5px 16px -8px rgba(0,212,170,.7) !important; }
+      /* — Composer: ruhiger, aufgeräumter — */
+      #page-chat .emoji-bar{ background:rgba(255,255,255,.012) !important; padding:6px 14px 2px !important; opacity:.9; }
+      #page-chat .emoji-btn{ background:rgba(255,255,255,.04) !important; border-color:rgba(255,255,255,.06) !important; border-radius:9px !important; font-size:15px !important; padding:4px 8px !important; }
+      #page-chat .reply-bar{ padding:12px 16px !important; gap:9px !important; background:rgba(255,255,255,.015) !important; }
+      #page-chat .reply-bar textarea{ border-radius:13px !important; background:rgba(255,255,255,.05) !important; border:1px solid rgba(255,255,255,.1) !important; padding:11px 14px !important; font-size:14px !important; }
+      #page-chat .reply-bar textarea:focus{ border-color:rgba(0,212,170,.55) !important; box-shadow:0 0 0 3px rgba(0,212,170,.12) !important; }
+      #page-chat .reply-bar button{ border-radius:12px !important; }
+      /* — Linke Chatliste: kompakter & ruhiger — */
+      #page-chat .conv-item{ padding:9px 11px !important; margin:1px 6px !important; border-radius:11px !important; }
+      #page-chat .conv-item:hover{ background:rgba(255,255,255,.045) !important; }
+      #page-chat .tier-filter-btn{ border-radius:999px !important; font-size:11.5px !important; padding:5px 11px !important; }
+      /* Unread-Badge klarer */
+      #page-chat .conv-item .unread-badge, #page-chat .conv-item [class*="badge"]{ font-weight:800; }
+    </style>
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
         <button class="hamburger" onclick="openSidebar()">
