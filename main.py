@@ -7506,9 +7506,16 @@ def _push_table():
     with db() as conn, conn.cursor() as c:
         c.execute('''CREATE TABLE IF NOT EXISTS push_subscriptions (
             id BIGSERIAL PRIMARY KEY, endpoint TEXT UNIQUE NOT NULL, sub TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())''')
+        try:
+            c.execute("ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS lang TEXT DEFAULT 'de'")
+            c.execute("ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS owner TEXT DEFAULT ''")
+        except Exception as e:
+            print(f'push alter: {e}')
 
 class PushSub(BaseModel):
     subscription: dict = {}
+    lang: str = 'de'
+    owner: str = ''
 
 @app.get('/push/vapid-public')
 def push_vapid_public():
@@ -7520,17 +7527,20 @@ def push_subscribe(body: PushSub):
     ep = sub.get('endpoint')
     if not ep:
         raise HTTPException(400, 'no endpoint')
+    lang = 'en' if (body.lang or '').lower().startswith('en') else 'de'
     try:
         _push_table()
         with db() as conn, conn.cursor() as c:
-            c.execute("INSERT INTO push_subscriptions (endpoint, sub) VALUES (%s,%s) "
-                      "ON CONFLICT (endpoint) DO UPDATE SET sub=EXCLUDED.sub", (ep, _json.dumps(sub)))
+            c.execute("INSERT INTO push_subscriptions (endpoint, sub, lang, owner) VALUES (%s,%s,%s,%s) "
+                      "ON CONFLICT (endpoint) DO UPDATE SET sub=EXCLUDED.sub, lang=EXCLUDED.lang, owner=EXCLUDED.owner",
+                      (ep, _json.dumps(sub), lang, (body.owner or '')[:60]))
         return {'ok': True}
     except Exception as e:
         print(f'/push/subscribe error: {e}')
         return {'ok': False, 'error': str(e)}
 
-def _send_push_all(title, body_text, url='/', tag='sale'):
+def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en=None):
+    """Sendet an alle. title_en/body_en = englische Version für Chatter-Geräte (lang='en')."""
     if not VAPID_PRIVATE:
         return
     try:
@@ -7540,15 +7550,17 @@ def _send_push_all(title, body_text, url='/', tag='sale'):
     try:
         _push_table()
         with db() as conn, conn.cursor() as c:
-            c.execute("SELECT endpoint, sub FROM push_subscriptions")
+            c.execute("SELECT endpoint, sub, lang FROM push_subscriptions")
             rows = list(c.fetchall())
     except Exception as e:
         print(f'push load: {e}'); return
-    payload = _json.dumps({'title': title, 'body': body_text, 'url': url, 'tag': tag})
+    payload_de = _json.dumps({'title': title, 'body': body_text, 'url': url, 'tag': tag})
+    payload_en = _json.dumps({'title': title_en or title, 'body': body_en if body_en is not None else body_text, 'url': url, 'tag': tag})
     dead = []
     for r in rows:
         try:
             sub = _json.loads(r['sub'])
+            payload = payload_en if (r.get('lang') == 'en') else payload_de
             webpush(sub, payload, vapid_private_key=VAPID_PRIVATE, vapid_claims={'sub': VAPID_SUBJECT})
         except Exception as e:
             es = str(e)
@@ -7563,10 +7575,10 @@ def _send_push_all(title, body_text, url='/', tag='sale'):
         except Exception:
             pass
 
-def _push_async(title, body_text, url='/', tag='sale'):
+def _push_async(title, body_text, url='/', tag='sale', title_en=None, body_en=None):
     try:
         import threading as _th_push
-        _th_push.Thread(target=_send_push_all, args=(title, body_text, url, tag), daemon=True).start()
+        _th_push.Thread(target=_send_push_all, args=(title, body_text, url, tag, title_en, body_en), daemon=True).start()
     except Exception as e:
         print(f'push async: {e}')
 
@@ -7598,13 +7610,15 @@ def _push_sale(amount, product, chatter, payment_method='', tg_id=''):
         amt = str(amount) + '€'
     model = _creator_name_for_tg(tg_id)
     pe = _pm_emoji(payment_method)
-    title = f'💸🎉 {model}: {amt} 🤑' if model else f'💸🎉 Neuer Sale · {amt} 🤑'
+    title_de = f'💸🎉 {model}: {amt} 🤑' if model else f'💸🎉 Neuer Sale · {amt} 🤑'
+    title_en = f'💸🎉 {model}: {amt} 🤑' if model else f'💸🎉 New sale · {amt} 🤑'
     parts = [f'🔥 {product or "Sale"}']
     if payment_method:
         parts.append(f'{pe} {payment_method}')
     if chatter:
         parts.append(f'👤 {chatter}')
-    _push_async(title, ' · '.join(parts), '/', 'sale')
+    body = ' · '.join(parts)
+    _push_async(title_de, body, '/', 'sale', title_en, body)
 
 @app.post('/push/test')
 def push_test(request: Request):
@@ -7612,7 +7626,8 @@ def push_test(request: Request):
         raise HTTPException(403, 'nur admin')
     if not VAPID_PRIVATE:
         return {'ok': False, 'error': 'VAPID_PRIVATE nicht in Railway gesetzt.'}
-    _push_async('🔔✨ ZF CRM', '🎉 Test-Benachrichtigung — Push funktioniert! 🚀', '/', 'test')
+    _push_async('🔔✨ ZF CRM', '🎉 Test-Benachrichtigung — Push funktioniert! 🚀', '/', 'test',
+                '🔔✨ ZF CRM', '🎉 Test notification — push works! 🚀')
     return {'ok': True}
 
 # ── PUSH-MONITOR: Alarm bei vielen offenen Chats + Abend-Recap neue Subs ─────
@@ -7629,7 +7644,8 @@ def _push_monitor_loop():
                     c.execute("SELECT COUNT(*) n FROM conversations WHERE COALESCE(unread,0)>0")
                     openn = int((c.fetchone() or {}).get('n') or 0)
                 if openn >= THRESH and not open_alerted:
-                    _send_push_all(f'🚨💬 {openn} offene Chats!', '⏳ Kunden warten auf Antwort — ran da! 🏃‍♀️💨', '/', 'openchats')
+                    _send_push_all(f'🚨💬 {openn} offene Chats!', '⏳ Kunden warten auf Antwort — ran da! 🏃‍♀️💨', '/', 'openchats',
+                                   f'🚨💬 {openn} open chats!', '⏳ Customers are waiting — jump in! 🏃💨')
                     open_alerted = True
                 elif openn <= max(1, THRESH - 2):
                     open_alerted = False  # Hysterese: erst zurücksetzen wenn deutlich drunter
@@ -7648,7 +7664,8 @@ def _push_monitor_loop():
                             subs = int((c.fetchone() or {}).get('n') or 0)
                             c.execute("SELECT COALESCE(SUM(amount),0) v FROM sales WHERE COALESCE(status,'')<>'rejected' AND timestamp>=%s", (today0,))
                             rev = round(float((c.fetchone() or {}).get('v') or 0), 2)
-                        _send_push_all('🌙📊 Tagesabschluss', f'✨ {subs} neue Subs · 💰 {rev:.0f}€ heute 🚀', '/', 'recap')
+                        _send_push_all('🌙📊 Tagesabschluss', f'✨ {subs} neue Subs · 💰 {rev:.0f}€ heute 🚀', '/', 'recap',
+                                       '🌙📊 Daily recap', f'✨ {subs} new subs · 💰 {rev:.0f}€ today 🚀')
                     except Exception as e:
                         print(f'[push-monitor] recap: {e}')
         except Exception as e:

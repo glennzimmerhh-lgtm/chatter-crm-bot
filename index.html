@@ -13127,8 +13127,25 @@ window.renderCreatorsOverview = async function(){
   }
   function loggedIn(){ try{ return !!localStorage.getItem('crm_user'); }catch(e){ return false; } }
   function supported(){ return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window); }
+  function isEN(){ try{ return (localStorage.getItem('crm_role')||'')==='chatter'; }catch(e){ return false; } }
+  const T = ()=> isEN() ? {
+    btn:'🔔 Enable notifications',
+    nosup:'Your browser does not support push notifications. On iPhone: open in Safari → Share → "Add to Home Screen", then enable here.',
+    denied:'Notifications were not allowed.',
+    ok:'🔔 Notifications on! You will now get a message for every sale.',
+    nokey:'Could not enable — server key missing.',
+    err:'Error: '
+  } : {
+    btn:'🔔 Push aktivieren',
+    nosup:'Dein Browser unterstützt keine Push-Benachrichtigungen. Tipp: Auf dem iPhone die App erst über Safari → Teilen → „Zum Home-Bildschirm" installieren, dann hier aktivieren.',
+    denied:'Benachrichtigungen wurden nicht erlaubt.',
+    ok:'🔔 Push aktiviert! Du bekommst jetzt bei jedem Sale eine Benachrichtigung.',
+    nokey:'Konnte nicht aktivieren — Server-Key fehlt (VAPID in Railway setzen).',
+    err:'Fehler: '
+  };
   async function maybeShowBtn(){
     const btn=document.getElementById('push-enable-btn'); if(!btn) return;
+    btn.textContent=T().btn;
     if(!supported() || !loggedIn()){ btn.style.display='none'; return; }
     if(Notification.permission==='granted'){ btn.style.display='none'; try{ await subscribe(); }catch(e){} return; }
     btn.style.display='flex';
@@ -13141,18 +13158,21 @@ window.renderCreatorsOverview = async function(){
     if(!sub){
       sub=await swReg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToU8(keyResp.key) });
     }
-    await fetch('/api/push/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subscription:sub.toJSON?sub.toJSON():sub})});
+    const lang=isEN()?'en':'de';
+    const owner=(localStorage.getItem('crm_user')||'');
+    await fetch('/api/push/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subscription:sub.toJSON?sub.toJSON():sub, lang, owner})});
     return true;
   }
   window.enablePush=async function(){
-    if(!supported()){ alert('Dein Browser unterstützt keine Push-Benachrichtigungen. Tipp: Auf dem iPhone die App erst über Safari → Teilen → „Zum Home-Bildschirm" installieren, dann hier aktivieren.'); return; }
+    const t=T();
+    if(!supported()){ alert(t.nosup); return; }
     try{
       const perm=await Notification.requestPermission();
-      if(perm!=='granted'){ alert('Benachrichtigungen wurden nicht erlaubt.'); return; }
+      if(perm!=='granted'){ alert(t.denied); return; }
       const ok=await subscribe();
       const btn=document.getElementById('push-enable-btn'); if(btn) btn.style.display='none';
-      alert(ok?'🔔 Push aktiviert! Du bekommst jetzt bei jedem Sale eine Benachrichtigung.':'Konnte nicht aktivieren — Server-Key fehlt (VAPID in Railway setzen).');
-    }catch(e){ alert('Fehler: '+(e.message||e)); }
+      alert(ok?t.ok:t.nokey);
+    }catch(e){ alert(t.err+(e.message||e)); }
   };
   setTimeout(maybeShowBtn, 2500);
   setInterval(maybeShowBtn, 60000);
