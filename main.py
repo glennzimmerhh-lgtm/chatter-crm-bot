@@ -7586,6 +7586,52 @@ def push_test(request: Request):
     _push_async('🔔 ZF CRM', 'Test-Benachrichtigung — Push funktioniert!', '/', 'test')
     return {'ok': True}
 
+# ── PUSH-MONITOR: Alarm bei vielen offenen Chats + Abend-Recap neue Subs ─────
+def _push_monitor_loop():
+    import time as _t
+    _t.sleep(60)
+    open_alerted = False
+    recap_lastrun = ''
+    while True:
+        try:
+            if VAPID_PRIVATE:
+                THRESH = int(get_setting('open_chats_alert', '8') or 8)
+                with db() as conn, conn.cursor() as c:
+                    c.execute("SELECT COUNT(*) n FROM conversations WHERE COALESCE(unread,0)>0")
+                    openn = int((c.fetchone() or {}).get('n') or 0)
+                if openn >= THRESH and not open_alerted:
+                    _send_push_all(f'⚠️ {openn} offene Chats', 'Kunden warten auf Antwort — ran an die Chats!', '/', 'openchats')
+                    open_alerted = True
+                elif openn <= max(1, THRESH - 2):
+                    open_alerted = False  # Hysterese: erst zurücksetzen wenn deutlich drunter
+                # Abend-Recap: wie viele neue Subs heute
+                now_b = _team_berlin_now()
+                hour = int(get_setting('subs_recap_hour', '21') or 21)
+                today = now_b.strftime('%Y-%m-%d')
+                if now_b.hour == hour and recap_lastrun != today:
+                    recap_lastrun = today
+                    try:
+                        t0 = now_b.replace(hour=0, minute=0, second=0, microsecond=0)
+                        try:    today0 = t0.astimezone().replace(tzinfo=None).isoformat()
+                        except Exception: today0 = t0.replace(tzinfo=None).isoformat()
+                        with db() as conn, conn.cursor() as c:
+                            c.execute("SELECT COUNT(*) n FROM conversations WHERE first_time>=%s", (today0,))
+                            subs = int((c.fetchone() or {}).get('n') or 0)
+                            c.execute("SELECT COALESCE(SUM(amount),0) v FROM sales WHERE COALESCE(status,'')<>'rejected' AND timestamp>=%s", (today0,))
+                            rev = round(float((c.fetchone() or {}).get('v') or 0), 2)
+                        _send_push_all('📊 Tagesabschluss', f'Heute: {subs} neue Subs · {rev:.0f}€ Umsatz', '/', 'recap')
+                    except Exception as e:
+                        print(f'[push-monitor] recap: {e}')
+        except Exception as e:
+            print(f'[push-monitor] {e}')
+        _t.sleep(180)
+
+try:
+    import threading as _th_pm
+    _th_pm.Thread(target=_push_monitor_loop, daemon=True).start()
+except Exception as _e:
+    print(f'[push-monitor] start: {_e}')
+
 @app.post('/sale')
 async def post_sale(body: SaleSubmitIn):
     ts = datetime.now().isoformat()
