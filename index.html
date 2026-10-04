@@ -98,7 +98,10 @@
   .logo { padding: 22px 20px 18px; border-bottom: 1px solid var(--border); }
   .logo-text { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; background: linear-gradient(120deg, #00d4aa, #7c5cff); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .logo-sub { font-size: 11px; color: var(--text3); margin-top: 2px; }
-  .nav { padding: 14px 12px; flex: 1; }
+  .nav { padding: 14px 12px; flex: 1; overflow-y: auto; min-height: 0; }
+  .nav::-webkit-scrollbar { width: 7px; }
+  .nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 4px; }
+  .nav::-webkit-scrollbar-track { background: transparent; }
   .nav-item { position: relative; display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 10px; cursor: pointer; color: var(--text2); font-size: 13px; font-weight: 500; transition: all 0.15s; margin-bottom: 3px; }
   .nav-item:hover { background: rgba(255,255,255,.05); color: var(--text); }
   .nav-item.active { background: linear-gradient(135deg, rgba(0,212,170,.16), rgba(124,92,255,.10)); color: var(--teal); font-weight: 700; }
