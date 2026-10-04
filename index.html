@@ -2,8 +2,16 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>ZF CRM – Login</title>
+<!-- PWA / Handy-App -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0e1420">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ZF CRM">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root {
@@ -1138,6 +1146,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   </div>
+  <button id="push-enable-btn" onclick="enablePush()" style="display:none;margin:8px 12px 2px;padding:10px 12px;border-radius:11px;border:1px solid rgba(124,92,255,.4);background:linear-gradient(135deg,rgba(0,212,170,.15),rgba(124,92,255,.15));color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:8px;justify-content:center;">🔔 Push aktivieren</button>
   <nav class="nav">
     <div class="nav-section">Overview</div>
     <div class="nav-item active" onclick="showPage('dashboard')">
@@ -13099,6 +13108,54 @@ window.renderCreatorsOverview = async function(){
   setTimeout(check, 3500);
   setInterval(check, 60000);
   window._jvInboxCheck=check;
+})();
+</script>
+
+<!-- ═══ PWA: Service Worker + Web-Push (Benachrichtigung bei jedem Sale) ═══ -->
+<script>
+(function(){
+  function b64ToU8(base64){
+    const pad='='.repeat((4-base64.length%4)%4);
+    const b=(base64+pad).replace(/-/g,'+').replace(/_/g,'/');
+    const raw=atob(b); const arr=new Uint8Array(raw.length);
+    for(let i=0;i<raw.length;i++) arr[i]=raw.charCodeAt(i);
+    return arr;
+  }
+  let swReg=null;
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/sw.js').then(r=>{ swReg=r; maybeShowBtn(); }).catch(e=>console.log('SW:',e));
+  }
+  function loggedIn(){ try{ return !!localStorage.getItem('crm_user'); }catch(e){ return false; } }
+  function supported(){ return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window); }
+  async function maybeShowBtn(){
+    const btn=document.getElementById('push-enable-btn'); if(!btn) return;
+    if(!supported() || !loggedIn()){ btn.style.display='none'; return; }
+    if(Notification.permission==='granted'){ btn.style.display='none'; try{ await subscribe(); }catch(e){} return; }
+    btn.style.display='flex';
+  }
+  async function subscribe(){
+    if(!swReg) swReg=await navigator.serviceWorker.ready;
+    let keyResp; try{ keyResp=await fetch('/api/push/vapid-public').then(r=>r.json()); }catch(e){ return false; }
+    if(!keyResp || !keyResp.key) return false;
+    let sub=await swReg.pushManager.getSubscription();
+    if(!sub){
+      sub=await swReg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToU8(keyResp.key) });
+    }
+    await fetch('/api/push/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subscription:sub.toJSON?sub.toJSON():sub})});
+    return true;
+  }
+  window.enablePush=async function(){
+    if(!supported()){ alert('Dein Browser unterstützt keine Push-Benachrichtigungen. Tipp: Auf dem iPhone die App erst über Safari → Teilen → „Zum Home-Bildschirm" installieren, dann hier aktivieren.'); return; }
+    try{
+      const perm=await Notification.requestPermission();
+      if(perm!=='granted'){ alert('Benachrichtigungen wurden nicht erlaubt.'); return; }
+      const ok=await subscribe();
+      const btn=document.getElementById('push-enable-btn'); if(btn) btn.style.display='none';
+      alert(ok?'🔔 Push aktiviert! Du bekommst jetzt bei jedem Sale eine Benachrichtigung.':'Konnte nicht aktivieren — Server-Key fehlt (VAPID in Railway setzen).');
+    }catch(e){ alert('Fehler: '+(e.message||e)); }
+  };
+  setTimeout(maybeShowBtn, 2500);
+  setInterval(maybeShowBtn, 60000);
 })();
 </script>
 </body>

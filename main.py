@@ -4267,10 +4267,25 @@ def _jarvis_knowledge(force=False):
         }
     except Exception as e:
         print(f'jarvis knowledge settings: {e}')
-    k['geschaeftslogik'] = ("Traffic wird bezahlt (eingekaufte Werbung). Jeder Sub kommt bewusst, um zu kaufen — "
-                            "jeder Sub ist ein potenzieller zahlender Kunde. Jeder Nicht-Kauf ist eine verlorene, bezahlte Chance "
-                            "und ist in der Regel ein Fehler im Chat (zu langsam, kein Angebot, Kaufsignal verpasst, Einwand nicht gelöst), "
-                            "nicht einfach 'Pech'. Entsprechend streng bewerten.")
+    k['geschaeftsmodell'] = (
+        "GESCHÄFTSMODELL (fest, immer gültig): Wir sind eine Agentur, die digitale Adult-Content- und Paid-Companionship-"
+        "Dienste über Telegram vermarktet und verkauft. "
+        "1) TRAFFIC: Wird über bezahlte Werbeanzeigen im Erotik-Bereich von markt.de (erotik.markt.de) eingekauft. "
+        "Interessenten werden von der Anzeige auf Telegram geleitet. Der Traffic kostet Geld — jeder Sub kommt also BEWUSST, "
+        "um etwas zu kaufen, und ist ein potenzieller zahlender Kunde. "
+        "2) MODELS/CREATOR: Die kundenseitigen Profile laufen im Namen der Creator (z.B. Marie Stolle, Leni). "
+        "Chatter schreiben im Namen des jeweiligen Models mit den Kunden. "
+        "3) PRODUKTE: Paid Calls (Video-/Voice-Calls), PPV/vorproduzierter Content, Custom-Content und bezahlter Text-Chat (Sexting). "
+        "4) ABLAUF: Kunde kommt über markt.de → Telegram → Chatter baut Beziehung auf und verkauft → Zahlung → Content/Leistung. "
+        "5) ZAHLUNG: überwiegend PayPal (Friends & Family), teils Banküberweisung, dazu Paysafecard. Das Geld läuft über die Konten des Models. "
+        "6) TEAM: Chatter arbeiten in Schichten (meist 09:00–17:00 und 17:00–01:00), bezahlt nach Lohnmodell (Prozent/Fix). "
+        "7) ZIEL: Tagesziel 1.000 € pro Tag. "
+        "8) KERNLOGIK FÜR BEWERTUNG: Weil der Traffic bezahlt ist und jeder Sub kaufen will, ist JEDER Nicht-Kauf eine verlorene bezahlte "
+        "Chance — in der Regel ein Fehler im Chat (zu langsam geantwortet, kein Angebot gemacht, Kaufsignal verpasst, Einwand/Verifizierung "
+        "nicht gelöst), nicht einfach 'Pech'. Entsprechend streng, aber fair bewerten. "
+        "GRENZEN: keine Täuschung, keine Fake-Verifizierung, kein unseriöser Zahlungsdruck — sauber verkaufen.")
+    k['geschaeftslogik'] = ("Traffic ist bezahlt; jeder Sub will kaufen; jeder Nicht-Kauf ist eine verlorene bezahlte Chance "
+                            "und meist ein Chat-Fehler, kein Pech. Streng, aber fair bewerten.")
     _JV_KNOW_CACHE['ts'] = now; _JV_KNOW_CACHE['data'] = k
     return k
 
@@ -7109,6 +7124,7 @@ async def mark_pledge_paid(pledge_id: int):
         'amount': p['amount'], 'product': 'Pledge paid',
         'chatter': p['chatter'], 'timestamp': ts,
     }))
+    _push_sale(p['amount'], 'Pledge', p['chatter'])
     return {'ok': True}
 
 @app.post('/pledges/{pledge_id}/cancel')
@@ -7481,6 +7497,95 @@ class SaleSubmitIn(BaseModel):
     payment_method: str = ''
     payment_code: str = ''  # Paysafe 16-digit or Amazon gift card code
 
+# ── WEB-PUSH (PWA-Benachrichtigungen bei jedem Sale) ────────────────────────
+VAPID_PRIVATE = os.environ.get('VAPID_PRIVATE', '').strip()
+VAPID_SUBJECT = os.environ.get('VAPID_SUBJECT', 'mailto:admin@zf-crm.com').strip()
+VAPID_PUBLIC  = os.environ.get('VAPID_PUBLIC', 'BN3dILGkAfSIOvvuGFiBvTCKUMcrEgIpkQIoqdsEcLXPmsaTKL0V1eHPn7rBBPtf4mSaErJlz0USHXr22WyAewI').strip()
+
+def _push_table():
+    with db() as conn, conn.cursor() as c:
+        c.execute('''CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id BIGSERIAL PRIMARY KEY, endpoint TEXT UNIQUE NOT NULL, sub TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())''')
+
+class PushSub(BaseModel):
+    subscription: dict = {}
+
+@app.get('/push/vapid-public')
+def push_vapid_public():
+    return {'key': VAPID_PUBLIC, 'enabled': bool(VAPID_PRIVATE)}
+
+@app.post('/push/subscribe')
+def push_subscribe(body: PushSub):
+    sub = body.subscription or {}
+    ep = sub.get('endpoint')
+    if not ep:
+        raise HTTPException(400, 'no endpoint')
+    try:
+        _push_table()
+        with db() as conn, conn.cursor() as c:
+            c.execute("INSERT INTO push_subscriptions (endpoint, sub) VALUES (%s,%s) "
+                      "ON CONFLICT (endpoint) DO UPDATE SET sub=EXCLUDED.sub", (ep, _json.dumps(sub)))
+        return {'ok': True}
+    except Exception as e:
+        print(f'/push/subscribe error: {e}')
+        return {'ok': False, 'error': str(e)}
+
+def _send_push_all(title, body_text, url='/', tag='sale'):
+    if not VAPID_PRIVATE:
+        return
+    try:
+        from pywebpush import webpush
+    except Exception as e:
+        print(f'pywebpush fehlt: {e}'); return
+    try:
+        _push_table()
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT endpoint, sub FROM push_subscriptions")
+            rows = list(c.fetchall())
+    except Exception as e:
+        print(f'push load: {e}'); return
+    payload = _json.dumps({'title': title, 'body': body_text, 'url': url, 'tag': tag})
+    dead = []
+    for r in rows:
+        try:
+            sub = _json.loads(r['sub'])
+            webpush(sub, payload, vapid_private_key=VAPID_PRIVATE, vapid_claims={'sub': VAPID_SUBJECT})
+        except Exception as e:
+            es = str(e)
+            if '410' in es or '404' in es or 'expired' in es.lower():
+                dead.append(r['endpoint'])
+            else:
+                print(f'push send: {es[:120]}')
+    if dead:
+        try:
+            with db() as conn, conn.cursor() as c:
+                c.execute("DELETE FROM push_subscriptions WHERE endpoint = ANY(%s)", (dead,))
+        except Exception:
+            pass
+
+def _push_async(title, body_text, url='/', tag='sale'):
+    try:
+        import threading as _th_push
+        _th_push.Thread(target=_send_push_all, args=(title, body_text, url, tag), daemon=True).start()
+    except Exception as e:
+        print(f'push async: {e}')
+
+def _push_sale(amount, product, chatter):
+    try:
+        amt = f'{float(amount):.0f}€'
+    except Exception:
+        amt = str(amount) + '€'
+    _push_async(f'💰 Neuer Sale: {amt}', f'{(product or "Sale")} · {(chatter or "")}'.strip(' ·'), '/', 'sale')
+
+@app.post('/push/test')
+def push_test(request: Request):
+    if getattr(request.state, 'user', {}).get('role') != 'admin':
+        raise HTTPException(403, 'nur admin')
+    if not VAPID_PRIVATE:
+        return {'ok': False, 'error': 'VAPID_PRIVATE nicht in Railway gesetzt.'}
+    _push_async('🔔 ZF CRM', 'Test-Benachrichtigung — Push funktioniert!', '/', 'test')
+    return {'ok': True}
+
 @app.post('/sale')
 async def post_sale(body: SaleSubmitIn):
     ts = datetime.now().isoformat()
@@ -7508,6 +7613,7 @@ async def post_sale(body: SaleSubmitIn):
             'amount': body.amount, 'product': body.product,
             'chatter': body.chatter, 'timestamp': ts,
         }))
+        _push_sale(body.amount, body.product, body.chatter)
     else:
         # Notify admin of new pending sale
         asyncio.create_task(ws_manager.broadcast({
@@ -7580,6 +7686,7 @@ async def approve_sale(sale_id: int, body: ReviewIn):
     asyncio.create_task(ws_manager.broadcast({
         'type': 'sale_reviewed', 'sale_id': sale_id, 'status': 'approved'
     }))
+    _push_sale(row['amount'], row['product'], row['chatter'])
     return {'ok': True}
 
 @app.post('/sale/{sale_id}/reject')
