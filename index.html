@@ -1047,6 +1047,24 @@
   body:not(.light) .nav-section:first-of-type{ border-top: none; margin-top: 0; }
   body:not(.light) .nav-item{ padding: 11px 12px; }
   body:not(.light) .nav-item.active{ background: linear-gradient(135deg, rgba(0,212,170,.22), rgba(124,92,255,.22)); box-shadow: inset 0 0 0 1px rgba(124,92,255,.32); }
+
+  /* ═══ SIDEBAR-REDESIGN v2 (gruppiert, Icon-Chips, weicher) ═══ */
+  body:not(.light) .sidebar{ background: linear-gradient(180deg, rgba(0,212,170,.07), rgba(124,92,255,.03) 20%, var(--bg2) 42%); }
+  body:not(.light) .nav{ padding: 10px 10px; }
+  body:not(.light) .nav-section{ font-size: 9.5px; letter-spacing: 1.4px; color: #6a6a86; font-weight: 800;
+    border-top: 1px solid rgba(255,255,255,.05); margin-top: 10px; padding: 14px 12px 6px; }
+  body:not(.light) .nav-section:first-of-type{ border-top: none; margin-top: 2px; }
+  body:not(.light) .nav-item{ gap: 12px; padding: 9px 11px; border-radius: 12px; font-size: 13px; font-weight: 550; color: var(--text2); margin-bottom: 2px; }
+  /* Icon in dezentem Chip */
+  body:not(.light) .nav-item svg{ width: 15px; height: 15px; padding: 5px; box-sizing: content-box; border-radius: 9px;
+    background: rgba(255,255,255,.05); color: var(--text2); transition: all .15s; }
+  body:not(.light) .nav-item:hover{ background: rgba(255,255,255,.04); color: var(--text); }
+  body:not(.light) .nav-item:hover svg{ background: rgba(255,255,255,.08); color: var(--text); }
+  body:not(.light) .nav-item.active{ color: #fff; font-weight: 700;
+    background: linear-gradient(135deg, rgba(0,212,170,.20), rgba(124,92,255,.18)); box-shadow: inset 0 0 0 1px rgba(124,92,255,.3); }
+  body:not(.light) .nav-item.active svg{ background: linear-gradient(135deg,#00d4aa,#7c5cff); color: #06130f; }
+  body:not(.light) .nav-item.active::before{ left: -10px; width: 4px; height: 20px; }
+
   /* Karten: flacher, größer gerundet, ruhiger — greift auch auf dem Dashboard */
   body:not(.light) .kpi-card,
   body:not(.light) #page-dashboard .kpi-card{
@@ -1134,6 +1152,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17.5" cy="9.5" r="2.4"/><path d="M15 20a4.5 4.5 0 0 1 6.5-4"/></svg>
       Creators
     </div>
+    <div class="nav-section">Verkauf &amp; Chat</div>
     <div class="nav-item" onclick="showPage('sales')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
       Sales Log
@@ -1168,6 +1187,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
       Notizen
     </div>
+    <div class="nav-section">Mein Bereich</div>
     <div class="nav-item" onclick="showPage('mystats')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       My Stats
@@ -1176,6 +1196,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
       My Earnings
     </div>
+    <div class="nav-section">Werkzeuge &amp; Admin</div>
     <div class="nav-item" onclick="showPage('broadcast')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 10.8a19.79 19.79 0 01-3.07-8.63A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
       Broadcast
