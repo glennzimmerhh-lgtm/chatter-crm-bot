@@ -7678,6 +7678,69 @@ try:
 except Exception as _e:
     print(f'[push-monitor] start: {_e}')
 
+# ── WARTENDE SUBS (>3 Min) — Endpoint fürs CRM + Push ───────────────────────
+WAIT_MIN = int(os.environ.get('WAIT_ALERT_MIN', '3') or 3)
+
+def _waiting_subs(min_minutes=None, max_minutes=120, limit=30):
+    mm = WAIT_MIN if min_minutes is None else min_minutes
+    now_b = _team_berlin_now()
+    def loc(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    hi = loc(now_b - timedelta(minutes=mm))     # last_time älter als 3 min
+    lo = loc(now_b - timedelta(minutes=max_minutes))
+    out = []
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("""SELECT tg_id, internal_name, anon_id, last_time, last_msg
+                         FROM conversations
+                         WHERE COALESCE(unread,0)>0 AND COALESCE(time_waster,FALSE)=FALSE
+                           AND last_time<=%s AND last_time>=%s
+                         ORDER BY last_time ASC LIMIT %s""", (hi, lo, limit))
+            for r in c.fetchall():
+                dt = _jv_parse_ts(r['last_time'])
+                mins = None
+                if dt:
+                    try:    mins = int(max(0, (now_b.replace(tzinfo=None) - dt).total_seconds() // 60))
+                    except Exception: mins = None
+                out.append({'tg_id': r['tg_id'], 'name': r['internal_name'] or r['anon_id'] or 'Sub',
+                            'last_time': r['last_time'], 'minutes': mins,
+                            'last_msg': (r['last_msg'] or '')[:60]})
+    except Exception as e:
+        print(f'_waiting_subs: {e}')
+    return out
+
+@app.get('/chats/waiting')
+def chats_waiting():
+    return {'waiting': _waiting_subs()}
+
+def _waiting_monitor_loop():
+    import time as _t
+    _t.sleep(45)
+    alerted = {}
+    while True:
+        try:
+            if VAPID_PRIVATE:
+                for w in _waiting_subs():
+                    key = w['tg_id']
+                    if alerted.get(key) == w['last_time']:
+                        continue
+                    alerted[key] = w['last_time']
+                    nm = w['name']; mins = w['minutes'] or WAIT_MIN
+                    _push_async(f'⏳ {nm} wartet seit {mins} Min', 'Kunde wartet auf Antwort — jetzt ran! 💬', '/', 'wait_' + str(key),
+                                f'⏳ {nm} waiting {mins} min', 'Customer is waiting — reply now! 💬')
+                if len(alerted) > 800:
+                    alerted.clear()
+        except Exception as e:
+            print(f'[waiting-monitor] {e}')
+        _t.sleep(60)
+
+try:
+    import threading as _th_wm
+    _th_wm.Thread(target=_waiting_monitor_loop, daemon=True).start()
+except Exception as _e:
+    print(f'[waiting-monitor] start: {_e}')
+
 @app.post('/sale')
 async def post_sale(body: SaleSubmitIn):
     ts = datetime.now().isoformat()

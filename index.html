@@ -13178,5 +13178,47 @@ window.renderCreatorsOverview = async function(){
   setInterval(maybeShowBtn, 60000);
 })();
 </script>
+
+<!-- ═══ WARTENDE SUBS (>3 Min) — Hinweis oben im CRM ═══ -->
+<script>
+(function(){
+  function loggedIn(){ try{ return !!localStorage.getItem('crm_user'); }catch(e){ return false; } }
+  function isEN(){ try{ return (localStorage.getItem('crm_role')||'')==='chatter'; }catch(e){ return false; } }
+  const seen=new Set(); let first=true;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function toast(name, mins){
+    let host=document.getElementById('wait-toast-host');
+    if(!host){ host=document.createElement('div'); host.id='wait-toast-host';
+      host.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);left:50%;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;width:min(92vw,430px);';
+      document.body.appendChild(host); }
+    const en=isEN();
+    const t=document.createElement('div');
+    t.style.cssText='background:#3a2a0a;color:#ffdca1;border:1px solid rgba(239,159,39,.55);border-radius:14px;padding:12px 15px;font-size:14px;line-height:1.4;box-shadow:0 12px 34px rgba(0,0,0,.55);display:flex;gap:10px;align-items:center;cursor:pointer;transition:opacity .4s;';
+    t.innerHTML='<span style="font-size:19px;flex:none">⏳</span><span>'+(en
+      ? ('<b>'+esc(name)+'</b> has been waiting '+mins+' min — reply now! 💬')
+      : ('<b>'+esc(name)+'</b> wartet seit '+mins+' Min — jetzt antworten! 💬'))+'</span>';
+    t.onclick=()=>{ t.remove(); try{ if(typeof showPage==='function') showPage('chat'); }catch(e){} };
+    host.appendChild(t);
+    setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),500); }, 22000);
+  }
+  async function poll(){
+    if(!loggedIn()) return;
+    try{
+      const d=await fetch('/api/chats/waiting').then(r=>r.json());
+      const list=d.waiting||[];
+      list.forEach(w=>{
+        const key=w.tg_id+'|'+w.last_time;
+        if(seen.has(key)) return;
+        seen.add(key);
+        if(!first) toast(w.name, w.minutes||3);  // beim ersten Lauf nur merken, nicht fluten
+      });
+      first=false;
+      if(seen.size>1500) seen.clear();
+    }catch(e){}
+  }
+  setTimeout(poll, 6000);
+  setInterval(poll, 45000);
+})();
+</script>
 </body>
 </html>
