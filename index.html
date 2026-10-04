@@ -881,7 +881,7 @@
     /* Layout */
     .sidebar { transform: translateX(-100%); transition: transform 0.25s ease; z-index: 101; }
     .sidebar.open { transform: translateX(0); }
-    .main { margin-left: 0; padding: 12px 12px 80px; }
+    .main { margin-left: 0; padding: calc(env(safe-area-inset-top, 0px) + 14px) 12px 86px; }
     .hamburger { display: flex; align-items: center; }
     .fab-refresh { display: flex; }
     .mobile-nav { display: block; }
@@ -956,7 +956,7 @@
   }
 
   @media (max-width: 400px) {
-    .main { padding: 10px 8px 80px; }
+    .main { padding: calc(env(safe-area-inset-top, 0px) + 12px) 8px 86px; }
     .cards-grid { gap: 8px; }
     .kpi-val { font-size: 18px; }
     .period-btn { padding: 5px 8px; font-size: 10px; }
