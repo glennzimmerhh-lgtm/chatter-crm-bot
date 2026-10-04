@@ -7124,7 +7124,7 @@ async def mark_pledge_paid(pledge_id: int):
         'amount': p['amount'], 'product': 'Pledge paid',
         'chatter': p['chatter'], 'timestamp': ts,
     }))
-    _push_sale(p['amount'], 'Pledge', p['chatter'])
+    _push_sale(p['amount'], 'Pledge', p['chatter'], p.get('payment_method', ''), p['tg_id'])
     return {'ok': True}
 
 @app.post('/pledges/{pledge_id}/cancel')
@@ -7570,12 +7570,41 @@ def _push_async(title, body_text, url='/', tag='sale'):
     except Exception as e:
         print(f'push async: {e}')
 
-def _push_sale(amount, product, chatter):
+def _pm_emoji(pm):
+    p = (pm or '').lower()
+    if 'paypal' in p: return '💜'
+    if 'paysafe' in p or p == 'psc': return '🎫'
+    if 'bank' in p or 'überweis' in p or 'iban' in p or 'youdsafe' in p or 'yousafe' in p: return '🏦'
+    if 'amazon' in p: return '📦'
+    if 'revolut' in p or 'link' in p or 'card' in p or 'apple' in p or 'kredit' in p: return '🔗'
+    if 'crypto' in p or 'bitcoin' in p or 'krypto' in p: return '🪙'
+    return '💸'
+
+def _creator_name_for_tg(tg_id):
+    if not tg_id:
+        return ''
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT cr.name FROM conversations cv JOIN creators cr ON cr.id=cv.creator_id WHERE cv.tg_id=%s", (str(tg_id),))
+            r = c.fetchone()
+            return (r['name'] if r else '') or ''
+    except Exception:
+        return ''
+
+def _push_sale(amount, product, chatter, payment_method='', tg_id=''):
     try:
         amt = f'{float(amount):.0f}€'
     except Exception:
         amt = str(amount) + '€'
-    _push_async(f'💰 Neuer Sale: {amt}', f'{(product or "Sale")} · {(chatter or "")}'.strip(' ·'), '/', 'sale')
+    model = _creator_name_for_tg(tg_id)
+    pe = _pm_emoji(payment_method)
+    title = f'💸🎉 {model}: {amt} 🤑' if model else f'💸🎉 Neuer Sale · {amt} 🤑'
+    parts = [f'🔥 {product or "Sale"}']
+    if payment_method:
+        parts.append(f'{pe} {payment_method}')
+    if chatter:
+        parts.append(f'👤 {chatter}')
+    _push_async(title, ' · '.join(parts), '/', 'sale')
 
 @app.post('/push/test')
 def push_test(request: Request):
@@ -7583,7 +7612,7 @@ def push_test(request: Request):
         raise HTTPException(403, 'nur admin')
     if not VAPID_PRIVATE:
         return {'ok': False, 'error': 'VAPID_PRIVATE nicht in Railway gesetzt.'}
-    _push_async('🔔 ZF CRM', 'Test-Benachrichtigung — Push funktioniert!', '/', 'test')
+    _push_async('🔔✨ ZF CRM', '🎉 Test-Benachrichtigung — Push funktioniert! 🚀', '/', 'test')
     return {'ok': True}
 
 # ── PUSH-MONITOR: Alarm bei vielen offenen Chats + Abend-Recap neue Subs ─────
@@ -7600,7 +7629,7 @@ def _push_monitor_loop():
                     c.execute("SELECT COUNT(*) n FROM conversations WHERE COALESCE(unread,0)>0")
                     openn = int((c.fetchone() or {}).get('n') or 0)
                 if openn >= THRESH and not open_alerted:
-                    _send_push_all(f'⚠️ {openn} offene Chats', 'Kunden warten auf Antwort — ran an die Chats!', '/', 'openchats')
+                    _send_push_all(f'🚨💬 {openn} offene Chats!', '⏳ Kunden warten auf Antwort — ran da! 🏃‍♀️💨', '/', 'openchats')
                     open_alerted = True
                 elif openn <= max(1, THRESH - 2):
                     open_alerted = False  # Hysterese: erst zurücksetzen wenn deutlich drunter
@@ -7619,7 +7648,7 @@ def _push_monitor_loop():
                             subs = int((c.fetchone() or {}).get('n') or 0)
                             c.execute("SELECT COALESCE(SUM(amount),0) v FROM sales WHERE COALESCE(status,'')<>'rejected' AND timestamp>=%s", (today0,))
                             rev = round(float((c.fetchone() or {}).get('v') or 0), 2)
-                        _send_push_all('📊 Tagesabschluss', f'Heute: {subs} neue Subs · {rev:.0f}€ Umsatz', '/', 'recap')
+                        _send_push_all('🌙📊 Tagesabschluss', f'✨ {subs} neue Subs · 💰 {rev:.0f}€ heute 🚀', '/', 'recap')
                     except Exception as e:
                         print(f'[push-monitor] recap: {e}')
         except Exception as e:
@@ -7659,7 +7688,7 @@ async def post_sale(body: SaleSubmitIn):
             'amount': body.amount, 'product': body.product,
             'chatter': body.chatter, 'timestamp': ts,
         }))
-        _push_sale(body.amount, body.product, body.chatter)
+        _push_sale(body.amount, body.product, body.chatter, body.payment_method, body.tg_id)
     else:
         # Notify admin of new pending sale
         asyncio.create_task(ws_manager.broadcast({
@@ -7710,7 +7739,7 @@ async def approve_sale(sale_id: int, body: ReviewIn):
     with db() as conn:
         with conn.cursor() as c:
             c.execute(
-                'UPDATE sales SET status=%s, reviewed_by=%s, reviewed_at=%s WHERE id=%s RETURNING tg_id,anon_id,amount,product,chatter,timestamp',
+                'UPDATE sales SET status=%s, reviewed_by=%s, reviewed_at=%s WHERE id=%s RETURNING tg_id,anon_id,amount,product,chatter,timestamp,payment_method',
                 ('approved', body.reviewed_by, ts, sale_id)
             )
             row = c.fetchone()
@@ -7732,7 +7761,7 @@ async def approve_sale(sale_id: int, body: ReviewIn):
     asyncio.create_task(ws_manager.broadcast({
         'type': 'sale_reviewed', 'sale_id': sale_id, 'status': 'approved'
     }))
-    _push_sale(row['amount'], row['product'], row['chatter'])
+    _push_sale(row['amount'], row['product'], row['chatter'], row.get('payment_method', ''), row['tg_id'])
     return {'ok': True}
 
 @app.post('/sale/{sale_id}/reject')
