@@ -530,6 +530,8 @@ def init_db():
             # Add display_name column if missing (safe — ignore if already exists)
             try:
                 c.execute("ALTER TABLE crm_users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT ''")
+                c.execute("ALTER TABLE crm_users ADD COLUMN IF NOT EXISTS totp_secret TEXT DEFAULT ''")
+                c.execute("ALTER TABLE crm_users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE")
             except Exception:
                 pass  # column already exists from previous deployment
             # Seed default admin if no users exist
@@ -3253,17 +3255,31 @@ def _session_user(token: str):
 class LoginIn(BaseModel):
     username: str
     password: str
+    code: str = ''   # optionaler 2FA-Code
 
 @app.post('/auth/login')
 def auth_login(body: LoginIn, request: Request):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute('SELECT id,username,email,role,display_name FROM crm_users WHERE username=%s AND password_hash=%s',
+            c.execute('SELECT id,username,email,role,display_name,totp_secret,totp_enabled FROM crm_users WHERE username=%s AND password_hash=%s',
                       (body.username, _hash_pw(body.password)))
             row = c.fetchone()
     if not row:
         raise HTTPException(401, 'Falscher Benutzername oder Passwort')
     d = dict(row)
+    # 2FA-Prüfung (nur wenn für diesen User aktiviert)
+    if d.get('totp_enabled') and d.get('totp_secret'):
+        code = (body.code or '').strip().replace(' ', '')
+        if not code:
+            return _JSONResponse({'detail': '2FA-Code erforderlich', 'twofa_required': True}, status_code=401)
+        try:
+            import pyotp
+            if not pyotp.TOTP(d['totp_secret']).verify(code, valid_window=1):
+                return _JSONResponse({'detail': 'Falscher 2FA-Code', 'twofa_required': True, 'bad_code': True}, status_code=401)
+        except Exception as e:
+            print(f'2fa verify: {e}')
+            return _JSONResponse({'detail': '2FA-Fehler', 'twofa_required': True}, status_code=401)
+    d.pop('totp_secret', None); d.pop('totp_enabled', None)
     d['display_name'] = d['display_name'] or d['username']
     # Issue a fresh server-side session token (revocable)
     token = _new_token()
@@ -3287,6 +3303,64 @@ def auth_logout(request: Request):
                 c.execute('DELETE FROM crm_sessions WHERE token=%s', (tok,))
         except Exception:
             pass
+    return {'ok': True}
+
+# ── 2FA (TOTP, Authenticator-App) — optional pro User ───────────────────────
+class TwoFAIn(BaseModel):
+    code: str = ''
+
+@app.get('/auth/2fa/status')
+def twofa_status(request: Request):
+    u = _session_user(request.headers.get('x-session-token', ''))
+    if not u:
+        raise HTTPException(401, 'Session ungültig')
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT COALESCE(totp_enabled,FALSE) e FROM crm_users WHERE id=%s', (u['id'],))
+        r = c.fetchone()
+    return {'enabled': bool(r and r['e'])}
+
+@app.post('/auth/2fa/setup')
+def twofa_setup(request: Request):
+    u = getattr(request.state, 'user', {}) or {}
+    if not u.get('id'):
+        raise HTTPException(401, 'Session ungültig')
+    import pyotp
+    secret = pyotp.random_base32()
+    with db() as conn, conn.cursor() as c:
+        c.execute('UPDATE crm_users SET totp_secret=%s, totp_enabled=FALSE WHERE id=%s', (secret, u['id']))
+    uri = pyotp.TOTP(secret).provisioning_uri(name=u.get('username', 'user'), issuer_name='ZF CRM')
+    return {'ok': True, 'secret': secret, 'otpauth_url': uri}
+
+@app.post('/auth/2fa/enable')
+def twofa_enable(body: TwoFAIn, request: Request):
+    u = getattr(request.state, 'user', {}) or {}
+    if not u.get('id'):
+        raise HTTPException(401, 'Session ungültig')
+    import pyotp
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT totp_secret FROM crm_users WHERE id=%s', (u['id'],))
+        r = c.fetchone()
+        sec = r['totp_secret'] if r else ''
+        if not sec:
+            raise HTTPException(400, 'Erst 2FA einrichten (setup).')
+        if not pyotp.TOTP(sec).verify((body.code or '').strip().replace(' ', ''), valid_window=1):
+            raise HTTPException(400, 'Falscher Code')
+        c.execute('UPDATE crm_users SET totp_enabled=TRUE WHERE id=%s', (u['id'],))
+    return {'ok': True}
+
+@app.post('/auth/2fa/disable')
+def twofa_disable(body: TwoFAIn, request: Request):
+    u = getattr(request.state, 'user', {}) or {}
+    if not u.get('id'):
+        raise HTTPException(401, 'Session ungültig')
+    import pyotp
+    with db() as conn, conn.cursor() as c:
+        c.execute('SELECT totp_secret, COALESCE(totp_enabled,FALSE) e FROM crm_users WHERE id=%s', (u['id'],))
+        r = c.fetchone()
+        if r and r['e'] and r['totp_secret']:
+            if not pyotp.TOTP(r['totp_secret']).verify((body.code or '').strip().replace(' ', ''), valid_window=1):
+                raise HTTPException(400, 'Falscher Code')
+        c.execute('UPDATE crm_users SET totp_enabled=FALSE, totp_secret=%s WHERE id=%s', ('', u['id']))
     return {'ok': True}
 
 @app.post('/auth/revoke-all')
@@ -7717,6 +7791,36 @@ def _waiting_subs(min_minutes=None, max_minutes=120, limit=30):
 @app.get('/chats/waiting')
 def chats_waiting():
     return {'waiting': _waiting_subs()}
+
+# ── KUNDEN-TIMELINE: komplette Historie eines Subs ──────────────────────────
+@app.get('/subscriber/{tg_id}/timeline')
+def subscriber_timeline(tg_id: str):
+    tg = str(tg_id)
+    cv = {}
+    sales = []
+    with db() as conn, conn.cursor() as c:
+        c.execute("SELECT internal_name, anon_id, notes, first_time, last_time, msg_count, source FROM conversations WHERE tg_id=%s", (tg,))
+        r = c.fetchone()
+        if r: cv = dict(r)
+        c.execute("SELECT amount, product, payment_method, status, timestamp, chatter, notes FROM sales WHERE tg_id=%s ORDER BY id DESC LIMIT 150", (tg,))
+        sales = [dict(x) for x in c.fetchall()]
+    events = []
+    for s in sales:
+        events.append({'type': 'sale', 'amount': float(s['amount'] or 0), 'product': s.get('product') or '',
+                       'payment_method': s.get('payment_method') or '', 'status': s.get('status') or 'approved',
+                       'chatter': s.get('chatter') or '', 'note': (s.get('notes') or '')[:120], 'ts': s.get('timestamp')})
+    if cv.get('first_time'):
+        events.append({'type': 'joined', 'source': cv.get('source') or '', 'ts': cv.get('first_time')})
+    def _k(e):
+        dt = _jv_parse_ts(e.get('ts'))
+        return dt.timestamp() if dt else 0
+    events.sort(key=_k, reverse=True)
+    paid = [s for s in sales if (s.get('status') or '') != 'rejected']
+    total = round(sum(float(s['amount'] or 0) for s in paid), 2)
+    return {'name': cv.get('internal_name') or cv.get('anon_id') or tg,
+            'notes': cv.get('notes', '') or '', 'msg_count': cv.get('msg_count'),
+            'first_time': cv.get('first_time', ''), 'last_time': cv.get('last_time', ''),
+            'total': total, 'sales_count': len(paid), 'events': events}
 
 # Eskalationsstufen: (ab Minute, Titel DE, Body DE, Titel EN, Body EN)
 _WAIT_TIERS = [

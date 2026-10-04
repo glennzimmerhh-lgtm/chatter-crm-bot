@@ -1113,6 +1113,10 @@
       <label>Password</label>
       <input type="password" id="login-pw" placeholder="••••••••••" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
+    <div class="login-field" id="login-2fa-field" style="display:none;">
+      <label>2FA-Code (Authenticator)</label>
+      <input type="text" inputmode="numeric" id="login-2fa" placeholder="123 456" autocomplete="one-time-code" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
     <button class="login-btn" onclick="doLogin()">Log in</button>
     <div class="login-error" id="login-error">Wrong password. Please try again.</div>
   </div>
@@ -1271,6 +1275,7 @@
         </div>
       </div>
       <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Light/Dark">🌙</button>
+      <span onclick="open2FA()" title="2FA / Sicherheit" id="twofa-btn" style="cursor:pointer;color:var(--text3);font-size:15px;line-height:1;margin-left:4px;">🔐</span>
       <span onclick="doLogout()" title="Log out" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;margin-left:4px;">⏻</span>
     </div>
   </div>
@@ -3456,9 +3461,10 @@ async function doLogin() {
   const err  = document.getElementById('login-error');
   const btn  = document.querySelector('.login-btn');
   if (!user || !pw) return;
+  const code = (document.getElementById('login-2fa') ? document.getElementById('login-2fa').value.trim() : '');
   btn.textContent = '...'; btn.disabled = true;
   const _loginBase = (window.BACKEND_URL || localStorage.getItem('crm_backend_url') || '').replace(/\/$/, '');
-  const loginOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pw }) };
+  const loginOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pw, code }) };
   const loginUrls = ['/api/auth/login'];
   if (_loginBase) loginUrls.push(_loginBase + '/auth/login');
   let r = null;
@@ -3484,10 +3490,18 @@ async function doLogin() {
       // initialized — they only run when checkAuth() is true at page load time.
       window.location.reload();
     } else {
-      err.textContent = 'Wrong username or password';
-      err.style.display = 'block';
-      document.getElementById('login-pw').value = '';
-      document.getElementById('login-pw').focus();
+      let jd = {}; try { jd = await r.json(); } catch(_) {}
+      if (jd.twofa_required) {
+        const f = document.getElementById('login-2fa-field'); if (f) f.style.display = 'block';
+        const ci = document.getElementById('login-2fa'); if (ci) ci.focus();
+        err.textContent = jd.bad_code ? 'Wrong 2FA code — try again' : 'Enter your 2FA code from the authenticator app';
+        err.style.display = 'block';
+      } else {
+        err.textContent = 'Wrong username or password';
+        err.style.display = 'block';
+        document.getElementById('login-pw').value = '';
+        document.getElementById('login-pw').focus();
+      }
     }
   } catch(e) {
     err.textContent = e.name === 'AbortError' ? 'Server timeout — try again' : 'Server unreachable';
@@ -7918,6 +7932,11 @@ if (checkAuth()) {
       </div>
 
       <div class="profile-section">
+        <div class="profile-label">🕑 Timeline</div>
+        <div id="prof-timeline" style="font-size:12px;color:var(--text3);">Lade…</div>
+      </div>
+
+      <div class="profile-section">
         <div class="profile-label">Stats</div>
         <div class="profile-stat-row"><span>First message</span><span class="profile-stat-val">${firstDate}</span></div>
         <div class="profile-stat-row"><span>Last message</span><span class="profile-stat-val">${lastDate}</span></div>
@@ -7930,6 +7949,7 @@ if (checkAuth()) {
     document.getElementById('prof-iname').addEventListener('blur', () => saveProfile(tgId));
     renderNotePresets();
     renderProfileLists(tgId);
+    renderCustomerTimeline(tgId);
     // Auto-save notes with debounce
     let notesTimer;
     document.getElementById('prof-notes').addEventListener('input', () => {
@@ -7937,6 +7957,45 @@ if (checkAuth()) {
       notesTimer = setTimeout(() => saveProfile(tgId, true), 1200);
     });
   }
+
+  window.renderCustomerTimeline = async function(tgId){
+    const box = document.getElementById('prof-timeline'); if(!box) return;
+    const PM = p => { const x=(p||'').toLowerCase();
+      if(x.includes('paypal'))return'💜'; if(x.includes('paysafe'))return'🎫';
+      if(x.includes('bank')||x.includes('überweis')||x.includes('iban'))return'🏦';
+      if(x.includes('amazon'))return'📦'; if(x.includes('revolut')||x.includes('link')||x.includes('card')||x.includes('apple'))return'🔗';
+      if(x.includes('crypto')||x.includes('bitcoin'))return'🪙'; return'💸'; };
+    const esc = s => String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    try{
+      const d = await chatApiGet('/subscriber/'+tgId+'/timeline');
+      if(!d){ box.textContent='—'; return; }
+      let html = '<div style="display:flex;gap:10px;margin-bottom:10px;">'
+        + '<div style="flex:1;background:rgba(0,212,170,.08);border:1px solid rgba(0,212,170,.25);border-radius:10px;padding:8px 10px;"><div style="font-size:10px;color:var(--text3);text-transform:uppercase;">Gesamt</div><div style="font-size:16px;font-weight:800;color:#00d4aa;">'+(d.total||0).toLocaleString('de-DE')+' €</div></div>'
+        + '<div style="flex:1;background:rgba(124,92,255,.08);border:1px solid rgba(124,92,255,.25);border-radius:10px;padding:8px 10px;"><div style="font-size:10px;color:var(--text3);text-transform:uppercase;">Käufe</div><div style="font-size:16px;font-weight:800;color:#a78bfa;">'+(d.sales_count||0)+'</div></div>'
+        + '</div>';
+      const evs = d.events||[];
+      if(!evs.length){ box.innerHTML = html + '<div style="color:var(--text3);">Noch keine Ereignisse.</div>'; return; }
+      html += '<div style="display:flex;flex-direction:column;gap:0;border-left:2px solid rgba(255,255,255,.1);padding-left:10px;margin-left:4px;">';
+      evs.slice(0,40).forEach(e=>{
+        let when=''; try{ const dt=parseTs(e.ts); if(!isNaN(dt.getTime())) when=dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}); }catch(_){}
+        if(e.type==='sale'){
+          const rej=(e.status==='rejected'); const pend=(e.status==='pending');
+          const col=rej?'#ff5c7a':(pend?'#ffd166':'#00d4aa');
+          html += '<div style="position:relative;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);">'
+            + '<div style="position:absolute;left:-15px;top:11px;width:8px;height:8px;border-radius:50%;background:'+col+';"></div>'
+            + '<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;color:'+col+';">'+(rej?'✗ ':'')+Math.round(e.amount)+' € '+PM(e.payment_method)+'</span><span style="font-size:10px;color:var(--text3);">'+when+'</span></div>'
+            + '<div style="font-size:11.5px;color:var(--text2);">'+esc(e.product||'Sale')+(e.payment_method?(' · '+esc(e.payment_method)):'')+(e.chatter?(' · 👤 '+esc(e.chatter)):'')+(pend?' · ⏳ pending':'')+'</div></div>';
+        } else if(e.type==='joined'){
+          html += '<div style="position:relative;padding:7px 0;">'
+            + '<div style="position:absolute;left:-15px;top:11px;width:8px;height:8px;border-radius:50%;background:#4a9eff;"></div>'
+            + '<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:600;color:#85b7eb;">✨ Erstkontakt</span><span style="font-size:10px;color:var(--text3);">'+when+'</span></div>'
+            + (e.source?('<div style="font-size:11px;color:var(--text3);">Quelle: '+esc(e.source)+'</div>'):'')+'</div>';
+        }
+      });
+      html += '</div>';
+      box.innerHTML = html;
+    }catch(e){ box.textContent='Fehler: '+(e.message||e); }
+  };
 
 
   // ══════════════════════════════════════════════════════════
@@ -13229,6 +13288,67 @@ window.renderCreatorsOverview = async function(){
   }
   setTimeout(poll, 6000);
   setInterval(poll, 40000);
+})();
+</script>
+
+<!-- ═══ SICHERHEIT: Auto-Logout bei Inaktivität + 2FA-Einrichtung ═══ -->
+<script>
+(function(){
+  // ── Auto-Logout nach Inaktivität ──
+  const MIN = parseInt(localStorage.getItem('crm_idle_min')||'30',10);  // Minuten
+  let last=Date.now();
+  function bump(){ last=Date.now(); }
+  ['click','keydown','mousemove','touchstart','visibilitychange'].forEach(ev=>document.addEventListener(ev,bump,{passive:true}));
+  setInterval(function(){
+    if(!localStorage.getItem('crm_user')) return;
+    if(Date.now()-last > MIN*60000){
+      try{ if(typeof doLogout==='function'){ alert('Automatisch abgemeldet (Inaktivität).'); doLogout(); } }catch(e){}
+    }
+  }, 30000);
+
+  // ── 2FA einrichten / verwalten ──
+  window.open2FA = async function(){
+    if(!localStorage.getItem('crm_user')){ return; }
+    let st={enabled:false};
+    try{ st=await fetch('/api/auth/2fa/status').then(r=>r.json()); }catch(e){}
+    if(st.enabled){
+      if(!confirm('2FA ist aktiv. Möchtest du es deaktivieren?')) return;
+      const code=prompt('Zum Deaktivieren: aktuellen 6-stelligen Code aus der Authenticator-App eingeben:');
+      if(!code) return;
+      try{ const r=await fetch('/api/auth/2fa/disable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+        const d=await r.json(); alert(r.ok?'2FA deaktiviert.':(d.detail||'Fehler')); }catch(e){ alert('Fehler: '+(e.message||e)); }
+      return;
+    }
+    // Einrichten
+    let s; try{ s=await fetch('/api/auth/2fa/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()); }catch(e){ alert('Fehler beim Einrichten.'); return; }
+    if(!s || !s.secret){ alert('2FA-Einrichtung fehlgeschlagen.'); return; }
+    const otpauth = s.otpauth_url || '';
+    const qr = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data='+encodeURIComponent(otpauth);
+    let host=document.getElementById('twofa-modal');
+    if(host) host.remove();
+    host=document.createElement('div'); host.id='twofa-modal';
+    host.style.cssText='position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:18px;';
+    host.innerHTML='<div style="background:var(--bg2,#12151c);border:1px solid var(--border);border-radius:18px;padding:22px;max-width:360px;width:100%;text-align:center;">'
+      +'<div style="font-weight:800;font-size:16px;margin-bottom:6px;">🔐 2FA einrichten</div>'
+      +'<div style="font-size:12.5px;color:var(--text3);margin-bottom:12px;">Scanne den QR mit Google Authenticator / Authy und gib dann den 6-stelligen Code ein.</div>'
+      +'<img src="'+qr+'" alt="QR" style="width:180px;height:180px;border-radius:10px;background:#fff;padding:6px;"/>'
+      +'<div style="font-size:11px;color:var(--text3);margin:10px 0;word-break:break-all;">Manuell: <b style="color:var(--text)">'+s.secret+'</b></div>'
+      +'<input id="twofa-code" inputmode="numeric" placeholder="123 456" style="width:100%;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:11px;font-size:16px;text-align:center;letter-spacing:3px;margin-bottom:10px;">'
+      +'<div style="display:flex;gap:8px;"><button onclick="document.getElementById(\'twofa-modal\').remove()" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;cursor:pointer;">Abbrechen</button>'
+      +'<button onclick="confirm2FA()" style="flex:1;background:linear-gradient(135deg,#00d4aa,#7c5cff);border:none;color:#fff;font-weight:800;border-radius:10px;padding:10px;cursor:pointer;">Aktivieren</button></div></div>';
+    document.body.appendChild(host);
+    setTimeout(()=>{ const ci=document.getElementById('twofa-code'); if(ci) ci.focus(); },100);
+  };
+  window.confirm2FA = async function(){
+    const code=(document.getElementById('twofa-code')||{}).value||'';
+    if(!code.trim()){ return; }
+    try{
+      const r=await fetch('/api/auth/2fa/enable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code.trim()})});
+      const d=await r.json();
+      if(r.ok){ const m=document.getElementById('twofa-modal'); if(m) m.remove(); alert('🔐 2FA aktiviert! Ab dem nächsten Login brauchst du den Code.'); }
+      else alert(d.detail||'Falscher Code');
+    }catch(e){ alert('Fehler: '+(e.message||e)); }
+  };
 })();
 </script>
 </body>
