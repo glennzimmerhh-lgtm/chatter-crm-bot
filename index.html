@@ -13005,6 +13005,36 @@ window.renderCreatorsOverview = async function(){
   let stream=null, ac=null, analyser=null, rec=null, chunks=[], running=false, paused=false, speaking=false, mime='audio/webm';
   const SILENT_MP3='data:audio/mpeg;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA';
   const orb=()=>document.getElementById('jcOrb');
+  // ── Telefon-Klingelton (Web-Audio, synthetisch) ──
+  let ringAC=null, ringTimer=null;
+  function startRing(){
+    try{
+      ringAC=new (window.AudioContext||window.webkitAudioContext)();
+      const acx=ringAC;
+      function burst(t0,dur){
+        [440,480].forEach(f=>{
+          const o=acx.createOscillator(), g=acx.createGain();
+          o.type='sine'; o.frequency.value=f; o.connect(g); g.connect(acx.destination);
+          g.gain.setValueAtTime(0,t0);
+          g.gain.linearRampToValueAtTime(0.14, t0+0.03);
+          g.gain.setValueAtTime(0.14, t0+dur-0.05);
+          g.gain.linearRampToValueAtTime(0, t0+dur);
+          o.start(t0); o.stop(t0+dur+0.02);
+        });
+      }
+      function cycle(){
+        if(!ringAC) return;
+        const t=acx.currentTime+0.02;
+        burst(t,0.4); burst(t+0.6,0.4);     // klassisches Doppel-Klingeln
+        ringTimer=setTimeout(cycle, 2200);  // Pause bis zum nächsten Klingeln
+      }
+      cycle();
+    }catch(e){}
+  }
+  function stopRing(){
+    if(ringTimer){ clearTimeout(ringTimer); ringTimer=null; }
+    if(ringAC){ try{ ringAC.close(); }catch(e){} ringAC=null; }
+  }
   function setState(cls, status, sub){
     const o=orb(); if(o) o.className='jc-orb '+(cls||'');
     const s=document.getElementById('jcStatus'); if(s&&status!=null) s.textContent=status;
@@ -13022,18 +13052,27 @@ window.renderCreatorsOverview = async function(){
     document.getElementById('jcTranscript').innerHTML=''; showErr('');
     // Audio-Element JETZT (im Klick-Gesture) freischalten, sonst blockt Safari spätere Antworten
     try{ const a=document.getElementById('jcAudio'); a.src=SILENT_MP3; const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{}); }catch(e){}
-    setState('', 'Verbinde…', 'Mikrofon-Zugriff erlauben, dann einfach sprechen.');
+    running=true; paused=false;
+    // Es klingelt, bis Jarvis rangeht
+    setState('thinking','Klingelt…','Verbinde mit Jarvis…');
+    startRing();
+    const _ringStart=Date.now();
     try{
       stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    }catch(e){ showErr('Kein Mikrofon-Zugriff. Bitte in den Browser-Einstellungen erlauben.'); setState('','Kein Mikro',''); return; }
+    }catch(e){ stopRing(); showErr('Kein Mikrofon-Zugriff. Bitte in den Browser-Einstellungen erlauben.'); setState('','Kein Mikro',''); return; }
     // passende MIME finden (Safari = mp4, Chrome = webm)
     mime = (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/webm')) ? 'audio/webm'
          : (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/mp4')) ? 'audio/mp4' : '';
     try{ ac=new (window.AudioContext||window.webkitAudioContext)(); analyser=ac.createAnalyser(); analyser.fftSize=2048;
       ac.createMediaStreamSource(stream).connect(analyser); }catch(e){}
-    running=true; paused=false;
-    // Begrüßung von Jarvis
-    await jarvisSay('Hey, ich bin Jarvis. Frag mich was zu deinen Zahlen.');
+    // Mindestens ~3 s durchklingeln lassen, dann geht Jarvis ran
+    const _wait=Math.max(0, 3000-(Date.now()-_ringStart));
+    await new Promise(r=>setTimeout(r,_wait));
+    if(!running){ stopRing(); return; }
+    stopRing();
+    // Begrüßung von Jarvis — persönlich
+    const nm=(localStorage.getItem('crm_user')||'Glenn').trim()||'Glenn';
+    await jarvisSay('Hallo '+nm+', hier ist Jarvis. Was kann ich für dich tun?');
     if(running) listenLoop();
   };
 
@@ -13116,6 +13155,7 @@ window.renderCreatorsOverview = async function(){
 
   window.jvCallEnd=function(){
     running=false; speaking=false; paused=false;
+    stopRing();
     try{ if(rec&&rec.state==='recording') rec.stop(); }catch(e){}
     try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
     try{ if(ac) ac.close(); }catch(e){}
@@ -13273,7 +13313,8 @@ window.renderCreatorsOverview = async function(){
   async function poll(){
     if(!loggedIn() || !isEN()) return;   // nur Chatter bekommen die Wartende-Chats-Hinweise
     try{
-      const d=await fetch('/api/chats/waiting').then(r=>r.json());
+      const me=encodeURIComponent(localStorage.getItem('crm_user')||'');
+      const d=await fetch('/api/chats/waiting?chatter='+me).then(r=>r.json());
       (d.waiting||[]).forEach(w=>{
         const mins=w.minutes||3; const ti=tierOf(mins);
         if(ti<0) return;
