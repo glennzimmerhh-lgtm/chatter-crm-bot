@@ -6861,7 +6861,7 @@ async function loadSalaryAdmin(days){
     tb.innerHTML = rows.map(r=>{
       const hrs = Math.floor((r.worked_sec||0)/3600)+'h '+String(Math.floor(((r.worked_sec||0)%3600)/60)).padStart(2,'0')+'m';
       const pen = r.penalty_pct>0 ? `<span style="color:#ff7a93">−${_salUsd(r.penalty_amt)} (${r.penalty_pct}%)</span>` : '<span style="color:var(--text3)">–</span>';
-      const fck = r.fuckups>0 ? `<span style="color:#ff7a93;font-weight:700">${r.fuckups}</span>` : '0';
+      const fck = r.fuckups>0 ? `<button onclick="openAdminFuckups('${_tmEsc(r.chatter).replace(/'/g,"\\'")}')" style="background:rgba(255,92,122,.14);border:1px solid rgba(255,92,122,.4);color:#ff7a93;font-weight:800;border-radius:8px;padding:3px 9px;cursor:pointer;">${r.fuckups} ▸</button>` : '0';
       return `<tr>
         <td><b>${_tmEsc(r.chatter)}</b></td>
         <td class="r">${hrs}</td>
@@ -13964,6 +13964,49 @@ window.renderCreatorsOverview = async function(){
     loadStatus();
     if(pollTimer) clearInterval(pollTimer); pollTimer=setInterval(loadStatus, 20000);
     if(tickTimer) clearInterval(tickTimer); tickTimer=setInterval(tick, 1000);
+  };
+})();
+</script>
+<!-- ═══ ADMIN: Fuckup-Detailliste pro Chatter (mit Erlassen) ═══ -->
+<div class="ck-ov" id="admFuck">
+  <div class="ck-card" style="max-width:500px;">
+    <div class="ck-head"><h3 id="admFuckTitle">Fuckups</h3><p>Verspätete Replies & Verstöße — erlassen falls unfair</p></div>
+    <div class="ck-body" id="admFuckBody">Lade…</div>
+    <div class="ck-foot"><button style="background:rgba(255,255,255,.08);color:#cdd5e0;" onclick="document.getElementById('admFuck').classList.remove('show')">Schließen</button></div>
+  </div>
+</div>
+<script>
+(function(){
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  let _curCh='';
+  window.openAdminFuckups=async function(chatter){
+    _curCh=chatter||'';
+    document.getElementById('admFuckTitle').textContent='⚠️ Fuckups · '+_curCh;
+    const body=document.getElementById('admFuckBody'); body.innerHTML='Lade…';
+    document.getElementById('admFuck').classList.add('show');
+    await _admRender();
+  };
+  async function _admRender(){
+    const body=document.getElementById('admFuckBody');
+    try{
+      const d=await fetch('/api/fuckups?chatter='+encodeURIComponent(_curCh)).then(r=>r.json());
+      const s=d.summary||{month:0,total:0,penalty_pct:0}; const list=d.fuckups||[];
+      let html=`<div class="ck-pen">Diesen Monat: <b>${s.month}</b> · Gesamt offen: <b>${s.total}</b> · Abzug: <b>−${s.penalty_pct}%</b></div>`;
+      html += list.length ? list.map(f=>{
+        const d2=(f.created_at||'').replace('T',' ').slice(0,16);
+        const forg = f.forgiven;
+        const btn = forg
+          ? '<span style="color:#22c55e;font-weight:700;margin-left:auto;white-space:nowrap;">erlassen ✓</span>'
+          : `<button onclick="admForgive(${f.id})" style="margin-left:auto;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#22c55e;font-weight:700;font-size:11.5px;padding:4px 10px;border-radius:8px;cursor:pointer;white-space:nowrap;">Erlassen</button>`;
+        return `<div class="ck-furow" style="${forg?'opacity:.55;':''}"><span>🐌</span><span>${esc(f.detail||f.kind)}<br><span style="color:#7f8ca0;font-size:11px;">${esc(d2)}${f.minutes?(' · '+f.minutes+' min'):''}</span></span>${btn}</div>`;
+      }).join('') : '<div style="color:#7f8ca0;padding:12px 0;">Keine Fuckups 🎉</div>';
+      body.innerHTML=html;
+    }catch(e){ body.innerHTML='<div style="color:#ff7a93;">Konnte nicht laden.</div>'; }
+  }
+  window.admForgive=async function(id){
+    try{ await fetch('/api/fuckups/forgive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}); }catch(e){}
+    await _admRender();
+    if(typeof loadSalaryAdmin==='function') loadSalaryAdmin(window._salDays||30);
   };
 })();
 </script>
