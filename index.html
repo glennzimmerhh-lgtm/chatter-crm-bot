@@ -2610,6 +2610,29 @@
     </div>
     <div id="perf-podium" style="display:flex;gap:16px;margin-bottom:24px;align-items:flex-end;flex-wrap:wrap;"></div>
     <div class="panel" style="margin-bottom:20px;">
+      <div class="panel-hd"><div class="panel-title">🫵 Conversion Funnel — New sub → Reply → Fakecheck → Sale</div></div>
+      <div id="funnel-team" style="padding:14px 16px 4px;"></div>
+      <div style="overflow-x:auto;">
+        <table class="fn-tbl" style="width:100%;border-collapse:collapse;">
+          <thead><tr>
+            <th style="text-align:left;">Chatter</th>
+            <th class="r">Engaged</th><th class="r">Fakecheck</th><th class="r">Sales</th>
+            <th class="r">Reply→FC</th><th class="r">FC→Sale</th><th class="r">Close rate</th><th class="r">Ø Sale</th><th>Funnel</th>
+          </tr></thead>
+          <tbody id="funnel-tbody"><tr><td colspan="9"><div class="empty">Loading…</div></td></tr></tbody>
+        </table>
+      </div>
+      <div style="padding:6px 16px 14px;font-size:11.5px;color:var(--text3);">Attribution: jeder neue Sub zählt für den Chatter, der die <b>erste Antwort</b> geschickt hat. „Close rate" = von beantworteten Subs zum Sale.</div>
+    </div>
+    <style>
+      #page-performance .fn-tbl th{ font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border); }
+      #page-performance .fn-tbl td{ padding:11px 12px;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px; }
+      #page-performance .fn-tbl .r{ text-align:right; }
+      #page-performance .fn-bar{ display:flex;height:9px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.06);min-width:120px; }
+      #page-performance .fn-bar i{ display:block;height:100%; }
+      #page-performance .fn-chip{ font-weight:800; }
+    </style>
+    <div class="panel" style="margin-bottom:20px;">
       <div class="panel-hd"><div class="panel-title">Revenue Comparison</div></div>
       <div class="panel-body"><div style="height:200px;"><canvas id="perfChart"></canvas></div></div>
     </div>
@@ -7056,6 +7079,54 @@ function closeSidebar() {
 let _perfChart = null;
 let _perfPeriod = 'heute';
 
+const _FN_DAYS = { heute:1, woche:7, monat:30, alle:3650 };
+async function loadFunnel(){
+  const tb = document.getElementById('funnel-tbody'); const teamEl = document.getElementById('funnel-team');
+  if(!tb) return;
+  const days = _FN_DAYS[_perfPeriod] || 30;
+  try{
+    const d = await fetch('/api/analytics/funnel?days='+days).then(r=>r.json());
+    const t = d.team||{}; const rows = d.chatters||[];
+    if(teamEl){
+      teamEl.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+        ${_fnStat('New subs', t.subs||0, '#7c5cff')}
+        ${_fnStat('Answered', (t.answered||0)+' · '+(t.reply_rate||0)+'%', '#4a9eff')}
+        ${_fnStat('Fakecheck', (t.fakecheck||0)+' · '+(t.fc_rate||0)+'%', '#00d4aa')}
+        ${_fnStat('Sales', (t.sales||0)+' · '+(t.close_rate||0)+'%', '#22c55e')}
+      </div>`;
+    }
+    if(!rows.length){ tb.innerHTML='<tr><td colspan="9"><div class="empty">No subs in this period.</div></td></tr>'; return; }
+    const maxEng = Math.max(...rows.map(r=>r.engaged||0), 1);
+    tb.innerHTML = rows.map(r=>{
+      const cr = r.close_rate||0;
+      const crColor = cr>=25?'#22c55e':cr>=12?'#ffd166':'#ff5c7a';
+      // Funnel-Bar: Engaged (voll) → Fakecheck → Sales als Segmente
+      const w = (r.engaged/maxEng)*100;
+      const fcW = r.engaged? (r.fakecheck/r.engaged)*100 : 0;
+      const slW = r.engaged? (r.sales/r.engaged)*100 : 0;
+      const bar = `<div class="fn-bar" style="width:${Math.max(18,w)}%;position:relative;">
+        <i style="width:100%;background:rgba(124,92,255,.35);position:absolute;left:0;top:0;"></i>
+        <i style="width:${fcW}%;background:rgba(0,212,170,.55);position:absolute;left:0;top:0;"></i>
+        <i style="width:${slW}%;background:#22c55e;position:absolute;left:0;top:0;"></i></div>`;
+      return `<tr>
+        <td><b>${_tmEsc(r.chatter)}</b></td>
+        <td class="r">${r.engaged}</td>
+        <td class="r">${r.fakecheck}</td>
+        <td class="r">${r.sales}</td>
+        <td class="r">${r.fc_rate}%</td>
+        <td class="r">${r.fc_to_sale}%</td>
+        <td class="r"><span class="fn-chip" style="color:${crColor}">${cr}%</span></td>
+        <td class="r">${r.avg_sale?('$'+r.avg_sale):'–'}</td>
+        <td>${bar}</td>
+      </tr>`;
+    }).join('');
+  }catch(e){ tb.innerHTML='<tr><td colspan="9"><div class="empty" style="color:#ff5c7a">Failed to load</div></td></tr>'; }
+}
+function _fnStat(label, val, color){
+  return `<div style="background:rgba(255,255,255,.04);border:1px solid var(--border);border-left:3px solid ${color};border-radius:10px;padding:8px 13px;">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);font-weight:700;">${label}</div>
+    <div style="font-size:18px;font-weight:800;margin-top:2px;">${val}</div></div>`;
+}
 async function loadPerformance(period) {
   _perfPeriod = period || _perfPeriod;
 
@@ -7064,6 +7135,7 @@ async function loadPerformance(period) {
     const btn = document.getElementById('perf-btn-' + p);
     if (btn) btn.classList.toggle('active', p === _perfPeriod);
   });
+  loadFunnel();
 
   const base = (window.BACKEND_URL || localStorage.getItem('crm_backend_url')||'').replace(/\/$/,'');
   if (!base) return;

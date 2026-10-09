@@ -3138,6 +3138,67 @@ def pay_all(days: int = 30):
     return {'days': d, 'rate_hour': PAY_HOURLY_USD, 'rate_commission_pct': PAY_COMMISSION_PCT,
             'total_net': round(sum(r['net'] for r in rows), 2), 'chatters': rows}
 
+# ══ CONVERSION-FUNNEL pro Chatter: Neuer Sub → Antwort → Fakecheck → Sale ══
+@app.get('/analytics/funnel')
+def analytics_funnel(days: int = 30, creator_id: Optional[int] = None):
+    """Kohorte = Subs, die im Zeitraum neu reinkamen. Attribution je Sub an den Chatter,
+    der die ERSTE Antwort geschickt hat. Zeigt, wo jeder Chatter Subs verliert."""
+    try: d = max(1, min(3650, int(days)))
+    except Exception: d = 30
+    since_iso = (datetime.now() - timedelta(days=d)).isoformat()
+    cc = ' AND c.creator_id=%s' if creator_id is not None else ''
+    params = [since_iso] + ([creator_id] if creator_id is not None else [])
+    rows = []
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT c.tg_id,
+                  (SELECT m.chatter FROM messages m
+                     WHERE m.tg_id=c.tg_id AND m.direction='out' AND COALESCE(m.chatter,'')<>''
+                     ORDER BY m.id ASC LIMIT 1) AS first_chatter,
+                  EXISTS(SELECT 1 FROM fake_checks f WHERE f.tg_id=c.tg_id) AS fc,
+                  EXISTS(SELECT 1 FROM sales s WHERE s.tg_id=c.tg_id AND COALESCE(s.status,'')<>'rejected') AS sale,
+                  (SELECT COALESCE(SUM(s.amount),0) FROM sales s WHERE s.tg_id=c.tg_id AND COALESCE(s.status,'')<>'rejected') AS rev
+                FROM conversations c
+                WHERE c.first_time>=%s AND COALESCE(c.time_waster,FALSE)=FALSE{cc}
+            """, tuple(params))
+            rows = cur.fetchall()
+    except Exception as e:
+        print(f'/analytics/funnel: {e}')
+        return {'days': d, 'team': {}, 'chatters': []}
+    _IGNORE = {'KI', 'Auto', 'Telegram', 'Broadcast', 'System', 'Chatter', 'CRM', 'Admin'}
+    team = {'subs': 0, 'answered': 0, 'fakecheck': 0, 'sales': 0, 'revenue': 0.0}
+    by = {}
+    for r in rows:
+        team['subs'] += 1
+        fc = bool(r['fc']); sale = bool(r['sale']); rev = float(r['rev'] or 0)
+        ch = (r['first_chatter'] or '').strip()
+        if fc: team['fakecheck'] += 1
+        if sale: team['sales'] += 1; team['revenue'] += rev
+        if not ch:
+            continue   # unbeantwortet → nicht einem Chatter zuordenbar
+        team['answered'] += 1
+        b = by.setdefault(ch, {'chatter': ch, 'engaged': 0, 'fakecheck': 0, 'sales': 0, 'revenue': 0.0})
+        b['engaged'] += 1
+        if fc: b['fakecheck'] += 1
+        if sale: b['sales'] += 1; b['revenue'] += rev
+    def pct(a, b): return round(100.0 * a / b, 1) if b else 0.0
+    out = []
+    for ch, b in by.items():
+        if ch in _IGNORE: continue
+        b['revenue'] = round(b['revenue'], 2)
+        b['fc_rate'] = pct(b['fakecheck'], b['engaged'])         # Antwort → Fakecheck
+        b['close_rate'] = pct(b['sales'], b['engaged'])          # Antwort → Sale (Gesamt-Conversion)
+        b['fc_to_sale'] = pct(b['sales'], b['fakecheck'])        # Fakecheck → Sale
+        b['avg_sale'] = round(b['revenue'] / b['sales'], 2) if b['sales'] else 0.0
+        out.append(b)
+    out.sort(key=lambda x: (-x['close_rate'], -x['engaged']))
+    team['revenue'] = round(team['revenue'], 2)
+    team['reply_rate'] = pct(team['answered'], team['subs'])
+    team['fc_rate'] = pct(team['fakecheck'], team['answered'])
+    team['close_rate'] = pct(team['sales'], team['answered'])
+    return {'days': d, 'team': team, 'chatters': out}
+
 @app.get('/profile/{tg_id}')
 def get_profile(tg_id: str):
     with db() as conn:
