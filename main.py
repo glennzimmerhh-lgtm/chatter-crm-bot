@@ -8239,16 +8239,17 @@ def _waiting_monitor_loop():
 
 # ── REPLY-MONITOR: >5 Min Reply eines EINGESTEMPELTEN Chatters → Fuckup + Admin-Push ──
 def _active_chatters():
-    """Namen (lowercase→original) der gerade aktiv eingestempelten Chatter (NICHT auf Pause)."""
+    """Aktiv eingestempelte Chatter (NICHT auf Pause) → {lower: {'name':..., 'ci': clock_in_dt}}."""
     out = {}
     try:
         with db() as conn, conn.cursor() as c:
-            c.execute("""SELECT cs.chatter FROM clock_sessions cs
+            c.execute("""SELECT cs.chatter, cs.clock_in FROM clock_sessions cs
                          WHERE cs.clock_out IS NULL
                            AND NOT EXISTS (SELECT 1 FROM clock_breaks b
                                            WHERE b.session_id=cs.id AND b.break_end IS NULL)""")
             for r in c.fetchall():
-                out[(r['chatter'] or '').strip().lower()] = (r['chatter'] or '').strip()
+                nm = (r['chatter'] or '').strip()
+                out[nm.lower()] = {'name': nm, 'ci': _jv_parse_ts(r['clock_in'])}
     except Exception as e:
         print(f'_active_chatters: {e}')
     return out
@@ -8263,11 +8264,19 @@ def _reply_monitor_loop():
             active = _active_chatters()   # {lower: original}
             seen = set()
             if active:
+                now_srv = datetime.now()
                 for w in _waiting_subs(min_minutes=REPLY_FAIL_MIN, max_minutes=240, limit=60):
                     resp = (w.get('chatter') or '').strip().lower()
                     if not resp or resp not in active:
                         continue   # nur zugeordnete + eingestempelte (aktive) Chatter
+                    info = active[resp]; ci = info.get('ci')
                     mins = w.get('minutes') or REPLY_FAIL_MIN
+                    # FAIR: Wartezeit erst ab Clock-in zählen (Rückstand von vor der Schicht ignorieren)
+                    if ci:
+                        since_clock = max(0, (now_srv - ci).total_seconds() / 60.0)
+                        mins = int(min(mins, since_clock))
+                    if mins < REPLY_FAIL_MIN:
+                        continue   # innerhalb der Schicht noch keine 5 Min → kein Fuckup
                     key = str(w['tg_id']) + '|' + str(w['last_time'])
                     seen.add(key)
                     if key in logged:
@@ -8275,7 +8284,7 @@ def _reply_monitor_loop():
                     logged[key] = True
                     if firstpass:
                         continue   # Rückstand beim Start nicht als Fuckup werten
-                    who = active[resp]; nm = w['name']
+                    who = info['name']; nm = w['name']
                     _log_fuckup(who, 'slow_reply', f'{nm} wartete {mins} Min auf Antwort', w['tg_id'], mins)
                     # Push aufs Admin-Handy (Deutsch)
                     _push_async(f'🐌 {who}: Reply > {mins} Min',

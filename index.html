@@ -7510,8 +7510,11 @@ if (checkAuth()) {
     if (!els.length) return;
     const now = Date.now();
     els.forEach(el => {
-      const since = parseInt(el.getAttribute('data-since'), 10);
+      let since = parseInt(el.getAttribute('data-since'), 10);
       if (!since || isNaN(since)) return;
+      // Fair: Wartezeit erst ab Schicht-Start zählen (Rückstand von vor dem Clock-in nicht anrechnen)
+      const ss = window._shiftStartMs || 0;
+      if (ss && since < ss) since = ss;
       let s = Math.max(0, Math.floor((now - since) / 1000));
       const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
       el.textContent = h > 0
@@ -13716,7 +13719,10 @@ window.renderCreatorsOverview = async function(){
   async function loadStatus(){
     const u=me(); if(!u) return;
     try{ const d=await fetch('/api/clock/status?chatter='+encodeURIComponent(u)).then(r=>r.json());
-      st=d||{status:'off'}; localWorked=st.worked_sec||0; localBreak=st.on_break_sec||0; applyState(); }catch(e){}
+      st=d||{status:'off'}; localWorked=st.worked_sec||0; localBreak=st.on_break_sec||0;
+      // Reply-Timer in der Chat-Liste erst ab Schicht-Start zählen lassen
+      try{ window._shiftStartMs = (st.status!=='off' && st.clock_in) ? parseTs(st.clock_in).getTime() : 0; }catch(e){ window._shiftStartMs=0; }
+      applyState(); }catch(e){}
   }
   function applyState(){
     const bar=document.getElementById('clockBar');
