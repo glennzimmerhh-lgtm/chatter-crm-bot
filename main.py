@@ -3067,6 +3067,77 @@ def _log_fuckup(chatter, kind, detail, tg_id='', minutes=0):
     except Exception as e:
         print(f'_log_fuckup: {e}')
 
+# ══ BEZAHLSYSTEM: Stundenlohn (Breaks abgezogen) + Provision − Fuckup-Abzug ══
+PAY_HOURLY_USD     = float(os.environ.get('PAY_HOURLY_USD', '2') or 2)        # $ pro gearbeiteter Stunde
+PAY_COMMISSION_PCT = float(os.environ.get('PAY_COMMISSION_PCT', '2.5') or 2.5) # % vom Verkaufsbetrag
+
+def _worked_seconds_since(c, chatter, since_iso):
+    """Gearbeitete Sekunden seit `since_iso` (Pausen abgezogen, laufende Session bis jetzt)."""
+    c.execute("SELECT id, clock_in, clock_out FROM clock_sessions WHERE chatter=%s AND clock_in>=%s", (chatter, since_iso))
+    rows = c.fetchall(); now = datetime.now(); total = 0
+    for s in rows:
+        ci = _jv_parse_ts(s['clock_in'])
+        if not ci: continue
+        co = _jv_parse_ts(s['clock_out']) if s['clock_out'] else now
+        dur = max(0, (co - ci).total_seconds())
+        total += max(0, dur - _break_seconds(c, s['id']))
+    return int(total)
+
+def _pay_breakdown(chatter, days=30):
+    try: days = max(1, min(366, int(days)))
+    except Exception: days = 30
+    since = (datetime.now() - timedelta(days=days))
+    since_iso = since.isoformat()
+    out = {'chatter': chatter, 'days': days,
+           'rate_hour': PAY_HOURLY_USD, 'rate_commission_pct': PAY_COMMISSION_PCT,
+           'worked_sec': 0, 'hours': 0, 'hourly_pay': 0,
+           'sales_count': 0, 'sales_amount': 0, 'commission': 0,
+           'gross': 0, 'fuckups': 0, 'penalty_pct': 0, 'penalty_amt': 0, 'net': 0}
+    try:
+        with db() as conn, conn.cursor() as c:
+            ws = _worked_seconds_since(c, chatter, since_iso)
+            out['worked_sec'] = ws; out['hours'] = round(ws / 3600.0, 2)
+            out['hourly_pay'] = round(out['hours'] * PAY_HOURLY_USD, 2)
+            c.execute("SELECT COALESCE(SUM(amount),0) v, COUNT(*) n FROM sales WHERE chatter=%s AND COALESCE(status,'')<>'rejected' AND timestamp>=%s", (chatter, since_iso))
+            r = c.fetchone(); out['sales_amount'] = round(float(r['v'] or 0), 2); out['sales_count'] = int(r['n'] or 0)
+            out['commission'] = round(out['sales_amount'] * PAY_COMMISSION_PCT / 100.0, 2)
+            c.execute("SELECT COUNT(*) n FROM chatter_fuckups WHERE chatter=%s AND COALESCE(forgiven,FALSE)=FALSE AND created_at>=%s", (chatter, since_iso))
+            out['fuckups'] = int((c.fetchone() or {}).get('n') or 0)
+    except Exception as e:
+        print(f'_pay_breakdown: {e}')
+    out['gross'] = round(out['hourly_pay'] + out['commission'], 2)
+    out['penalty_pct'] = min(50, 10 * (out['fuckups'] // FUCKUPS_PER_PENALTY)) if FUCKUPS_PER_PENALTY else 0
+    out['penalty_amt'] = round(out['gross'] * out['penalty_pct'] / 100.0, 2)
+    out['net'] = round(out['gross'] - out['penalty_amt'], 2)
+    return out
+
+@app.get('/pay/chatter')
+def pay_chatter(chatter: str = '', days: int = 30):
+    ch = (chatter or '').strip()
+    if not ch: return {'error': 'no chatter'}
+    return _pay_breakdown(ch, days)
+
+@app.get('/pay/all')
+def pay_all(days: int = 30):
+    """Admin-Übersicht: Lohn aller Chatter (mit Clock-Sessions oder Sales im Zeitraum)."""
+    try: d = max(1, min(366, int(days)))
+    except Exception: d = 30
+    since_iso = (datetime.now() - timedelta(days=d)).isoformat()
+    names = set()
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT DISTINCT chatter FROM clock_sessions WHERE clock_in>=%s AND COALESCE(chatter,'')<>''", (since_iso,))
+            for r in c.fetchall(): names.add(r['chatter'])
+            c.execute("SELECT DISTINCT chatter FROM sales WHERE timestamp>=%s AND COALESCE(chatter,'')<>'' AND COALESCE(status,'')<>'rejected'", (since_iso,))
+            for r in c.fetchall(): names.add(r['chatter'])
+    except Exception as e:
+        print(f'/pay/all: {e}')
+    _IGNORE = {'KI', 'Auto', 'Telegram', 'Broadcast', 'System', 'Chatter', 'CRM', 'Admin'}
+    rows = [_pay_breakdown(n, d) for n in names if n and n not in _IGNORE]
+    rows.sort(key=lambda x: -x['net'])
+    return {'days': d, 'rate_hour': PAY_HOURLY_USD, 'rate_commission_pct': PAY_COMMISSION_PCT,
+            'total_net': round(sum(r['net'] for r in rows), 2), 'chatters': rows}
+
 @app.get('/profile/{tg_id}')
 def get_profile(tg_id: str):
     with db() as conn:
