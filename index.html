@@ -13002,7 +13002,7 @@ window.renderCreatorsOverview = async function(){
 </div>
 <script>
 (function(){
-  let stream=null, ac=null, analyser=null, rec=null, chunks=[], running=false, paused=false, speaking=false, mime='audio/webm';
+  let stream=null, ac=null, analyser=null, rec=null, chunks=[], running=false, paused=false, speaking=false, mime='audio/webm', sayGen=0;
   const SILENT_MP3='data:audio/mpeg;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA';
   const orb=()=>document.getElementById('jcOrb');
   // ── Telefon-Klingelton (Web-Audio, synthetisch) ──
@@ -13125,23 +13125,59 @@ window.renderCreatorsOverview = async function(){
     if(running&&!paused) listenLoop();
   }
 
-  async function jarvisSay(text){
-    speaking=true; setState('speaking','Jarvis spricht…','');
-    try{
-      const r=await fetch('/api/jarvis/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(r=>r.json());
-      if(r.ok&&r.audio_b64){
-        await new Promise(res=>{
-          const a=document.getElementById('jcAudio') || new Audio();
-          let done=false; const fin=()=>{ if(done) return; done=true; res(); };
-          a.onended=fin; a.onerror=fin;
-          a.src='data:'+(r.mime||'audio/mpeg')+';base64,'+r.audio_b64;
-          const pr=a.play();
-          if(pr&&pr.catch) pr.catch(()=>{ showErr('Ton blockiert — tippe einmal auf den Bildschirm.'); fin(); });
-          setTimeout(fin, 30000); // Sicherheitsnetz
-        });
-      } else if(r.error){ showErr('Stimme: '+r.error); }
-    }catch(e){}
+  // Text für Sprache säubern + in sprechbare Häppchen (~Sätze) zerlegen,
+  // damit der erste Ton sofort kommt statt erst nach der kompletten Audio-Generierung.
+  function speechChunks(text){
+    const clean=String(text||'')
+      .replace(/\*\*/g,'').replace(/[*_`#>]/g,'')
+      .replace(/^[\s]*[-•]\s*/gm,'')
+      .replace(/\s+/g,' ').trim();
+    const parts=clean.match(/[^.!?…\n]+[.!?…]+|\S[^.!?…\n]*$/g)||[clean];
+    const chunks=[]; let cur='';
+    parts.forEach(p=>{ p=(p||'').trim(); if(!p) return;
+      if((cur+' '+p).trim().length>170){ if(cur) chunks.push(cur.trim()); cur=p; }
+      else cur=(cur+' '+p).trim();
+    });
+    if(cur) chunks.push(cur.trim());
+    return chunks.length?chunks:[clean];
+  }
+  function speakFetch(t){
+    return fetch('/api/jarvis/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})}).then(r=>r.json()).catch(()=>({ok:false}));
+  }
+  function playB64(b64, mime, myGen){
+    return new Promise(res=>{
+      if(myGen!==sayGen || !running || paused){ res(); return; }
+      const a=document.getElementById('jcAudio') || new Audio();
+      let done=false; const fin=()=>{ if(done) return; done=true; a.onended=null; a.onerror=null; res(); };
+      a.onended=fin; a.onerror=fin;
+      a.src='data:'+(mime||'audio/mpeg')+';base64,'+b64;
+      const pr=a.play();
+      if(pr&&pr.catch) pr.catch(()=>{ showErr('Ton blockiert — tippe einmal auf den Bildschirm.'); fin(); });
+      setTimeout(fin, 30000); // Sicherheitsnetz
+    });
+  }
+  // Stoppt jede laufende Sprachausgabe SOFORT und bricht die Sprech-Schleife ab.
+  function stopSpeaking(){
+    sayGen++;                 // invalidiert jede laufende jarvisSay-Schleife
     speaking=false;
+    try{ const a=document.getElementById('jcAudio'); if(a){ a.pause(); a.removeAttribute('src'); a.load(); } }catch(e){}
+  }
+  async function jarvisSay(text){
+    const myGen=++sayGen;
+    speaking=true; setState('speaking','Jarvis spricht…','');
+    const chunks=speechChunks(text);
+    try{
+      let nextP = chunks.length ? speakFetch(chunks[0]) : null;
+      for(let i=0;i<chunks.length;i++){
+        if(myGen!==sayGen || !running || paused) break;
+        const r = await nextP;
+        nextP = (i+1<chunks.length) ? speakFetch(chunks[i+1]) : null; // Nächstes parallel vorladen
+        if(myGen!==sayGen || !running || paused) break;
+        if(!(r&&r.ok&&r.audio_b64)){ if(r&&r.error) showErr('Stimme: '+r.error); continue; }
+        await playB64(r.audio_b64, r.mime, myGen);
+      }
+    }catch(e){}
+    if(myGen===sayGen) speaking=false;
   }
 
   function blobToB64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onloadend=()=>res(r.result); r.onerror=rej; r.readAsDataURL(blob); }); }
@@ -13149,13 +13185,13 @@ window.renderCreatorsOverview = async function(){
   window.jvCallToggleMute=function(){
     paused=!paused;
     document.getElementById('jcMute').textContent=paused?'▶️':'⏸️';
-    if(paused){ setState('','Pausiert','Tippe ▶️ um weiterzusprechen.'); try{ if(rec&&rec.state==='recording') rec.stop(); }catch(e){} }
+    if(paused){ setState('','Pausiert','Tippe ▶️ um weiterzusprechen.'); stopSpeaking(); try{ if(rec&&rec.state==='recording') rec.stop(); }catch(e){} }
     else { listenLoop(); }
   };
 
   window.jvCallEnd=function(){
     running=false; speaking=false; paused=false;
-    stopRing();
+    stopRing(); stopSpeaking();
     try{ if(rec&&rec.state==='recording') rec.stop(); }catch(e){}
     try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
     try{ if(ac) ac.close(); }catch(e){}
