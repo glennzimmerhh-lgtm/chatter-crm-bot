@@ -519,6 +519,37 @@ def init_db():
                 keystrokes     INTEGER DEFAULT 0,
                 PRIMARY KEY (chatter, day)
             )''')
+            # ── Shift Clock: Ein-/Ausstempeln + Pausen pro Chatter ──────────────
+            c.execute('''CREATE TABLE IF NOT EXISTS clock_sessions (
+                id         SERIAL PRIMARY KEY,
+                chatter    TEXT NOT NULL,
+                clock_in   TIMESTAMP NOT NULL,
+                clock_out  TIMESTAMP,
+                status     TEXT DEFAULT 'active',
+                day        TEXT NOT NULL
+            )''')
+            c.execute("CREATE INDEX IF NOT EXISTS idx_clock_chatter ON clock_sessions(chatter, status)")
+            c.execute('''CREATE TABLE IF NOT EXISTS clock_breaks (
+                id          SERIAL PRIMARY KEY,
+                session_id  INTEGER NOT NULL,
+                chatter     TEXT NOT NULL,
+                break_start TIMESTAMP NOT NULL,
+                break_end   TIMESTAMP
+            )''')
+            c.execute("CREATE INDEX IF NOT EXISTS idx_break_session ON clock_breaks(session_id)")
+            # ── Fuckup-Liste: verspätete Replies & andere Verstöße pro Chatter ──
+            c.execute('''CREATE TABLE IF NOT EXISTS chatter_fuckups (
+                id          SERIAL PRIMARY KEY,
+                chatter     TEXT NOT NULL,
+                kind        TEXT DEFAULT 'slow_reply',
+                detail      TEXT DEFAULT '',
+                tg_id       TEXT DEFAULT '',
+                minutes     NUMERIC DEFAULT 0,
+                created_at  TIMESTAMP NOT NULL,
+                day         TEXT NOT NULL,
+                forgiven    BOOLEAN DEFAULT FALSE
+            )''')
+            c.execute("CREATE INDEX IF NOT EXISTS idx_fuckup_chatter ON chatter_fuckups(chatter, created_at DESC)")
             # Users table
             c.execute('''CREATE TABLE IF NOT EXISTS crm_users (
                 id            INTEGER PRIMARY KEY,
@@ -2797,6 +2828,244 @@ def wallboard(creator_id: Optional[int] = None):
     except Exception:
         out['longest_wait_min'] = 0; out['waiting_count'] = 0
     return out
+
+# ══ SHIFT-CLOCK + FUCKUP-LISTE ═════════════════════════════════════════════
+REPLY_TARGET_SEC = 90       # Optimales Reply-Ziel: 1:30 min
+REPLY_FAIL_MIN   = 5        # Ab 5 min verspätete Reply → Fuckup + Admin-Push
+FUCKUPS_PER_PENALTY = 10    # je 10 Fuckups im Monat → +10% Gehaltsabzug
+
+class ClockIn(BaseModel):
+    chatter: str
+
+def _clock_now():
+    """Naive server-local timestamp, konsistent mit sales/messages (datetime.now())."""
+    return datetime.now()
+
+def _open_session(c, chatter):
+    c.execute("SELECT id, clock_in, status FROM clock_sessions WHERE chatter=%s AND clock_out IS NULL ORDER BY id DESC LIMIT 1", (chatter,))
+    return c.fetchone()
+
+def _open_break(c, session_id):
+    c.execute("SELECT id, break_start FROM clock_breaks WHERE session_id=%s AND break_end IS NULL ORDER BY id DESC LIMIT 1", (session_id,))
+    return c.fetchone()
+
+def _break_seconds(c, session_id):
+    c.execute("SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(break_end, NOW()) - break_start))),0) s FROM clock_breaks WHERE session_id=%s", (session_id,))
+    r = c.fetchone();
+    try:    return int(float(r['s'] or 0))
+    except Exception: return 0
+
+def _clock_status(chatter):
+    out = {'chatter': chatter, 'status': 'off', 'worked_sec': 0, 'break_sec': 0, 'on_break_sec': 0, 'clock_in': None}
+    try:
+        with db() as conn, conn.cursor() as c:
+            s = _open_session(c, chatter)
+            if not s:
+                return out
+            now = _clock_now()
+            ci = _jv_parse_ts(s['clock_in']) or now
+            brk = _open_break(c, s['id'])
+            total_break = _break_seconds(c, s['id'])
+            worked = max(0, int((now - ci).total_seconds()) - total_break)
+            out.update({'status': 'break' if brk else 'active', 'clock_in': str(s['clock_in']),
+                        'worked_sec': worked, 'break_sec': total_break})
+            if brk:
+                bs = _jv_parse_ts(brk['break_start']) or now
+                out['on_break_sec'] = max(0, int((now - bs).total_seconds()))
+    except Exception as e:
+        print(f'_clock_status: {e}')
+    return out
+
+@app.post('/clock/in')
+def clock_in(body: ClockIn):
+    ch = (body.chatter or '').strip()
+    if not ch: return {'ok': False, 'error': 'no chatter'}
+    try:
+        with db() as conn, conn.cursor() as c:
+            if _open_session(c, ch):
+                return {'ok': True, 'already': True, 'status': _clock_status(ch)}
+            now = _clock_now()
+            c.execute("INSERT INTO clock_sessions (chatter, clock_in, status, day) VALUES (%s,%s,'active',%s)",
+                      (ch, now, now.strftime('%Y-%m-%d')))
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    return {'ok': True, 'status': _clock_status(ch)}
+
+@app.post('/clock/out')
+def clock_out(body: ClockIn):
+    ch = (body.chatter or '').strip()
+    if not ch: return {'ok': False, 'error': 'no chatter'}
+    try:
+        with db() as conn, conn.cursor() as c:
+            s = _open_session(c, ch)
+            if not s: return {'ok': True, 'status': _clock_status(ch)}
+            now = _clock_now()
+            brk = _open_break(c, s['id'])
+            if brk:
+                c.execute("UPDATE clock_breaks SET break_end=%s WHERE id=%s", (now, brk['id']))
+            c.execute("UPDATE clock_sessions SET clock_out=%s, status='ended' WHERE id=%s", (now, s['id']))
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    return {'ok': True, 'status': _clock_status(ch)}
+
+@app.post('/clock/break/start')
+def clock_break_start(body: ClockIn):
+    ch = (body.chatter or '').strip()
+    if not ch: return {'ok': False, 'error': 'no chatter'}
+    try:
+        with db() as conn, conn.cursor() as c:
+            s = _open_session(c, ch)
+            if not s: return {'ok': False, 'error': 'not clocked in'}
+            if _open_break(c, s['id']):
+                return {'ok': True, 'status': _clock_status(ch)}
+            now = _clock_now()
+            c.execute("INSERT INTO clock_breaks (session_id, chatter, break_start) VALUES (%s,%s,%s)", (s['id'], ch, now))
+            c.execute("UPDATE clock_sessions SET status='break' WHERE id=%s", (s['id'],))
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    return {'ok': True, 'status': _clock_status(ch)}
+
+@app.post('/clock/break/end')
+def clock_break_end(body: ClockIn):
+    ch = (body.chatter or '').strip()
+    if not ch: return {'ok': False, 'error': 'no chatter'}
+    try:
+        with db() as conn, conn.cursor() as c:
+            s = _open_session(c, ch)
+            if not s: return {'ok': False, 'error': 'not clocked in'}
+            brk = _open_break(c, s['id'])
+            if brk:
+                c.execute("UPDATE clock_breaks SET break_end=%s WHERE id=%s", (_clock_now(), brk['id']))
+            c.execute("UPDATE clock_sessions SET status='active' WHERE id=%s", (s['id'],))
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    return {'ok': True, 'status': _clock_status(ch)}
+
+@app.get('/clock/status')
+def clock_status(chatter: str = ''):
+    ch = (chatter or '').strip()
+    if not ch: return {'status': 'off'}
+    st = _clock_status(ch)
+    st['fuckups'] = _fuckup_summary(ch)
+    st['reply'] = _reply_stats_today(ch)
+    st['target_sec'] = REPLY_TARGET_SEC
+    return st
+
+@app.get('/clock/active')
+def clock_active():
+    """Admin/Wallboard: wer ist gerade eingestempelt bzw. auf Pause."""
+    out = []
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT id, chatter, clock_in, status FROM clock_sessions WHERE clock_out IS NULL ORDER BY clock_in ASC")
+            rows = c.fetchall()
+            now = _clock_now()
+            for s in rows:
+                ci = _jv_parse_ts(s['clock_in']) or now
+                tb = _break_seconds(c, s['id'])
+                brk = _open_break(c, s['id'])
+                out.append({'chatter': s['chatter'], 'status': 'break' if brk else 'active',
+                            'worked_sec': max(0, int((now - ci).total_seconds()) - tb),
+                            'clock_in': str(s['clock_in'])})
+    except Exception as e:
+        print(f'/clock/active: {e}')
+    return {'active': out}
+
+def _reply_stats_today(chatter):
+    """Reply-Zeiten (inbound→nächste eigene outbound) für heute. Bounded auf eigene Chats."""
+    st = {'count': 0, 'avg_sec': 0, 'under_target': 0, 'over_fail': 0, 'pct_under_target': 0}
+    try:
+        now_b = _team_berlin_now()
+        today0 = (now_b.replace(hour=0, minute=0, second=0, microsecond=0)
+                  .astimezone().replace(tzinfo=None).isoformat())
+    except Exception:
+        today0 = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("""SELECT tg_id, direction, chatter, timestamp FROM messages
+                         WHERE timestamp>=%s AND tg_id IN (
+                            SELECT DISTINCT tg_id FROM messages
+                            WHERE chatter=%s AND direction='out' AND timestamp>=%s)
+                         ORDER BY tg_id, id""", (today0, chatter, today0))
+            rows = c.fetchall()
+    except Exception as e:
+        print(f'_reply_stats_today: {e}')
+        return st
+    lat = []
+    pend = {}  # tg_id -> inbound ts
+    for m in rows:
+        tg = m['tg_id']; d = m['direction']
+        ts = _jv_parse_ts(m['timestamp'])
+        if not ts: continue
+        if d == 'in':
+            if tg not in pend: pend[tg] = ts
+        elif d == 'out':
+            if tg in pend and (m.get('chatter') or '') == chatter:
+                sec = max(0, (ts - pend[tg]).total_seconds())
+                if sec <= 6 * 3600:   # Reply nach >6h = anderer Tag/Session, ignorieren
+                    lat.append(sec)
+            pend.pop(tg, None)
+    if lat:
+        st['count'] = len(lat)
+        st['avg_sec'] = int(sum(lat) / len(lat))
+        st['under_target'] = len([x for x in lat if x <= REPLY_TARGET_SEC])
+        st['over_fail'] = len([x for x in lat if x > REPLY_FAIL_MIN * 60])
+        st['pct_under_target'] = round(100 * st['under_target'] / len(lat))
+    return st
+
+def _fuckup_summary(chatter):
+    out = {'month': 0, 'total': 0, 'penalty_pct': 0}
+    month = datetime.now().strftime('%Y-%m')
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("SELECT COUNT(*) n FROM chatter_fuckups WHERE chatter=%s AND COALESCE(forgiven,FALSE)=FALSE AND day LIKE %s", (chatter, month + '%'))
+            out['month'] = int((c.fetchone() or {}).get('n') or 0)
+            c.execute("SELECT COUNT(*) n FROM chatter_fuckups WHERE chatter=%s AND COALESCE(forgiven,FALSE)=FALSE", (chatter,))
+            out['total'] = int((c.fetchone() or {}).get('n') or 0)
+    except Exception as e:
+        print(f'_fuckup_summary: {e}')
+    out['penalty_pct'] = min(50, FUCKUPS_PER_PENALTY and 10 * (out['month'] // FUCKUPS_PER_PENALTY))
+    return out
+
+@app.get('/fuckups')
+def get_fuckups(chatter: str = '', limit: int = 100):
+    ch = (chatter or '').strip()
+    rows = []
+    try:
+        with db() as conn, conn.cursor() as c:
+            if ch:
+                c.execute("SELECT id, chatter, kind, detail, tg_id, minutes, created_at, day, forgiven FROM chatter_fuckups WHERE chatter=%s ORDER BY id DESC LIMIT %s", (ch, min(300, max(1, limit))))
+            else:
+                c.execute("SELECT id, chatter, kind, detail, tg_id, minutes, created_at, day, forgiven FROM chatter_fuckups ORDER BY id DESC LIMIT %s", (min(300, max(1, limit)),))
+            rows = [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        print(f'/fuckups: {e}')
+    for r in rows:
+        try: r['minutes'] = round(float(r.get('minutes') or 0), 1)
+        except Exception: r['minutes'] = 0
+        r['created_at'] = str(r.get('created_at') or '')
+    return {'fuckups': rows, 'summary': (_fuckup_summary(ch) if ch else None)}
+
+class FuckupForgive(BaseModel):
+    id: int
+
+@app.post('/fuckups/forgive')
+def forgive_fuckup(body: FuckupForgive):
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("UPDATE chatter_fuckups SET forgiven=TRUE WHERE id=%s", (int(body.id),))
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    return {'ok': True}
+
+def _log_fuckup(chatter, kind, detail, tg_id='', minutes=0):
+    try:
+        now = datetime.now()
+        with db() as conn, conn.cursor() as c:
+            c.execute("INSERT INTO chatter_fuckups (chatter, kind, detail, tg_id, minutes, created_at, day) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                      (chatter, kind, detail, str(tg_id or ''), minutes, now, now.strftime('%Y-%m-%d')))
+    except Exception as e:
+        print(f'_log_fuckup: {e}')
 
 @app.get('/profile/{tg_id}')
 def get_profile(tg_id: str):
@@ -7967,6 +8236,64 @@ def _waiting_monitor_loop():
         except Exception as e:
             print(f'[waiting-monitor] {e}')
         _t.sleep(45)
+
+# ── REPLY-MONITOR: >5 Min Reply eines EINGESTEMPELTEN Chatters → Fuckup + Admin-Push ──
+def _active_chatters():
+    """Namen (lowercase→original) der gerade aktiv eingestempelten Chatter (NICHT auf Pause)."""
+    out = {}
+    try:
+        with db() as conn, conn.cursor() as c:
+            c.execute("""SELECT cs.chatter FROM clock_sessions cs
+                         WHERE cs.clock_out IS NULL
+                           AND NOT EXISTS (SELECT 1 FROM clock_breaks b
+                                           WHERE b.session_id=cs.id AND b.break_end IS NULL)""")
+            for r in c.fetchall():
+                out[(r['chatter'] or '').strip().lower()] = (r['chatter'] or '').strip()
+    except Exception as e:
+        print(f'_active_chatters: {e}')
+    return out
+
+def _reply_monitor_loop():
+    import time as _t
+    _t.sleep(50)
+    logged = {}   # tg_id|last_time  → True (pro Warte-Episode einmal)
+    firstpass = True
+    while True:
+        try:
+            active = _active_chatters()   # {lower: original}
+            seen = set()
+            if active:
+                for w in _waiting_subs(min_minutes=REPLY_FAIL_MIN, max_minutes=240, limit=60):
+                    resp = (w.get('chatter') or '').strip().lower()
+                    if not resp or resp not in active:
+                        continue   # nur zugeordnete + eingestempelte (aktive) Chatter
+                    mins = w.get('minutes') or REPLY_FAIL_MIN
+                    key = str(w['tg_id']) + '|' + str(w['last_time'])
+                    seen.add(key)
+                    if key in logged:
+                        continue
+                    logged[key] = True
+                    if firstpass:
+                        continue   # Rückstand beim Start nicht als Fuckup werten
+                    who = active[resp]; nm = w['name']
+                    _log_fuckup(who, 'slow_reply', f'{nm} wartete {mins} Min auf Antwort', w['tg_id'], mins)
+                    # Push aufs Admin-Handy (Deutsch)
+                    _push_async(f'🐌 {who}: Reply > {mins} Min',
+                                f'{nm} wartet seit {mins} Min — Fuckup eingetragen für {who}.',
+                                '/', 'fuckup_' + key, only_lang='de')
+            # alte Episoden vergessen
+            for k in [k for k in logged if k not in seen]:
+                del logged[k]
+            firstpass = False
+        except Exception as e:
+            print(f'[reply-monitor] {e}')
+        _t.sleep(45)
+
+try:
+    import threading as _th_rm
+    _th_rm.Thread(target=_reply_monitor_loop, daemon=True).start()
+except Exception as _e:
+    print(f'[reply-monitor] start: {_e}')
 
 try:
     import threading as _th_wm

@@ -4000,6 +4000,8 @@ function showApp(user) {
       if (window._refreshConvs) window._refreshConvs();
       if (window._refreshChatStatus) window._refreshChatStatus();
     }, 1500);
+    // Shift-Clock: Zustimmung + Einstempeln erzwingen, Chat sperren bis Clock-in
+    setTimeout(() => { if (window.initChatterClock) window.initChatterClock(); }, 400);
   } else {
     document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
   }
@@ -8659,6 +8661,7 @@ if (checkAuth()) {
   }
 
   window.sendChatReply = async function sendChatReply() {
+    if (window._clockBlockSend && window._clockBlockSend()) return;
     const input = document.getElementById('chat-input');
     const sendBtn = document.querySelector('button[onclick="sendChatReply()"]') || document.getElementById('send-btn');
     let text = input.value.trim();
@@ -13521,7 +13524,8 @@ window.renderCreatorsOverview = async function(){
 <div id="wallboard">
   <div class="wb-top">
     <div class="wb-brand"><span class="wb-dot"></span> ZF CRM · LIVE</div>
-    <div style="display:flex;align-items:center;">
+    <div style="display:flex;align-items:center;gap:16px;">
+      <div class="wb-clock" id="wbTeam" style="font-size:clamp(13px,1.2vw,17px);color:#8ea0b6;"></div>
       <div class="wb-clock" id="wbClock">--:--</div>
       <button class="wb-close" onclick="closeWallboard()">✕ Schließen</button>
     </div>
@@ -13600,6 +13604,12 @@ window.renderCreatorsOverview = async function(){
       const top=document.getElementById('wbTop'); const tc=d.top_chatters||[];
       top.innerHTML = tc.length? tc.map((t,i)=>`<div class="wb-row"><span class="wb-rank${i===0?' g1':''}">${i+1}</span><span>${esc(t.chatter)}</span><span class="who">${t.sales}×</span><span class="amt">${eur(t.revenue)}</span></div>`).join('')
         : '<div class="wb-empty">Noch keine Zahlen heute…</div>';
+      // Team eingestempelt / auf Pause (Admin-Sicht)
+      try{ const ca=await fetch('/api/clock/active').then(r=>r.json()); const arr=ca.active||[];
+        const onShift=arr.filter(a=>a.status==='active').length; const onBreak=arr.filter(a=>a.status==='break');
+        const el=document.getElementById('wbTeam');
+        if(el){ el.innerHTML = arr.length? `👥 ${onShift} on shift`+(onBreak.length?` · ☕ ${onBreak.map(b=>esc(b.chatter)).join(', ')} on break`:'') : '👥 niemand eingestempelt'; }
+      }catch(e){}
       // Sale-Feier bei neuem Sale (nicht beim ersten Laden)
       const key=ls? (ls.ts+'|'+ls.amount+'|'+(ls.chatter||'')) : null;
       if(key && key!==wbLastSaleKey && !wbFirst) celebrate(ls);
@@ -13619,6 +13629,174 @@ window.renderCreatorsOverview = async function(){
     const wb=document.getElementById('wallboard'); wb.style.display='none';
     if(wbTimer){ clearInterval(wbTimer); wbTimer=null; } if(wbClockTimer){ clearInterval(wbClockTimer); wbClockTimer=null; }
     try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(e){}
+  };
+})();
+</script>
+
+<!-- ═══ SHIFT-CLOCK (Chatter: Ein-/Ausstempeln, Break, Reply-Ziel, Fuckup-Liste) ═══ -->
+<style>
+  /* Clock-Bar unten */
+  .clock-bar{ position:fixed; left:0; right:0; bottom:0; z-index:9990; display:none;
+    align-items:center; gap:12px; padding:8px 14px calc(8px + env(safe-area-inset-bottom,0px));
+    background:linear-gradient(180deg, rgba(14,20,32,.86), rgba(10,14,22,.97)); backdrop-filter:blur(10px);
+    border-top:1px solid rgba(124,92,255,.3); font-size:13px; color:var(--text,#e8ecf3); flex-wrap:wrap; }
+  body.has-clockbar .reply-bar{ margin-bottom:50px; }
+  body.has-clockbar .mobile-nav{ bottom:50px; }
+  body.has-clockbar #jvInbox{ bottom:64px; }
+  .clock-bar .cb-dot{ width:9px; height:9px; border-radius:50%; background:#22c55e; flex:none; box-shadow:0 0 0 0 rgba(34,197,94,.6); }
+  .clock-bar.is-break .cb-dot{ background:#fbbf24; animation:none; }
+  .clock-bar.is-active .cb-dot{ animation:cbPulse 1.8s infinite; }
+  @keyframes cbPulse{ 0%{ box-shadow:0 0 0 0 rgba(34,197,94,.55);}70%{ box-shadow:0 0 0 7px rgba(34,197,94,0);}100%{ box-shadow:0 0 0 0 rgba(34,197,94,0);} }
+  .clock-bar .cb-seg{ display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .clock-bar .cb-time{ font-variant-numeric:tabular-nums; font-weight:800; }
+  .clock-bar .cb-mut{ color:var(--text3,#8ea0b6); }
+  .clock-bar .cb-spacer{ flex:1 1 auto; min-width:8px; }
+  .clock-bar .cb-fuck{ font-weight:800; color:#ff7a93; }
+  .clock-bar button{ border:none; border-radius:9px; padding:8px 13px; font-size:12.5px; font-weight:800; cursor:pointer; white-space:nowrap; }
+  .cb-break{ background:rgba(251,191,36,.16); color:#ffd472; border:1px solid rgba(251,191,36,.4)!important; }
+  .cb-back{ background:linear-gradient(135deg,#22c55e,#16a34a); color:#04210f; }
+  .cb-out{ background:rgba(255,92,122,.16); color:#ff8fa6; border:1px solid rgba(255,92,122,.4)!important; }
+  .cb-list{ background:rgba(255,255,255,.07); color:var(--text2,#aeb8c8); border:1px solid rgba(255,255,255,.12)!important; }
+  /* Modal-Overlay (Zustimmung + Fuckup-Liste) */
+  .ck-ov{ position:fixed; inset:0; z-index:10070; display:none; align-items:center; justify-content:center; padding:18px;
+    background:rgba(5,8,14,.74); backdrop-filter:blur(6px); }
+  .ck-ov.show{ display:flex; }
+  .ck-card{ width:100%; max-width:460px; background:#12151c; border:1px solid rgba(124,92,255,.35); border-radius:20px;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,.7); overflow:hidden; }
+  .ck-head{ padding:18px 20px; background:linear-gradient(135deg,rgba(0,212,170,.16),rgba(124,92,255,.16)); border-bottom:1px solid var(--border,#232a36); }
+  .ck-head h3{ margin:0; font-size:18px; font-weight:900; color:#fff; }
+  .ck-head p{ margin:4px 0 0; font-size:12.5px; color:#aeb8c8; }
+  .ck-body{ padding:18px 20px; font-size:13.5px; line-height:1.6; color:var(--text2,#cdd5e0); max-height:52vh; overflow-y:auto; }
+  .ck-rule{ display:flex; gap:10px; align-items:flex-start; padding:7px 0; }
+  .ck-rule b{ color:#fff; }
+  .ck-rule .ic{ flex:none; width:22px; text-align:center; }
+  .ck-accept{ display:flex; align-items:center; gap:9px; padding:12px 20px; border-top:1px solid var(--border,#232a36); background:rgba(255,255,255,.02); font-size:13px; cursor:pointer; }
+  .ck-foot{ padding:14px 20px 18px; }
+  .ck-foot button{ width:100%; border:none; border-radius:12px; padding:14px; font-size:15px; font-weight:800; cursor:pointer;
+    background:linear-gradient(135deg,#00d4aa,#7c5cff); color:#04231d; }
+  .ck-foot button:disabled{ opacity:.45; cursor:not-allowed; }
+  .ck-furow{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid rgba(255,255,255,.06); font-size:13px; }
+  .ck-furow:last-child{ border-bottom:none; }
+  .ck-furow .m{ margin-left:auto; font-weight:800; color:#ff7a93; white-space:nowrap; }
+  .ck-pen{ margin:2px 0 12px; padding:11px 13px; border-radius:12px; background:rgba(255,92,122,.1); border:1px solid rgba(255,92,122,.3); font-size:13px; color:#ffb3c2; }
+</style>
+<div class="clock-bar" id="clockBar"></div>
+<div class="ck-ov" id="ckAccept">
+  <div class="ck-card">
+    <div class="ck-head"><h3>⏱ Start your shift</h3><p>Please read & accept before you start chatting</p></div>
+    <div class="ck-body">
+      <div class="ck-rule"><span class="ic">🟢</span><span>You must <b>Clock in</b> to start your shift. The chat stays locked until you do.</span></div>
+      <div class="ck-rule"><span class="ic">⚡</span><span>Reply time is tracked from now. Your <b>target is max 1:30 min</b> per reply — that's optimal.</span></div>
+      <div class="ck-rule"><span class="ic">🐌</span><span>Any reply that takes <b>longer than 5 minutes</b> is logged as a <b>fuckup</b> and reported to the admin instantly.</span></div>
+      <div class="ck-rule"><span class="ic">💸</span><span><b>10 fuckups = 10% less salary</b> (per 10 in a month). Keep your replies fast.</span></div>
+      <div class="ck-rule"><span class="ic">☕</span><span>Need the toilet? Hit <b>Break</b> — tracking pauses and the admin sees you're away. Hit <b>Back</b> when you return.</span></div>
+      <div class="ck-rule"><span class="ic">🔴</span><span>When you leave, press <b>Clock out</b> to end your shift.</span></div>
+    </div>
+    <label class="ck-accept"><input type="checkbox" id="ckChk" onchange="document.getElementById('ckGo').disabled=!this.checked"> I understand and accept these rules</label>
+    <div class="ck-foot"><button id="ckGo" disabled onclick="clockAcceptIn()">Clock in &amp; start shift →</button></div>
+  </div>
+</div>
+<div class="ck-ov" id="ckFuck">
+  <div class="ck-card">
+    <div class="ck-head"><h3>⚠️ Your fuckup list</h3><p>Late replies hurt your pay — stay fast</p></div>
+    <div class="ck-body" id="ckFuckBody">Loading…</div>
+    <div class="ck-foot"><button style="background:rgba(255,255,255,.08);color:#cdd5e0;" onclick="document.getElementById('ckFuck').classList.remove('show')">Close</button></div>
+  </div>
+</div>
+<script>
+(function(){
+  function me(){ try{ return localStorage.getItem('crm_user')||''; }catch(e){ return ''; } }
+  function isCh(){ try{ return (localStorage.getItem('crm_role')||'')!=='admin'; }catch(e){ return true; } }
+  function fmt(sec){ sec=Math.max(0,Math.floor(sec||0)); const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;
+    return h>0? h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0') : m+':'+String(s).padStart(2,'0'); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  let st={status:'off'}, pollTimer=null, tickTimer=null, localWorked=0, localBreak=0;
+
+  async function post(path){ try{ const chatter=me(); const r=await fetch('/api'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chatter})}); return await r.json(); }catch(e){ return {ok:false}; } }
+  async function loadStatus(){
+    const u=me(); if(!u) return;
+    try{ const d=await fetch('/api/clock/status?chatter='+encodeURIComponent(u)).then(r=>r.json());
+      st=d||{status:'off'}; localWorked=st.worked_sec||0; localBreak=st.on_break_sec||0; applyState(); }catch(e){}
+  }
+  function applyState(){
+    const bar=document.getElementById('clockBar');
+    if(!isCh()){ bar.style.display='none'; document.body.classList.remove('has-clockbar'); return; }
+    // Gate
+    if(st.status==='off'){ bar.style.display='none'; document.body.classList.remove('has-clockbar'); openAccept(); return; }
+    document.getElementById('ckAccept').classList.remove('show');
+    bar.style.display='flex'; document.body.classList.add('has-clockbar');
+    renderBar();
+    setComposer(st.status==='active');
+  }
+  function renderBar(){
+    const bar=document.getElementById('clockBar');
+    const fu=st.fuckups||{month:0,total:0,penalty_pct:0};
+    const rp=st.reply||{}; const tgt=Math.round((st.target_sec||90)/60*10)/10;
+    const tgtTxt=(Math.floor((st.target_sec||90)/60))+':'+String((st.target_sec||90)%60).padStart(2,'0');
+    const replyTxt = rp.count ? `Ø ${fmt(rp.avg_sec)} · ${rp.pct_under_target}% on target` : 'No replies yet';
+    if(st.status==='break'){
+      bar.className='clock-bar is-break';
+      bar.innerHTML=`<span class="cb-dot"></span><span class="cb-seg"><b>On break</b> <span class="cb-time">${fmt(localBreak)}</span></span>
+        <span class="cb-seg cb-mut">Shift ${fmt(localWorked)}</span><span class="cb-spacer"></span>
+        <button class="cb-back" onclick="clockBack()">▶ Back to work</button>
+        <button class="cb-out" onclick="clockOut()">⏹ Clock out</button>`;
+      return;
+    }
+    bar.className='clock-bar is-active';
+    bar.innerHTML=`<span class="cb-dot"></span><span class="cb-seg"><b>On shift</b> <span class="cb-time">${fmt(localWorked)}</span></span>
+      <span class="cb-seg cb-mut">🎯 Target ${tgtTxt} · ${replyTxt}</span>
+      <span class="cb-seg"><span class="cb-fuck">⚠ ${fu.month} fuckups${fu.penalty_pct?` · −${fu.penalty_pct}%`:''}</span></span>
+      <span class="cb-spacer"></span>
+      <button class="cb-list" onclick="openFuckups()">List</button>
+      <button class="cb-break" onclick="clockBreak()">☕ Break</button>
+      <button class="cb-out" onclick="clockOut()">⏹ Clock out</button>`;
+  }
+  function setComposer(enabled){
+    const ta=document.getElementById('chat-input');
+    const send=document.querySelector('button[onclick="sendChatReply()"]');
+    if(ta){ ta.disabled=!enabled; ta.placeholder = enabled ? 'Write a message...' : (st.status==='break'?'On break — hit Back to work to reply':'Clock in to start chatting'); }
+    if(send){ send.disabled=!enabled; send.style.opacity=enabled?'':'0.5'; }
+  }
+  function tick(){
+    if(st.status==='active'){ localWorked++; const t=document.querySelector('#clockBar .cb-time'); if(t) t.textContent=fmt(localWorked); }
+    else if(st.status==='break'){ localBreak++; const t=document.querySelector('#clockBar .cb-time'); if(t) t.textContent=fmt(localBreak); }
+  }
+  function openAccept(){ const chk=document.getElementById('ckChk'); if(chk){ chk.checked=false; } const go=document.getElementById('ckGo'); if(go) go.disabled=true; document.getElementById('ckAccept').classList.add('show'); }
+
+  window._clockBlockSend=function(){
+    if(!isCh()) return false;
+    if(st.status==='active') return false;
+    if(st.status==='break'){ toast('You are on break — hit “Back to work” to reply.'); return true; }
+    openAccept(); toast('Clock in first to start your shift.'); return true;
+  };
+  function toast(msg){ try{ let t=document.getElementById('ckToast'); if(!t){ t=document.createElement('div'); t.id='ckToast';
+    t.style.cssText='position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:10080;background:#1b2130;color:#fff;border:1px solid rgba(255,255,255,.15);padding:11px 16px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 14px 40px -12px rgba(0,0,0,.6);';
+    document.body.appendChild(t); } t.textContent=msg; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none',2600); }catch(e){} }
+
+  window.clockAcceptIn=async function(){ const d=await post('/clock/in'); if(d&&d.status){ st=d.status; } await loadStatus(); if(window._refreshConvs) try{window._refreshConvs();}catch(e){} };
+  window.clockBreak=async function(){ const d=await post('/clock/break/start'); if(d&&d.status) st=d.status; applyState(); };
+  window.clockBack=async function(){ const d=await post('/clock/break/end'); if(d&&d.status) st=d.status; applyState(); };
+  window.clockOut=async function(){ if(!confirm('Clock out and end your shift?')) return; const d=await post('/clock/out'); st={status:'off'}; applyState(); toast('Clocked out. Have a good one! 👋'); };
+  window.openFuckups=async function(){
+    const u=me(); const body=document.getElementById('ckFuckBody'); body.innerHTML='Loading…';
+    document.getElementById('ckFuck').classList.add('show');
+    try{ const d=await fetch('/api/fuckups?chatter='+encodeURIComponent(u)).then(r=>r.json());
+      const s=d.summary||{month:0,total:0,penalty_pct:0}; const list=d.fuckups||[];
+      let html=`<div class="ck-pen">This month: <b>${s.month}</b> fuckups · Salary impact: <b>−${s.penalty_pct}%</b><br><span style="opacity:.8">Every 10 fuckups in a month = −10% salary. Keep replies under 1:30.</span></div>`;
+      html += list.length ? list.map(f=>{
+        const d2=(f.created_at||'').replace('T',' ').slice(0,16);
+        const tag = f.forgiven ? '<span style="color:#22c55e;margin-left:6px;">(forgiven)</span>' : '';
+        return `<div class="ck-furow"><span>🐌</span><span>${esc(f.detail||f.kind)}${tag}<br><span style="color:#7f8ca0;font-size:11px;">${esc(d2)}</span></span><span class="m">${f.minutes?f.minutes+' min':''}</span></div>`;
+      }).join('') : '<div style="color:#7f8ca0;padding:12px 0;">No fuckups yet — keep it up! 🔥</div>';
+      body.innerHTML=html;
+    }catch(e){ body.innerHTML='<div style="color:#ff7a93;">Could not load.</div>'; }
+  };
+
+  window.initChatterClock=function(){
+    if(!isCh()){ const b=document.getElementById('clockBar'); if(b) b.style.display='none'; return; }
+    loadStatus();
+    if(pollTimer) clearInterval(pollTimer); pollTimer=setInterval(loadStatus, 20000);
+    if(tickTimer) clearInterval(tickTimer); tickTimer=setInterval(tick, 1000);
   };
 })();
 </script>
