@@ -706,6 +706,12 @@ def ensure_conv(tg_id: str, username: str = '', phone: str = '', access_hash: st
             'username': username, 'phone': phone,
             'first_seen': datetime.now().isoformat()
         })
+    if is_new:
+        try:
+            _push_async(f'🆕✨ Neuer Sub · {anon_id}', '👀 Neuer Lead reingekommen — ran!', '/', 'newsub_' + str(conv_key),
+                        f'🆕✨ New sub · {anon_id}', '👀 New lead just came in — go get it!')
+        except Exception as _e:
+            print(f'new-sub push: {_e}')
     return conv_key
 
 def save_msg(tg_id: str, text: str, direction: str, chatter: str = '', tg_msg_id: int = 0, creator_id: int = 1):
@@ -2728,6 +2734,69 @@ def get_online(creator_id: Optional[int] = None):
                              ORDER BY c.last_seen DESC''')
             rows = c.fetchall()
     return [dict(r) for r in rows]
+
+# ── LIVE-WALLBOARD: Büro-Monitor-Kennzahlen in einem Aufruf ─────────────────
+@app.get('/wallboard')
+def wallboard(creator_id: Optional[int] = None):
+    """Alles für den Vollbild-Büro-Monitor: Umsatz heute + Ziel, offene Chats,
+    längste Wartezeit, online Subs, letzter Sale, Sale-Feed, Top-Chatter heute."""
+    now_b = _team_berlin_now()
+    def loc(dt):
+        try:    return dt.astimezone().replace(tzinfo=None).isoformat()
+        except Exception: return dt.replace(tzinfo=None).isoformat()
+    today0 = loc(now_b.replace(hour=0, minute=0, second=0, microsecond=0))
+    cc = ' AND creator_id=%s' if creator_id is not None else ''
+    cp = (creator_id,) if creator_id is not None else ()
+    out = {'now': now_b.strftime('%H:%M'), 'goal': 1000}
+    try:
+        with db() as conn, conn.cursor() as c:
+            # Umsatz + Sales heute
+            c.execute("SELECT COALESCE(SUM(amount),0) v, COUNT(*) n FROM sales "
+                      "WHERE COALESCE(status,'')<>'rejected' AND timestamp>=%s" + cc, (today0,) + cp)
+            r = c.fetchone()
+            out['revenue_today'] = round(float(r['v'] or 0), 2); out['sales_today'] = int(r['n'] or 0)
+            # Offene Chats (Sub wartet)
+            c.execute("SELECT COUNT(*) n FROM conversations "
+                      "WHERE COALESCE(unread,0)>0 AND COALESCE(time_waster,FALSE)=FALSE" + cc, cp)
+            out['open_chats'] = int((c.fetchone() or {}).get('n') or 0)
+            # Online-Subs (Live)
+            c.execute("SELECT c.internal_name, c.anon_id, COALESCE(SUM(s.amount),0) spent "
+                      "FROM conversations c LEFT JOIN sales s USING(tg_id) "
+                      "WHERE c.is_online=TRUE" + (' AND c.creator_id=%s' if creator_id is not None else '') +
+                      " GROUP BY c.tg_id,c.internal_name,c.anon_id ORDER BY spent DESC LIMIT 12", cp)
+            online = [{'name': (x['internal_name'] or x['anon_id'] or 'Sub'),
+                       'spent': round(float(x['spent'] or 0), 2)} for x in c.fetchall()]
+            out['online'] = online; out['online_count'] = len(online)
+            # Letzter Sale + Feed (mit Model-Name)
+            c.execute("SELECT s.amount, s.product, s.payment_method, s.chatter, s.timestamp, "
+                      "s.anon_id, cr.name AS model FROM sales s "
+                      "LEFT JOIN creators cr ON cr.id=s.creator_id "
+                      "WHERE COALESCE(s.status,'')<>'rejected'" + (' AND s.creator_id=%s' if creator_id is not None else '') +
+                      " ORDER BY s.id DESC LIMIT 8", cp)
+            feed = [{'amount': round(float(x['amount'] or 0), 2), 'product': x['product'] or '',
+                     'payment_method': x['payment_method'] or '', 'chatter': x['chatter'] or '',
+                     'model': x['model'] or '', 'anon': x['anon_id'] or '', 'ts': x['timestamp']} for x in c.fetchall()]
+            out['recent_sales'] = feed
+            out['last_sale'] = feed[0] if feed else None
+            # Top-Chatter heute
+            c.execute("SELECT chatter, COALESCE(SUM(amount),0) v, COUNT(*) n FROM sales "
+                      "WHERE chatter<>'' AND COALESCE(status,'')<>'rejected' AND timestamp>=%s" + cc +
+                      " GROUP BY chatter ORDER BY v DESC LIMIT 6", (today0,) + cp)
+            out['top_chatters'] = [{'chatter': x['chatter'], 'revenue': round(float(x['v'] or 0), 2),
+                                    'sales': int(x['n'] or 0)} for x in c.fetchall()]
+    except Exception as e:
+        print(f'/wallboard error: {e}')
+        out.setdefault('revenue_today', 0); out.setdefault('open_chats', 0)
+        out.setdefault('online', []); out.setdefault('recent_sales', []); out.setdefault('top_chatters', [])
+    # Längste Wartezeit (Minuten) aus den wartenden Subs
+    try:
+        ws = _waiting_subs(min_minutes=0, max_minutes=600, limit=60)
+        mins = [w.get('minutes') or 0 for w in ws]
+        out['longest_wait_min'] = max(mins) if mins else 0
+        out['waiting_count'] = len([m for m in mins if m is not None and m >= WAIT_MIN])
+    except Exception:
+        out['longest_wait_min'] = 0; out['waiting_count'] = 0
+    return out
 
 @app.get('/profile/{tg_id}')
 def get_profile(tg_id: str):
@@ -7613,9 +7682,9 @@ def push_subscribe(body: PushSub):
         print(f'/push/subscribe error: {e}')
         return {'ok': False, 'error': str(e)}
 
-def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en=None, _ONLY_LANG=None):
+def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en=None, _ONLY_LANG=None, _ONLY_OWNER=None):
     """Sendet an alle. title_en/body_en = englische Version für Chatter-Geräte (lang='en').
-    _ONLY_LANG='en' → nur an Chatter-Geräte senden (z.B. Wartende-Chats-Alarme)."""
+    _ONLY_LANG='en' → nur Chatter-Geräte; _ONLY_OWNER='Name' → nur Geräte dieses Chatters."""
     if not VAPID_PRIVATE:
         return
     try:
@@ -7625,17 +7694,20 @@ def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en
     try:
         _push_table()
         with db() as conn, conn.cursor() as c:
-            c.execute("SELECT endpoint, sub, lang FROM push_subscriptions")
+            c.execute("SELECT endpoint, sub, lang, owner FROM push_subscriptions")
             rows = list(c.fetchall())
     except Exception as e:
         print(f'push load: {e}'); return
     payload_de = _json.dumps({'title': title, 'body': body_text, 'url': url, 'tag': tag})
     payload_en = _json.dumps({'title': title_en or title, 'body': body_en if body_en is not None else body_text, 'url': url, 'tag': tag})
+    own = (_ONLY_OWNER or '').strip().lower()
     dead = []
     for r in rows:
         try:
             lang = r.get('lang') or 'de'
             if _ONLY_LANG and lang != _ONLY_LANG:
+                continue
+            if own and (r.get('owner') or '').strip().lower() != own:
                 continue
             sub = _json.loads(r['sub'])
             payload = payload_en if (lang == 'en') else payload_de
@@ -7653,10 +7725,10 @@ def _send_push_all(title, body_text, url='/', tag='sale', title_en=None, body_en
         except Exception:
             pass
 
-def _push_async(title, body_text, url='/', tag='sale', title_en=None, body_en=None, only_lang=None):
+def _push_async(title, body_text, url='/', tag='sale', title_en=None, body_en=None, only_lang=None, only_owner=None):
     try:
         import threading as _th_push
-        _th_push.Thread(target=_send_push_all, args=(title, body_text, url, tag, title_en, body_en, only_lang), daemon=True).start()
+        _th_push.Thread(target=_send_push_all, args=(title, body_text, url, tag, title_en, body_en, only_lang, only_owner), daemon=True).start()
     except Exception as e:
         print(f'push async: {e}')
 
@@ -7770,7 +7842,10 @@ def _waiting_subs(min_minutes=None, max_minutes=120, limit=30):
     out = []
     try:
         with db() as conn, conn.cursor() as c:
-            c.execute("""SELECT tg_id, internal_name, anon_id, last_time, last_msg
+            c.execute("""SELECT tg_id, internal_name, anon_id, last_time, last_msg,
+                         (SELECT m.chatter FROM messages m WHERE m.tg_id=conversations.tg_id
+                            AND m.direction='out' AND COALESCE(m.chatter,'')<>''
+                          ORDER BY m.id DESC LIMIT 1) AS resp_chatter
                          FROM conversations
                          WHERE COALESCE(unread,0)>0 AND COALESCE(time_waster,FALSE)=FALSE
                            AND last_time<=%s AND last_time>=%s
@@ -7783,14 +7858,20 @@ def _waiting_subs(min_minutes=None, max_minutes=120, limit=30):
                     except Exception: mins = None
                 out.append({'tg_id': r['tg_id'], 'name': r['internal_name'] or r['anon_id'] or 'Sub',
                             'last_time': r['last_time'], 'minutes': mins,
+                            'chatter': (r.get('resp_chatter') or ''),
                             'last_msg': (r['last_msg'] or '')[:60]})
     except Exception as e:
         print(f'_waiting_subs: {e}')
     return out
 
 @app.get('/chats/waiting')
-def chats_waiting():
-    return {'waiting': _waiting_subs()}
+def chats_waiting(chatter: str = ''):
+    ws = _waiting_subs()
+    name = (chatter or '').strip().lower()
+    if name:
+        # nur eigene Chats + noch nicht zugeordnete (neue Subs)
+        ws = [w for w in ws if (w.get('chatter') or '').strip().lower() in ('', name)]
+    return {'waiting': ws}
 
 # ── KUNDEN-TIMELINE: komplette Historie eines Subs ──────────────────────────
 @app.get('/subscriber/{tg_id}/timeline')
@@ -7867,9 +7948,19 @@ def _waiting_monitor_loop():
                         continue
                     st['sent'].add(tier)
                     nm = w['name']; row = _WAIT_TIERS[tier]
-                    # NUR an Chatter (lang='en'), auf Englisch
+                    resp = (w.get('chatter') or '').strip()
+                    # NUR an den zuständigen Chatter (wer zuletzt geantwortet hat), Englisch.
+                    # Ohne Zuordnung (neuer Sub) → an alle Chatter.
                     _push_async(row[3].format(nm=nm, m=mins), row[4], '/', 'wait_' + str(key),
-                                row[3].format(nm=nm, m=mins), row[4], only_lang='en')
+                                row[3].format(nm=nm, m=mins), row[4],
+                                only_lang=(None if resp else 'en'),
+                                only_owner=(resp or None))
+                    # Admin-Kontroll-Alarm ab 30 Min (Stufe 3) — auf Deutsch an Admins
+                    if tier >= 3:
+                        who = resp or 'Niemand zugeordnet'
+                        _push_async(f'🛑 {who} lässt Chat {mins} Min offen',
+                                    f'{nm} wartet seit {mins} Min — bitte nachhaken!', '/', 'adminwait_' + str(key),
+                                    only_lang='de')
                 for k in [k for k in state if k not in active]:
                     del state[k]
                 firstpass = False

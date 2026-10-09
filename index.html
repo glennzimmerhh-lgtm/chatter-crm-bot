@@ -1165,6 +1165,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17.5" cy="9.5" r="2.4"/><path d="M15 20a4.5 4.5 0 0 1 6.5-4"/></svg>
       Creators
     </div>
+    <div class="nav-item admin-only" onclick="openWallboard()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      Wallboard
+    </div>
     <div class="nav-section">Verkauf &amp; Chat</div>
     <div class="nav-item" onclick="showPage('sales')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
@@ -3176,6 +3180,18 @@
       #page-chat .tier-filter-btn{ border-radius:999px !important; font-size:11.5px !important; padding:5px 11px !important; }
       /* Unread-Badge klarer */
       #page-chat .conv-item .unread-badge, #page-chat .conv-item [class*="badge"]{ font-weight:800; }
+      /* — Reply-Timer: Countdown seit letzter Sub-Nachricht — */
+      .reply-timer{ display:inline-flex; align-items:center; gap:3px; font-variant-numeric:tabular-nums;
+        font-weight:800; font-size:10.5px; line-height:1; padding:2px 6px; border-radius:999px;
+        margin-top:4px; letter-spacing:.2px; border:1px solid transparent; white-space:nowrap; }
+      .reply-timer::before{ content:'⏱'; font-size:10px; opacity:.9; }
+      .reply-timer.rt-green { color:#34d399; background:rgba(52,211,153,.12);  border-color:rgba(52,211,153,.30); }
+      .reply-timer.rt-yellow{ color:#fbbf24; background:rgba(251,191,36,.13);  border-color:rgba(251,191,36,.32); }
+      .reply-timer.rt-orange{ color:#fb923c; background:rgba(251,146,60,.15);  border-color:rgba(251,146,60,.38); }
+      .reply-timer.rt-red   { color:#ff5c7a; background:rgba(255,92,122,.16);  border-color:rgba(255,92,122,.45); }
+      .reply-timer.rt-crit  { color:#fff;    background:#ff3860;              border-color:#ff3860;
+        animation:rtPulse 1s ease-in-out infinite; box-shadow:0 0 0 0 rgba(255,56,96,.6); }
+      @keyframes rtPulse{ 0%{ box-shadow:0 0 0 0 rgba(255,56,96,.55); } 70%{ box-shadow:0 0 0 7px rgba(255,56,96,0); } 100%{ box-shadow:0 0 0 0 rgba(255,56,96,0); } }
     </style>
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -7478,12 +7494,38 @@ if (checkAuth()) {
         <div class="conv-meta">
           <div class="conv-time">${time}</div>
           ${c.unread ? `<span class="conv-badge">${c.unread}</span>` : ''}
+          ${c.unread && c.last_time ? `<span class="reply-timer rt-green" data-since="${parseTs(c.last_time).getTime()}">0:00</span>` : ''}
         </div>
       </div>`;
     }).join('') + (_hiddenCount > 0
       ? `<div style="padding:12px;text-align:center;color:var(--text3);font-size:12px;">+ ${_hiddenCount} ältere Chats — oben suchen, um sie zu finden 🔎</div>`
       : '');
   }
+
+  // ── Reply-Timer: tickt jede Sekunde, färbt eskalierend je länger ein Sub wartet ──
+  function tickReplyTimers() {
+    const els = document.querySelectorAll('.reply-timer[data-since]');
+    if (!els.length) return;
+    const now = Date.now();
+    els.forEach(el => {
+      const since = parseInt(el.getAttribute('data-since'), 10);
+      if (!since || isNaN(since)) return;
+      let s = Math.max(0, Math.floor((now - since) / 1000));
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+      el.textContent = h > 0
+        ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+        : m + ':' + String(sec).padStart(2, '0');
+      // Eskalation: grün <1min, gelb <3, orange <7, rot <15, kritisch (pulsierend) ab 15min
+      const min = s / 60;
+      let cls = 'rt-green';
+      if (min >= 15) cls = 'rt-crit';
+      else if (min >= 7) cls = 'rt-red';
+      else if (min >= 3) cls = 'rt-orange';
+      else if (min >= 1) cls = 'rt-yellow';
+      el.className = 'reply-timer ' + cls;
+    });
+  }
+  if (!window._replyTimerIv) { window._replyTimerIv = setInterval(tickReplyTimers, 1000); }
 
   function updateConvStatus(tgId) {
     const statusEl = document.getElementById('msg-conv-status');
@@ -13425,6 +13467,158 @@ window.renderCreatorsOverview = async function(){
       if(r.ok){ const m=document.getElementById('twofa-modal'); if(m) m.remove(); alert('🔐 2FA aktiviert! Ab dem nächsten Login brauchst du den Code.'); }
       else alert(d.detail||'Falscher Code');
     }catch(e){ alert('Fehler: '+(e.message||e)); }
+  };
+})();
+</script>
+
+<!-- ═══ LIVE-WALLBOARD (Büro-Monitor) ═══ -->
+<style>
+  #wallboard{ position:fixed; inset:0; z-index:10050; display:none; flex-direction:column;
+    background:radial-gradient(1200px 700px at 15% -10%, rgba(124,92,255,.18), transparent 60%),
+               radial-gradient(1200px 700px at 110% 120%, rgba(0,212,170,.16), transparent 55%), #0a0e16;
+    color:#fff; font-family:inherit; padding:clamp(16px,2.2vw,34px); overflow:hidden; }
+  #wallboard.wb-sale{ animation:wbGlow 1.6s ease-out; }
+  @keyframes wbGlow{ 0%{ box-shadow:inset 0 0 0 0 rgba(0,212,170,0); } 25%{ box-shadow:inset 0 0 220px 0 rgba(0,212,170,.45); } 100%{ box-shadow:inset 0 0 0 0 rgba(0,212,170,0); } }
+  #wallboard .wb-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:clamp(12px,1.6vw,22px); }
+  #wallboard .wb-brand{ display:flex; align-items:center; gap:12px; font-weight:900; font-size:clamp(16px,1.5vw,22px); letter-spacing:.5px; }
+  #wallboard .wb-brand .wb-dot{ width:11px; height:11px; border-radius:50%; background:#00d4aa; box-shadow:0 0 0 0 rgba(0,212,170,.7); animation:wbPulse 1.6s infinite; }
+  @keyframes wbPulse{ 0%{ box-shadow:0 0 0 0 rgba(0,212,170,.7);}70%{ box-shadow:0 0 0 10px rgba(0,212,170,0);}100%{ box-shadow:0 0 0 0 rgba(0,212,170,0);} }
+  #wallboard .wb-clock{ font-variant-numeric:tabular-nums; font-weight:800; font-size:clamp(16px,1.6vw,24px); color:#aeb8c8; }
+  #wallboard .wb-close{ background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); color:#fff; border-radius:10px; padding:8px 14px; font-size:14px; font-weight:700; cursor:pointer; margin-left:16px; }
+  #wallboard .wb-grid{ flex:1; display:grid; grid-template-columns:1.5fr 1fr; grid-template-rows:auto 1fr; gap:clamp(12px,1.4vw,22px); min-height:0; }
+  #wallboard .wb-card{ background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.09); border-radius:20px; padding:clamp(16px,1.8vw,28px); display:flex; flex-direction:column; min-height:0; }
+  #wallboard .wb-hero{ grid-column:1; grid-row:1; background:linear-gradient(135deg, rgba(0,212,170,.16), rgba(124,92,255,.12)); border-color:rgba(0,212,170,.25); }
+  #wallboard .wb-label{ font-size:clamp(12px,1vw,15px); font-weight:800; letter-spacing:1.5px; text-transform:uppercase; color:#8ea0b6; margin-bottom:8px; }
+  #wallboard .wb-big{ font-weight:900; font-size:clamp(44px,6vw,104px); line-height:.95; background:linear-gradient(135deg,#00e7bd,#7c5cff); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  #wallboard .wb-sub{ margin-top:10px; color:#aeb8c8; font-weight:600; font-size:clamp(13px,1.1vw,18px); }
+  #wallboard .wb-bar{ margin-top:16px; height:14px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }
+  #wallboard .wb-bar>i{ display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#00d4aa,#7c5cff); width:0; transition:width .6s ease; }
+  #wallboard .wb-stats{ grid-column:2; grid-row:1; display:grid; grid-template-columns:1fr 1fr; gap:clamp(10px,1.1vw,16px); }
+  #wallboard .wb-mini{ background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.09); border-radius:18px; padding:clamp(12px,1.3vw,20px); display:flex; flex-direction:column; justify-content:center; }
+  #wallboard .wb-mini .n{ font-weight:900; font-size:clamp(28px,3.2vw,52px); line-height:1; }
+  #wallboard .wb-mini .l{ font-size:clamp(11px,.9vw,14px); font-weight:800; letter-spacing:1px; text-transform:uppercase; color:#8ea0b6; margin-top:6px; }
+  #wallboard .wb-mini.warn .n{ color:#fbbf24; } #wallboard .wb-mini.crit .n{ color:#ff5c7a; }
+  #wallboard .wb-feed{ grid-column:1; grid-row:2; }
+  #wallboard .wb-side{ grid-column:2; grid-row:2; }
+  #wallboard .wb-card h3{ font-size:clamp(13px,1.1vw,17px); font-weight:800; letter-spacing:.5px; color:#cfe; margin:0 0 12px; display:flex; align-items:center; gap:8px; }
+  #wallboard .wb-row{ display:flex; align-items:center; gap:12px; padding:9px 2px; border-bottom:1px solid rgba(255,255,255,.06); font-size:clamp(13px,1.1vw,18px); }
+  #wallboard .wb-row:last-child{ border-bottom:none; }
+  #wallboard .wb-row .amt{ font-weight:900; color:#00e7bd; margin-left:auto; }
+  #wallboard .wb-row .who{ color:#aeb8c8; font-weight:600; }
+  #wallboard .wb-rank{ width:26px; height:26px; border-radius:8px; display:grid; place-items:center; font-weight:900; font-size:13px; background:rgba(124,92,255,.22); color:#c6b8ff; flex:none; }
+  #wallboard .wb-rank.g1{ background:linear-gradient(135deg,#ffd166,#ff9f43); color:#3a2500; }
+  #wallboard .wb-last{ display:flex; flex-direction:column; justify-content:center; align-items:flex-start; }
+  #wallboard .wb-last .amt{ font-weight:900; font-size:clamp(30px,3.4vw,56px); color:#00e7bd; line-height:1; }
+  #wallboard .wb-last .meta{ color:#aeb8c8; font-weight:600; margin-top:8px; font-size:clamp(12px,1vw,16px); }
+  #wallboard .wb-empty{ color:#6b788c; font-weight:600; padding:10px 2px; }
+  #wbSaleBanner{ position:fixed; left:50%; top:46%; transform:translate(-50%,-50%) scale(.6); z-index:10060; display:none;
+    background:linear-gradient(135deg,#00d4aa,#7c5cff); color:#06130f; font-weight:900; padding:24px 44px; border-radius:22px;
+    font-size:clamp(28px,4vw,64px); box-shadow:0 30px 80px -20px rgba(0,212,170,.7); text-align:center; }
+  #wbSaleBanner.show{ display:block; animation:wbPop 2.6s cubic-bezier(.2,.9,.3,1.3) forwards; }
+  @keyframes wbPop{ 0%{ transform:translate(-50%,-50%) scale(.5); opacity:0; } 12%{ transform:translate(-50%,-50%) scale(1.08); opacity:1; } 80%{ transform:translate(-50%,-50%) scale(1); opacity:1; } 100%{ transform:translate(-50%,-55%) scale(.95); opacity:0; } }
+  @media (max-width:860px){ #wallboard .wb-grid{ grid-template-columns:1fr; grid-template-rows:auto auto auto auto; } #wallboard .wb-hero,#wallboard .wb-stats,#wallboard .wb-feed,#wallboard .wb-side{ grid-column:1; } }
+</style>
+<div id="wallboard">
+  <div class="wb-top">
+    <div class="wb-brand"><span class="wb-dot"></span> ZF CRM · LIVE</div>
+    <div style="display:flex;align-items:center;">
+      <div class="wb-clock" id="wbClock">--:--</div>
+      <button class="wb-close" onclick="closeWallboard()">✕ Schließen</button>
+    </div>
+  </div>
+  <div class="wb-grid">
+    <div class="wb-card wb-hero">
+      <div class="wb-label">Umsatz heute</div>
+      <div class="wb-big" id="wbRevenue">0 €</div>
+      <div class="wb-sub"><span id="wbSales">0</span> Sales · Ziel <b id="wbGoal">1.000 €</b> · <span id="wbPct">0%</span></div>
+      <div class="wb-bar"><i id="wbBar"></i></div>
+    </div>
+    <div class="wb-stats">
+      <div class="wb-mini" id="wbOpenCard"><div class="n" id="wbOpen">0</div><div class="l">Offene Chats</div></div>
+      <div class="wb-mini" id="wbWaitCard"><div class="n" id="wbWait">0:00</div><div class="l">Längste Wartezeit</div></div>
+      <div class="wb-mini"><div class="n" id="wbOnline">0</div><div class="l">Subs online</div></div>
+      <div class="wb-mini wb-last"><div class="amt" id="wbLastAmt">—</div><div class="meta" id="wbLastMeta">Noch kein Sale heute</div></div>
+    </div>
+    <div class="wb-card wb-feed">
+      <h3>💸 Letzte Sales</h3>
+      <div id="wbFeed"><div class="wb-empty">Noch keine Sales…</div></div>
+    </div>
+    <div class="wb-card wb-side">
+      <h3>🏆 Top-Chatter heute</h3>
+      <div id="wbTop"><div class="wb-empty">Noch keine Zahlen heute…</div></div>
+    </div>
+  </div>
+</div>
+<div id="wbSaleBanner"></div>
+<script>
+(function(){
+  let wbTimer=null, wbClockTimer=null, wbLastSaleKey=null, wbFirst=true, wbAC=null;
+  const PM={paypal:'💙',banküberweisung:'🏦',bank:'🏦',überweisung:'🏦',paysafecard:'🎫',paysafe:'🎫',amazon:'📦',crypto:'₿',bitcoin:'₿',bar:'💶',cash:'💶'};
+  function pm(m){ const k=(m||'').toLowerCase().trim(); for(const key in PM){ if(k.indexOf(key)>=0) return PM[key]; } return '💳'; }
+  function eur(n){ try{ return Math.round(n).toLocaleString('de-DE')+' €'; }catch(e){ return (n||0)+' €'; } }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function fmtWait(min){ const s=Math.max(0,Math.round((min||0)*60)); const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;
+    return h>0? h+':'+String(m).padStart(2,'0')+':'+String(x).padStart(2,'0') : m+':'+String(x).padStart(2,'0'); }
+  function chime(){ try{ wbAC=wbAC||new (window.AudioContext||window.webkitAudioContext)(); const t=wbAC.currentTime;
+    [660,880,1180].forEach((f,i)=>{ const o=wbAC.createOscillator(),g=wbAC.createGain(); o.type='sine'; o.frequency.value=f;
+      o.connect(g); g.connect(wbAC.destination); const s=t+i*0.12; g.gain.setValueAtTime(0,s); g.gain.linearRampToValueAtTime(0.18,s+0.03); g.gain.exponentialRampToValueAtTime(0.0001,s+0.35); o.start(s); o.stop(s+0.4); }); }catch(e){} }
+  function celebrate(sale){
+    const b=document.getElementById('wbSaleBanner');
+    b.innerHTML='💸 SALE! +'+eur(sale.amount)+'<div style="font-size:.4em;margin-top:8px;font-weight:800;">'+esc(sale.model||'')+(sale.chatter?' · '+esc(sale.chatter):'')+'</div>';
+    b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+    const wb=document.getElementById('wallboard'); wb.classList.remove('wb-sale'); void wb.offsetWidth; wb.classList.add('wb-sale');
+    chime();
+    setTimeout(()=>b.classList.remove('show'),2600);
+  }
+  async function wbLoad(){
+    try{
+      const d=await fetch('/api/wallboard').then(r=>r.json());
+      const goal=d.goal||1000, rev=d.revenue_today||0;
+      document.getElementById('wbRevenue').textContent=eur(rev);
+      document.getElementById('wbSales').textContent=d.sales_today||0;
+      document.getElementById('wbGoal').textContent=eur(goal);
+      const pct=Math.min(100,Math.round(rev/goal*100));
+      document.getElementById('wbPct').textContent=pct+'%';
+      document.getElementById('wbBar').style.width=pct+'%';
+      // Offene Chats
+      const open=d.open_chats||0; document.getElementById('wbOpen').textContent=open;
+      const oc=document.getElementById('wbOpenCard'); oc.className='wb-mini'+(open>=8?' crit':(open>=4?' warn':''));
+      // Wartezeit
+      const lw=d.longest_wait_min||0; document.getElementById('wbWait').textContent=lw>0?fmtWait(lw):'0:00';
+      const wc=document.getElementById('wbWaitCard'); wc.className='wb-mini'+(lw>=15?' crit':(lw>=5?' warn':''));
+      // Online
+      document.getElementById('wbOnline').textContent=d.online_count||0;
+      // Letzter Sale
+      const ls=d.last_sale;
+      if(ls){ document.getElementById('wbLastAmt').textContent='+'+eur(ls.amount);
+        document.getElementById('wbLastMeta').textContent=pm(ls.payment_method)+' '+(ls.model||'')+(ls.chatter?' · '+ls.chatter:''); }
+      // Feed
+      const feed=document.getElementById('wbFeed'); const fs=d.recent_sales||[];
+      feed.innerHTML = fs.length? fs.map(s=>`<div class="wb-row"><span>${pm(s.payment_method)}</span><span>${esc(s.model||'—')}</span><span class="who">${esc(s.chatter||'')}</span><span class="amt">+${eur(s.amount)}</span></div>`).join('')
+        : '<div class="wb-empty">Noch keine Sales…</div>';
+      // Top-Chatter
+      const top=document.getElementById('wbTop'); const tc=d.top_chatters||[];
+      top.innerHTML = tc.length? tc.map((t,i)=>`<div class="wb-row"><span class="wb-rank${i===0?' g1':''}">${i+1}</span><span>${esc(t.chatter)}</span><span class="who">${t.sales}×</span><span class="amt">${eur(t.revenue)}</span></div>`).join('')
+        : '<div class="wb-empty">Noch keine Zahlen heute…</div>';
+      // Sale-Feier bei neuem Sale (nicht beim ersten Laden)
+      const key=ls? (ls.ts+'|'+ls.amount+'|'+(ls.chatter||'')) : null;
+      if(key && key!==wbLastSaleKey && !wbFirst) celebrate(ls);
+      wbLastSaleKey=key; wbFirst=false;
+    }catch(e){}
+  }
+  function wbTick(){ const el=document.getElementById('wbClock'); if(el) el.textContent=new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+  window.openWallboard=function(){
+    const wb=document.getElementById('wallboard'); wb.style.display='flex';
+    wbFirst=true; wbLastSaleKey=null;
+    wbTick(); wbLoad();
+    if(wbClockTimer) clearInterval(wbClockTimer); wbClockTimer=setInterval(wbTick,1000);
+    if(wbTimer) clearInterval(wbTimer); wbTimer=setInterval(wbLoad,10000);
+    try{ if(wb.requestFullscreen) wb.requestFullscreen(); }catch(e){}
+  };
+  window.closeWallboard=function(){
+    const wb=document.getElementById('wallboard'); wb.style.display='none';
+    if(wbTimer){ clearInterval(wbTimer); wbTimer=null; } if(wbClockTimer){ clearInterval(wbClockTimer); wbClockTimer=null; }
+    try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(e){}
   };
 })();
 </script>
