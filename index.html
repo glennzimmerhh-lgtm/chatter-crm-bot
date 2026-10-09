@@ -13782,7 +13782,10 @@ window.renderCreatorsOverview = async function(){
       <div class="ck-rule"><span class="ic">🔴</span><span>When you leave, press <b>Clock out</b> to end your shift.</span></div>
     </div>
     <label class="ck-accept"><input type="checkbox" id="ckChk" onchange="document.getElementById('ckGo').disabled=!this.checked"> I understand and accept these rules</label>
-    <div class="ck-foot"><button id="ckGo" disabled onclick="clockAcceptIn()">Clock in &amp; start shift →</button></div>
+    <div class="ck-foot">
+      <button id="ckGo" disabled onclick="clockAcceptIn()">Clock in &amp; start shift →</button>
+      <button onclick="doLogout()" style="width:100%;margin-top:9px;background:transparent;border:none;color:#8ea0b6;font-size:13px;font-weight:700;cursor:pointer;padding:6px;">Not starting now — Log out</button>
+    </div>
   </div>
 </div>
 <div class="ck-ov" id="ckFuck">
